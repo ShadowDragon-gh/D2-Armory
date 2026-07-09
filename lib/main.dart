@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'presentation/screens/auth/login_screen.dart';
+import 'presentation/screens/root_screen.dart';
 
 void main() {
   runApp(const ProviderScope(child: DestinyLoadoutPlannerApp()));
@@ -21,7 +21,7 @@ class DestinyLoadoutPlannerApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const LoginScreen(),
+      home: const RootScreen(),
     );
   }
 }

@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/errors/failures.dart';
+import '../../providers/auth_provider.dart';
 
-/// Entry screen. Presents Bungie sign-in.
-///
-/// OAuth is not wired yet — the sign-in button is a placeholder until the
-/// auth layer lands. When Bungie credentials are missing from the env file,
-/// the screen says so rather than silently offering a button that cannot work.
-class LoginScreen extends StatelessWidget {
+/// Entry screen. Presents Bungie sign-in and drives the OAuth flow via
+/// [authControllerProvider]. When Bungie credentials are missing from the env
+/// file, the screen says so rather than offering a button that cannot work.
+class LoginScreen extends ConsumerWidget {
   const LoginScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final credentialsReady = AppConfig.hasCredentials;
+    final auth = ref.watch(authControllerProvider);
+    final busy = auth.isLoading;
 
     return Scaffold(
       body: Center(
@@ -40,13 +43,21 @@ class LoginScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 40),
                 FilledButton.icon(
-                  onPressed: credentialsReady
-                      ? () => _onSignInPressed(context)
+                  onPressed: credentialsReady && !busy
+                      ? () => ref.read(authControllerProvider.notifier).signIn()
                       : null,
-                  icon: const Icon(Icons.login),
-                  label: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Text('Sign in with Bungie.net'),
+                  icon: busy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.login),
+                  label: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(busy
+                        ? 'Waiting for browser…'
+                        : 'Sign in with Bungie.net'),
                   ),
                 ),
                 if (!credentialsReady) ...[
@@ -60,6 +71,15 @@ class LoginScreen extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                 ],
+                if (auth.hasError) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    _errorMessage(auth.error!),
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.error),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ],
             ),
           ),
@@ -68,10 +88,6 @@ class LoginScreen extends StatelessWidget {
     );
   }
 
-  void _onSignInPressed(BuildContext context) {
-    // TODO: wire up flutter_web_auth_2 OAuth flow via the auth repository.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('OAuth flow not implemented yet.')),
-    );
-  }
+  String _errorMessage(Object error) =>
+      error is Failure ? error.message : 'Sign-in failed. Please try again.';
 }
