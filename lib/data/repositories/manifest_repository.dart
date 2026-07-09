@@ -97,6 +97,9 @@ class ManifestRepository {
   Map<String, dynamic>? getSandboxPerk(int hash) =>
       database.getSandboxPerk(hash);
 
+  Map<String, dynamic>? findCatalystRecord(String weaponName) =>
+      database.findCatalystRecord(weaponName);
+
   /// Remove manifest files from previous versions so they do not accumulate.
   /// Failure here is non-fatal but logged, not swallowed silently.
   Future<void> _cleanupOldVersions({required String keep}) async {

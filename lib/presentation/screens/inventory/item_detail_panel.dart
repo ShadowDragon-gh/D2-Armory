@@ -125,7 +125,7 @@ class ItemDetailPanel extends StatelessWidget {
                   if (detail.breaker != null)
                     _BreakerSection(breaker: detail.breaker!),
                   _PlugSection(
-                      title: 'Perks',
+                      title: 'Traits',
                       plugs: detail.plugsOf(PlugCategory.perk).toList()),
                   _PlugSection(
                       title: 'Mods',
@@ -134,6 +134,8 @@ class ItemDetailPanel extends StatelessWidget {
                       title: 'Masterwork',
                       plugs:
                           detail.plugsOf(PlugCategory.masterwork).toList()),
+                  if (detail.catalyst != null)
+                    _CatalystSection(catalyst: detail.catalyst!),
                   _PlugSection(
                       title: 'Cosmetic',
                       plugs: detail.plugsOf(PlugCategory.cosmetic).toList()),
@@ -458,6 +460,7 @@ class _PlugSection extends StatelessWidget {
             name: plug.name,
             description: plug.description,
             dim: !plug.isEnabled,
+            enhanced: plug.isEnhanced,
           ),
         const SizedBox(height: 12),
       ],
@@ -483,6 +486,69 @@ class _BreakerSection extends StatelessWidget {
   }
 }
 
+class _CatalystSection extends StatelessWidget {
+  const _CatalystSection({required this.catalyst});
+
+  final CatalystProgress catalyst;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final showBar = !catalyst.complete && catalyst.completionValue > 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle('Catalyst'),
+        Row(
+          children: [
+            Expanded(
+              child: Text(catalyst.name,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+            Text(
+              catalyst.complete ? 'Complete' : 'Locked',
+              style: TextStyle(
+                fontSize: 11,
+                color: catalyst.complete
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        if (catalyst.description.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            catalyst.description,
+            style: TextStyle(
+                fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ],
+        if (showBar) ...[
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: (catalyst.progress / catalyst.completionValue)
+                  .clamp(0.0, 1.0),
+              minHeight: 6,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${catalyst.progress} / ${catalyst.completionValue}',
+            style: TextStyle(
+                fontSize: 10, color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ],
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+}
 
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.title);
@@ -509,12 +575,17 @@ class _Row extends StatelessWidget {
     required this.name,
     required this.description,
     this.dim = false,
+    this.enhanced = false,
   });
+
+  // The masterwork gold used across the app for masterworked/enhanced flair.
+  static const _enhancedGold = Color(0xFFE5C15B);
 
   final String? iconUrl;
   final String name;
   final String description;
   final bool dim;
+  final bool enhanced;
 
   @override
   Widget build(BuildContext context) {
@@ -525,16 +596,7 @@ class _Row extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              width: 28,
-              height: 28,
-              child: iconUrl == null
-                  ? const SizedBox.shrink()
-                  : CachedNetworkImage(
-                      imageUrl: iconUrl!,
-                      errorWidget: (_, _, _) => const SizedBox.shrink(),
-                    ),
-            ),
+            _icon(),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -555,6 +617,36 @@ class _Row extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// The 28×28 plug icon. Enhanced perks gain a subtle golden masterwork glow
+  /// around the icon.
+  Widget _icon() {
+    final image = iconUrl == null
+        ? const SizedBox.shrink()
+        : CachedNetworkImage(
+            imageUrl: iconUrl!,
+            errorWidget: (_, _, _) => const SizedBox.shrink(),
+          );
+    if (!enhanced) {
+      return SizedBox(width: 28, height: 28, child: image);
+    }
+    return SizedBox(
+      width: 28,
+      height: 28,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: _enhancedGold.withValues(alpha: 0.4),
+              blurRadius: 4,
+            ),
+          ],
+        ),
+        child: image,
       ),
     );
   }

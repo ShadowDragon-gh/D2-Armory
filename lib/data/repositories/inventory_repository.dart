@@ -26,6 +26,9 @@ class InventoryRepository {
   Map<String, dynamic> _stats = const {};
   Map<String, dynamic> _sockets = const {};
   Map<String, dynamic> _plugObjectives = const {};
+  // Record hash -> record component (catalyst/triumph progress), merged from
+  // the profile- and character-scoped Records (900) components.
+  Map<String, dynamic> _records = const {};
 
   static const _components = [
     100, // Profiles
@@ -37,6 +40,7 @@ class InventoryRepository {
     304, // ItemStats
     305, // ItemSockets
     309, // ItemPlugObjectives (kill-tracker counts)
+    900, // Records (catalyst progress)
   ];
 
   Future<InventoryGrid> fetchInventory() async {
@@ -52,6 +56,7 @@ class InventoryRepository {
     _stats = _dataMap(itemComponents?['stats']);
     _sockets = _dataMap(itemComponents?['sockets']);
     _plugObjectives = _dataMap(itemComponents?['plugObjectives']);
+    _records = _mergeRecords(profile);
 
     // Characters, newest-played first — these become the leading columns.
     final characters = _dataMap(profile['characters'])
@@ -111,6 +116,49 @@ class InventoryRepository {
       plugs: _resolvePlugs(socketsData),
       breaker: _resolveBreaker(item, socketsData),
       killTracker: _resolveKillTracker(socketsData, objectivesData),
+      catalyst: _resolveCatalyst(item),
+    );
+  }
+
+  /// The exotic catalyst's objective progress, matched to a record named
+  /// `weapon Catalyst` and read from the Records (900) component. Null when
+  /// the weapon has no catalyst record or the record isn't in the player's
+  /// records (e.g. non-exotic).
+  CatalystProgress? _resolveCatalyst(DestinyItem item) {
+    final record = _manifest.findCatalystRecord(item.name);
+    if (record == null) return null;
+    final recordHash = (record['hash'] as num?)?.toInt();
+    if (recordHash == null) return null;
+
+    final state = _records['$recordHash'] as Map<String, dynamic>?;
+    if (state == null) return null;
+
+    // DestinyRecordState bit 4 (ObjectiveNotCompleted): set = not yet done.
+    final stateFlags = (state['state'] as num?)?.toInt() ?? 0;
+    final complete = (stateFlags & 4) == 0;
+
+    // Progress for the incomplete bar: the first not-yet-complete objective
+    // (summing across objectives with different scales is meaningless).
+    var progress = 0, completionValue = 0;
+    final objectives = state['objectives'];
+    if (objectives is List) {
+      final pending = objectives.cast<Map<String, dynamic>>().firstWhere(
+            (o) => o['complete'] != true,
+            orElse: () => objectives.isEmpty
+                ? <String, dynamic>{}
+                : objectives.first as Map<String, dynamic>,
+          );
+      progress = (pending['progress'] as num?)?.toInt() ?? 0;
+      completionValue = (pending['completionValue'] as num?)?.toInt() ?? 0;
+    }
+
+    final display = record['displayProperties'] as Map<String, dynamic>?;
+    return CatalystProgress(
+      name: (display?['name'] as String?) ?? 'Catalyst',
+      description: (display?['description'] as String?) ?? '',
+      complete: complete,
+      progress: progress,
+      completionValue: completionValue,
     );
   }
 
@@ -266,7 +314,8 @@ class InventoryRepository {
       final display = def['displayProperties'] as Map<String, dynamic>?;
       var name = (display?['name'] as String?) ?? '';
       if (name.isEmpty) continue;
-      final plugCategory = def['plug']?['plugCategoryIdentifier'] as String?;
+      final plug = def['plug'] as Map<String, dynamic>?;
+      final plugCategory = plug?['plugCategoryIdentifier'] as String?;
       // The kill tracker is surfaced in the header instead of a plug section.
       if (plugCategory != null &&
           plugCategory.contains('masterworks.trackers')) {
@@ -276,12 +325,16 @@ class InventoryRepository {
       if (plugCategory == 'origins') {
         name = '$name - Origin Trait';
       }
+      // Enhanced traits are identified by their itemTypeDisplayName; base
+      // traits share the same "frames" plug category but read "Trait".
+      final enhanced = def['itemTypeDisplayName'] == 'Enhanced Trait';
       result.add(ItemPlug(
         name: name,
         iconPath: (display?['icon'] as String?) ?? '',
         description: (display?['description'] as String?) ?? '',
         category: classifyPlug(plugCategory),
         isEnabled: s['isEnabled'] != false,
+        isEnhanced: enhanced,
       ));
     }
     return result;
@@ -386,5 +439,33 @@ class InventoryRepository {
       if (data is Map<String, dynamic>) return data;
     }
     return const {};
+  }
+
+  /// Merge the record components into a single record-hash -> record map.
+  /// Catalyst records may be tracked at the profile scope or per-character;
+  /// combining both means a lookup finds the record wherever it lives.
+  Map<String, dynamic> _mergeRecords(Map<String, dynamic> profile) {
+    final merged = <String, dynamic>{};
+
+    void addFrom(dynamic recordsHolder) {
+      final records = recordsHolder is Map<String, dynamic>
+          ? recordsHolder['records']
+          : null;
+      if (records is Map<String, dynamic>) merged.addAll(records);
+    }
+
+    // Profile scope: profileRecords.data.records
+    final profileRecordsData =
+        (profile['profileRecords'] is Map<String, dynamic>)
+            ? (profile['profileRecords'] as Map<String, dynamic>)['data']
+            : null;
+    addFrom(profileRecordsData);
+
+    // Character scope: characterRecords.data.<charId>.records
+    final charRecords = _dataMap(profile['characterRecords']);
+    for (final entry in charRecords.values) {
+      addFrom(entry);
+    }
+    return merged;
   }
 }

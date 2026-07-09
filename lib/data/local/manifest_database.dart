@@ -39,6 +39,24 @@ class ManifestDatabase {
   Map<String, dynamic>? getBreakerType(int hash) =>
       getDefinition('DestinyBreakerTypeDefinition', hash);
 
+  /// Find the catalyst record for a weapon, matched by the convention that its
+  /// name is `weaponName Catalyst`. Returns null when no such record exists.
+  Map<String, dynamic>? findCatalystRecord(String weaponName) {
+    if (weaponName.isEmpty) return null;
+    final target = '$weaponName Catalyst';
+    final result = _db.select(
+      "SELECT json FROM DestinyRecordDefinition WHERE json LIKE ?",
+      ['%"name":"${target.replaceAll('"', '')}"%'],
+    );
+    for (final row in result) {
+      final def = jsonDecode(row['json'] as String) as Map<String, dynamic>;
+      if ((def['displayProperties']?['name'] as String?) == target) {
+        return def;
+      }
+    }
+    return null;
+  }
+
   Map<String, dynamic>? getSandboxPerk(int hash) =>
       getDefinition('DestinySandboxPerkDefinition', hash);
 

@@ -28,6 +28,7 @@ class ItemPlug {
     required this.category,
     this.description = '',
     this.isEnabled = true,
+    this.isEnhanced = false,
   });
 
   final String name;
@@ -35,6 +36,10 @@ class ItemPlug {
   final PlugCategory category;
   final String description;
   final bool isEnabled;
+
+  /// True for the enhanced version of a weapon trait, which the panel marks
+  /// with a golden glow and an upward arrow.
+  final bool isEnhanced;
 
   String? get iconUrl =>
       iconPath.isEmpty ? null : '${AppConfig.bungieBaseUrl}$iconPath';
@@ -50,6 +55,24 @@ class BreakerType {
 
   String? get iconUrl =>
       iconPath.isEmpty ? null : '${AppConfig.bungieBaseUrl}$iconPath';
+}
+
+/// An exotic weapon's catalyst objective progress. When [complete] is false,
+/// [progress]/[completionValue] describe how close it is to unlocking.
+class CatalystProgress {
+  const CatalystProgress({
+    required this.name,
+    required this.description,
+    required this.complete,
+    required this.progress,
+    required this.completionValue,
+  });
+
+  final String name;
+  final String description;
+  final bool complete;
+  final int progress;
+  final int completionValue;
 }
 
 /// The weapon's masterwork kill tracker: its icon and current count.
@@ -73,6 +96,7 @@ class ItemDetail {
     required this.plugs,
     this.breaker,
     this.killTracker,
+    this.catalyst,
   });
 
   final DestinyItem item;
@@ -80,6 +104,7 @@ class ItemDetail {
   final List<ItemPlug> plugs;
   final BreakerType? breaker;
   final KillTracker? killTracker;
+  final CatalystProgress? catalyst;
 
   Iterable<ItemPlug> plugsOf(PlugCategory c) =>
       plugs.where((p) => p.category == c);
