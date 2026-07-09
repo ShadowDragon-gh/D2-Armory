@@ -1,18 +1,19 @@
 import '../../core/errors/failures.dart';
 import '../../domain/models/destiny_character.dart';
-import '../../domain/models/destiny_membership.dart';
 import '../remote/bungie_api.dart';
+import 'membership_service.dart';
 
 /// Resolves the signed-in user's Destiny characters.
 class CharacterRepository {
-  CharacterRepository(this._api);
+  CharacterRepository(this._api) : _memberships = MembershipService(_api);
 
   final BungieApi _api;
+  final MembershipService _memberships;
 
   /// Fetch the user's characters for their primary Destiny membership,
   /// ordered most-recently-played first.
   Future<List<DestinyCharacter>> fetchCharacters() async {
-    final membership = await _resolvePrimaryMembership();
+    final membership = await _memberships.resolvePrimary();
     final profile = await _api.getProfile(
       membershipType: membership.membershipType,
       membershipId: membership.membershipId,
@@ -35,27 +36,5 @@ class CharacterRepository {
         .toList()
       ..sort((a, b) => b.dateLastPlayed.compareTo(a.dateLastPlayed));
     return characters;
-  }
-
-  /// Choose the Destiny membership to query, honoring cross-save: when a
-  /// primary membership id is present, use it; otherwise the sole membership.
-  Future<DestinyMembership> _resolvePrimaryMembership() async {
-    final data = await _api.getMembershipsForCurrentUser();
-    final memberships = (data['destinyMemberships'] as List<dynamic>? ?? [])
-        .map((m) => DestinyMembership.fromJson(m as Map<String, dynamic>))
-        .toList();
-
-    if (memberships.isEmpty) {
-      throw const ApiFailure(
-          'No Destiny memberships found for this Bungie account.');
-    }
-
-    final primaryId = data['primaryMembershipId']?.toString();
-    if (primaryId != null) {
-      for (final m in memberships) {
-        if (m.membershipId == primaryId) return m;
-      }
-    }
-    return memberships.first;
   }
 }

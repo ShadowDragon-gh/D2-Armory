@@ -86,6 +86,9 @@ class ManifestRepository {
   Map<String, dynamic>? getInventoryItem(int hash) =>
       database.getInventoryItem(hash);
 
+  Map<String, dynamic>? getDamageType(int hash) =>
+      database.getDamageType(hash);
+
   /// Remove manifest files from previous versions so they do not accumulate.
   /// Failure here is non-fatal but logged, not swallowed silently.
   Future<void> _cleanupOldVersions({required String keep}) async {
