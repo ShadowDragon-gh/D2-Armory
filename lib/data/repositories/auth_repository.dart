@@ -250,15 +250,53 @@ class AuthRepository implements TokenProvider {
   Future<void> _respondToBrowser(
       HttpRequest request, Map<String, String> params) async {
     final ok = params['error'] == null && params['code'] != null;
-    final body = ok
-        ? '<h2>Signed in.</h2><p>You can close this tab and return to the app.</p>'
-        : '<h2>Sign-in failed.</h2><p>Return to the app and try again.</p>';
     request.response
       ..statusCode = HttpStatus.ok
       ..headers.contentType = ContentType.html
-      ..write('<!doctype html><html><body style="font-family:sans-serif;'
-          'text-align:center;padding-top:3rem">$body</body></html>');
+      ..write(_callbackPage(ok));
     await request.response.close();
+  }
+
+  String _callbackPage(bool ok) {
+    final accent = ok ? '#7986CB' : '#C42B1C';
+    final glyph = ok ? '&#10003;' : '&#33;';
+    final title = ok ? 'Signed in' : 'Sign-in failed';
+    final message = ok
+        ? 'You can close this tab and return to Destiny Loadout Planner.'
+        : 'Return to the app and try again.';
+    return '''
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$title &middot; Destiny Loadout Planner</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background: #14151A; color: #E6E7EB;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .card { text-align: center; padding: 2rem; max-width: 24rem; }
+  .badge {
+    width: 4.5rem; height: 4.5rem; margin: 0 auto 1.75rem;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: ${accent}22; border: 2px solid $accent;
+    color: $accent; font-size: 2.25rem; line-height: 1;
+  }
+  h1 { margin: 0 0 0.5rem; font-size: 1.5rem; font-weight: 600; letter-spacing: 0.01em; }
+  p { margin: 0; color: #9A9CA6; font-size: 0.95rem; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">$glyph</div>
+    <h1>$title</h1>
+    <p>$message</p>
+  </div>
+</body>
+</html>''';
   }
 
   Failure _mapDioError(DioException e, {required String context}) {
