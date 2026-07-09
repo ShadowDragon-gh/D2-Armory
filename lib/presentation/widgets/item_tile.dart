@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/destiny/destiny_buckets.dart';
 import '../../domain/models/destiny_item.dart';
+import '../providers/inventory_provider.dart';
 import '../providers/search_provider.dart';
 
 /// A single inventory item: the icon square with a footer row beneath it
@@ -26,6 +27,7 @@ class ItemTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final query = ref.watch(compiledQueryProvider);
     final dimmed = !query.isEmpty && !query.matches(item);
+    final selected = identical(ref.watch(selectedItemProvider), item);
 
     final elementColor =
         item.damageType == null ? null : DamageType.color(item.damageType!);
@@ -37,25 +39,35 @@ class ItemTile extends ConsumerWidget {
         message:
             item.power != null ? '${item.name} · ${item.power}' : item.name,
         waitDuration: const Duration(milliseconds: 400),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _iconSquare(),
-            if (item.power != null || elementColor != null || item.isLocked)
-              _footer(elementColor),
-          ],
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () => ref.read(selectedItemProvider.notifier).toggle(item),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _iconSquare(selected: selected),
+                if (item.power != null ||
+                    elementColor != null ||
+                    item.isLocked)
+                  _footer(elementColor),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _iconSquare() {
-    final borderColor = item.isEquipped
-        ? Colors.amber
-        : item.isMasterwork
-            ? _masterwork.withValues(alpha: 0.5)
-            : Colors.white24;
+  Widget _iconSquare({bool selected = false}) {
+    final borderColor = selected
+        ? const Color(0xFF7AB8FF) // selection highlight
+        : item.isEquipped
+            ? Colors.amber
+            : item.isMasterwork
+                ? _masterwork.withValues(alpha: 0.5)
+                : Colors.white24;
 
     return Container(
       width: size,
@@ -64,7 +76,7 @@ class ItemTile extends ConsumerWidget {
         borderRadius: BorderRadius.circular(4),
         border: Border.all(
           color: borderColor,
-          width: item.isEquipped ? 2 : 1,
+          width: selected || item.isEquipped ? 2 : 1,
         ),
       ),
       clipBehavior: Clip.antiAlias,

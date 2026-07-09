@@ -33,6 +33,15 @@ class ManifestDatabase {
   Map<String, dynamic>? getDamageType(int hash) =>
       getDefinition('DestinyDamageTypeDefinition', hash);
 
+  Map<String, dynamic>? getStat(int hash) =>
+      getDefinition('DestinyStatDefinition', hash);
+
+  Map<String, dynamic>? getBreakerType(int hash) =>
+      getDefinition('DestinyBreakerTypeDefinition', hash);
+
+  Map<String, dynamic>? getSandboxPerk(int hash) =>
+      getDefinition('DestinySandboxPerkDefinition', hash);
+
   void close() => _db.close();
 
   /// Manifest hashes are unsigned 32-bit but stored signed. Map values above

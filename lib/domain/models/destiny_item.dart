@@ -14,6 +14,8 @@ class DestinyItem {
     this.itemSubType = 0,
     this.tierType = 0,
     this.classType,
+    this.ammoType = 0,
+    this.itemTypeDisplayName = '',
     this.itemInstanceId,
     this.power,
     this.damageType,
@@ -40,6 +42,12 @@ class DestinyItem {
   /// DestinyClass: 0=Titan, 1=Hunter, 2=Warlock, 3=any/none. Null when the
   /// definition does not specify class affinity.
   final int? classType;
+
+  /// DestinyAmmunitionType: 1=Primary, 2=Special, 3=Heavy, 0=None.
+  final int ammoType;
+
+  /// Human-readable subtitle, e.g. "Hand Cannon", "Leg Armor".
+  final String itemTypeDisplayName;
 
   final String? itemInstanceId;
   final int? power;

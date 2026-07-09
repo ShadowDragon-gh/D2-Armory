@@ -67,4 +67,22 @@ class DestinyEnums {
     'hunter': 1,
     'warlock': 2,
   };
+
+  /// DestinyAmmunitionType → label. 0=None, 1=Primary, 2=Special, 3=Heavy.
+  static String? ammoName(int ammoType) => switch (ammoType) {
+        1 => 'Primary',
+        2 => 'Special',
+        3 => 'Heavy',
+        _ => null,
+      };
+
+  /// TierType → rarity label.
+  static String? rarityName(int tierType) => switch (tierType) {
+        2 => 'Basic',
+        3 => 'Common',
+        4 => 'Rare',
+        5 => 'Legendary',
+        6 => 'Exotic',
+        _ => null,
+      };
 }

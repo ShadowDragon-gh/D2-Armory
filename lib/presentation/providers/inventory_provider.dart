@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/repositories/inventory_repository.dart';
+import '../../domain/models/destiny_item.dart';
 import '../../domain/models/inventory_grid.dart';
+import '../../domain/models/item_detail.dart';
 import 'character_provider.dart';
 import 'manifest_provider.dart';
 
@@ -33,4 +35,28 @@ final itemNamesProvider = Provider<List<String>>((ref) {
   }
   final sorted = names.toList()..sort();
   return sorted;
+});
+
+/// The item whose detail panel is open, or null when the panel is closed.
+class SelectedItemNotifier extends Notifier<DestinyItem?> {
+  @override
+  DestinyItem? build() => null;
+
+  void select(DestinyItem item) => state = item;
+  void clear() => state = null;
+
+  /// Toggle: selecting the already-selected item closes the panel.
+  void toggle(DestinyItem item) =>
+      state = identical(state, item) ? null : item;
+}
+
+final selectedItemProvider =
+    NotifierProvider<SelectedItemNotifier, DestinyItem?>(
+        SelectedItemNotifier.new);
+
+/// The resolved detail for the selected item, or null when none is selected.
+final selectedItemDetailProvider = Provider<ItemDetail?>((ref) {
+  final item = ref.watch(selectedItemProvider);
+  if (item == null) return null;
+  return ref.watch(inventoryRepositoryProvider).resolveDetail(item);
 });

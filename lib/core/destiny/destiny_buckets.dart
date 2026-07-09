@@ -38,6 +38,7 @@ class DamageType {
   static const int kinetic = 1;
 
   static String? name(int damageType) => switch (damageType) {
+        1 => 'Kinetic',
         2 => 'Arc',
         3 => 'Solar',
         4 => 'Void',

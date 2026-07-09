@@ -8,6 +8,7 @@ import '../../../domain/models/inventory_grid.dart';
 import '../../providers/inventory_provider.dart';
 import '../../widgets/class_emblem.dart';
 import '../../widgets/item_tile.dart';
+import 'item_detail_panel.dart';
 
 /// DIM-style inventory grid: one column per character (by last-played) plus a
 /// wide vault column, rows per equipment bucket. Read-only. Rendered inside
@@ -38,7 +39,7 @@ class InventoryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final grid = ref.watch(inventoryGridProvider);
 
-    return grid.when(
+    final body = grid.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => _ErrorView(
         message:
@@ -46,6 +47,20 @@ class InventoryScreen extends ConsumerWidget {
         onRetry: () => ref.invalidate(inventoryGridProvider),
       ),
       data: (grid) => _Grid(grid: grid),
+    );
+
+    // The detail panel overlays the grid on the right edge, so opening or
+    // closing it never resizes the grid (no reflow jank).
+    return Stack(
+      children: [
+        Positioned.fill(child: body),
+        const Positioned(
+          top: 0,
+          bottom: 0,
+          right: 0,
+          child: AnimatedItemDetailPanel(),
+        ),
+      ],
     );
   }
 }

@@ -89,6 +89,14 @@ class ManifestRepository {
   Map<String, dynamic>? getDamageType(int hash) =>
       database.getDamageType(hash);
 
+  Map<String, dynamic>? getStat(int hash) => database.getStat(hash);
+
+  Map<String, dynamic>? getBreakerType(int hash) =>
+      database.getBreakerType(hash);
+
+  Map<String, dynamic>? getSandboxPerk(int hash) =>
+      database.getSandboxPerk(hash);
+
   /// Remove manifest files from previous versions so they do not accumulate.
   /// Failure here is non-fatal but logged, not swallowed silently.
   Future<void> _cleanupOldVersions({required String keep}) async {
