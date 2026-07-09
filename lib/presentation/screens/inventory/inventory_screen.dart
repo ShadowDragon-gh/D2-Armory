@@ -18,7 +18,6 @@ class InventoryScreen extends ConsumerWidget {
   static const double tile = 52;
   static const double equippedTile = 72;
   static const double gap = 6;
-  static const double labelWidth = 88;
 
   /// Horizontal separation between adjacent columns (characters and vault).
   static const double columnGap = 20;
@@ -66,8 +65,11 @@ class _Grid extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _HeaderRow(characters: characters, vault: vault),
-          for (final bucket in EquipmentBucket.values)
+          for (final bucket in EquipmentBucket.values) ...[
             _BucketRow(bucket: bucket, characters: characters, vault: vault),
+            // Full-width rule spanning columns and the gaps between them.
+            const Divider(height: 1, thickness: 1, color: Colors.white10),
+          ],
           const SizedBox(height: 24),
         ],
       ),
@@ -84,20 +86,21 @@ class _HeaderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 8, 8, 4),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          const SizedBox(width: InventoryScreen.labelWidth),
-          for (final owner in characters) ...[
-            const SizedBox(width: InventoryScreen.columnGap),
+          // Plain spacers here (no vertical rule between the header banners).
+          for (var i = 0; i < characters.length; i++) ...[
+            if (i > 0) const SizedBox(width: InventoryScreen.columnGap),
             SizedBox(
               width: InventoryScreen.characterColumnWidth,
-              child: _OwnerHeader(owner: owner),
+              child: _OwnerHeader(owner: characters[i]),
             ),
           ],
           if (vault != null) ...[
-            const SizedBox(width: InventoryScreen.columnGap),
+            if (characters.isNotEmpty)
+              const SizedBox(width: InventoryScreen.columnGap),
             Expanded(child: _OwnerHeader(owner: vault!)),
           ],
         ],
@@ -120,44 +123,62 @@ class _BucketRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IntrinsicHeight(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < characters.length; i++) ...[
+              if (i > 0) const _ColumnGap(),
+              _Cell(
+                width: InventoryScreen.characterColumnWidth,
+                child: _CharacterCell(owner: characters[i], bucket: bucket),
+              ),
+            ],
+            if (vault != null) ...[
+              if (characters.isNotEmpty) const _ColumnGap(),
+              Expanded(
+                child: _Cell(
+                  child: _VaultCell(owner: vault!, bucket: bucket),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The space between two columns, with a full-height divider line running down
+/// its centre (half the gap width from each column's content edge). Relies on
+/// the parent Row using [CrossAxisAlignment.stretch] so it fills the row.
+class _ColumnGap extends StatelessWidget {
+  const _ColumnGap();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: InventoryScreen.columnGap,
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: InventoryScreen.labelWidth,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 12, top: 14),
-              child: Text(
-                bucket.label,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelLarge
-                    ?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ),
+          // A 1px line that stretches to the row's full height. Nudged right so
+          // it centres on the visual gap between cell *contents* (each cell has
+          // `gap` padding on the side facing this divider).
+          Padding(
+            padding: const EdgeInsets.only(left: InventoryScreen.gap),
+            child: Container(width: 1, color: Colors.white10),
           ),
-          for (final owner in characters) ...[
-            const SizedBox(width: InventoryScreen.columnGap),
-            _Cell(
-              width: InventoryScreen.characterColumnWidth,
-              child: _CharacterCell(owner: owner, bucket: bucket),
-            ),
-          ],
-          if (vault != null) ...[
-            const SizedBox(width: InventoryScreen.columnGap),
-            Expanded(
-              child: _Cell(
-                child: _VaultCell(owner: vault!, bucket: bucket),
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
 }
 
-/// A bordered grid cell with consistent padding.
+/// A grid cell with consistent padding. Row dividers span the full width in
+/// [_Grid]; vertical dividers live in the [_ColumnGap] between columns.
 class _Cell extends StatelessWidget {
   const _Cell({required this.child, this.width});
 
@@ -166,18 +187,11 @@ class _Cell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cell = Container(
+    return Container(
       width: width,
-      decoration: const BoxDecoration(
-        border: Border(
-          left: BorderSide(color: Colors.white10),
-          bottom: BorderSide(color: Colors.white10),
-        ),
-      ),
       padding: const EdgeInsets.all(InventoryScreen.gap),
       child: child,
     );
-    return cell;
   }
 }
 

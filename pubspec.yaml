@@ -54,6 +54,7 @@ dependencies:
   sqlite3: ^3.3.4
   path_provider: ^2.1.6
   archive: ^4.0.9
+  window_manager: ^0.5.2
 
   # Later layers may add: freezed, json_serializable, build_runner, hive_ce.
   # The manifest is a fixed external id+json SQLite schema, so it is accessed

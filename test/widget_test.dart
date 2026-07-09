@@ -28,7 +28,12 @@ void main() {
     // Startup shows a splash until the persisted session check resolves.
     await tester.pumpAndSettle();
 
-    expect(find.text('Destiny 2 Loadout Planner'), findsOneWidget);
+    // The login screen's subtitle is unique to it (the app title also appears
+    // in the desktop title bar, so match the subtitle rather than the name).
+    expect(
+      find.text('Browse, build, and save loadouts with live game data.'),
+      findsOneWidget,
+    );
 
     final signInButton = tester.widget<FilledButton>(find.byType(FilledButton));
     expect(signInButton.onPressed, isNull);
