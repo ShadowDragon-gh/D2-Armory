@@ -1,0 +1,15 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "flutter: run windows (dev)",
+            "type": "shell",
+            "command": "flutter run -d windows --dart-define-from-file=env/dev.json",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        }
+    ]
+}

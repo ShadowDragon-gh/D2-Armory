@@ -1,0 +1,5 @@
+{
+  "BUNGIE_API_KEY": "your_api_key_here",
+  "BUNGIE_CLIENT_ID": "your_client_id_here",
+  "BUNGIE_OAUTH_REDIRECT_SCHEME": "destiny2loadout"
+}
