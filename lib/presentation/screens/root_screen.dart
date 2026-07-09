@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/auth_state.dart';
 import '../providers/auth_provider.dart';
+import '../providers/manifest_provider.dart';
 import 'auth/login_screen.dart';
 import 'home/home_screen.dart';
+import 'manifest_loading_screen.dart';
 
 /// Chooses the top-level screen from the current [AuthState].
 ///
@@ -20,12 +22,27 @@ class RootScreen extends ConsumerWidget {
     final state = auth.value;
 
     return switch (state) {
-      SignedIn(:final membershipId) =>
-        HomeScreen(membershipId: membershipId),
+      SignedIn(:final membershipId) => _SignedInGate(membershipId: membershipId),
       SignedOut() => const LoginScreen(),
       // First frame before the persisted session has been checked.
       AuthUnknown() || null => const _Splash(),
     };
+  }
+}
+
+/// Gates manifest-dependent screens behind the manifest bootstrap, which
+/// requires an authenticated session to fetch metadata.
+class _SignedInGate extends ConsumerWidget {
+  const _SignedInGate({required this.membershipId});
+
+  final String membershipId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final manifestReady = ref.watch(manifestBootstrapProvider).hasValue;
+    return manifestReady
+        ? HomeScreen(membershipId: membershipId)
+        : const ManifestLoadingScreen();
   }
 }
 

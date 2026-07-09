@@ -10,6 +10,11 @@ class BungieApi {
 
   final Dio _dio;
 
+  /// GET /Destiny2/Manifest/ — manifest version + per-language content paths.
+  /// Public endpoint (only the API key is required).
+  Future<Map<String, dynamic>> getManifest() =>
+      _getResponse('/Destiny2/Manifest/');
+
   /// GET /User/GetMembershipsForCurrentUser/ — the signed-in user's platform
   /// memberships and cross-save primary.
   Future<Map<String, dynamic>> getMembershipsForCurrentUser() =>
