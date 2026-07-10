@@ -130,10 +130,10 @@ class ItemDetailPanel extends StatelessWidget {
                   _PlugSection(
                       title: 'Mods',
                       plugs: detail.plugsOf(PlugCategory.mod).toList()),
-                  _PlugSection(
-                      title: 'Masterwork',
-                      plugs:
-                          detail.plugsOf(PlugCategory.masterwork).toList()),
+                  _MasterworkSection(
+                    plugs: detail.plugsOf(PlugCategory.masterwork).toList(),
+                    catalyst: detail.catalyst,
+                  ),
                   if (detail.catalyst != null)
                     _CatalystSection(catalyst: detail.catalyst!),
                   _PlugSection(
@@ -294,7 +294,6 @@ class _StatBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -326,15 +325,10 @@ class _StatBlock extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: _RecoilGauge(value: stat.value),
                       ),
-                    StatDisplay.bar => ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          value: (stat.value / 100).clamp(0.0, 1.0),
-                          minHeight: 8,
-                          backgroundColor:
-                              theme.colorScheme.surfaceContainerHighest,
-                          color: theme.colorScheme.primary,
-                        ),
+                    StatDisplay.bar => _StatBar(
+                        value: stat.value,
+                        bonus: stat.bonus,
+                        reduction: stat.reduction,
                       ),
                   },
                 ),
@@ -342,6 +336,68 @@ class _StatBlock extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// A 0-100 stat bar: the base roll in the standard colour, the portion
+/// granted by masterwork/catalyst/mod plugs appended in masterwork gold, and
+/// any plug-inflicted reduction shown as a red deficit segment after the
+/// current value.
+class _StatBar extends StatelessWidget {
+  const _StatBar({
+    required this.value,
+    required this.bonus,
+    required this.reduction,
+  });
+
+  static const _reducedRed = Color(0xFFB84C43);
+
+  final int value;
+  final int bonus;
+  final int reduction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final total = value.clamp(0, 100);
+    final gold = bonus.clamp(0, total);
+    final red = reduction.clamp(0, 100 - total);
+    final base = total - gold;
+    final rest = 100 - total - red;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(2),
+      child: SizedBox(
+        height: 8,
+        child: Row(
+          // Stretch, or the childless ColoredBox segments collapse to zero
+          // height under the Row's loose vertical constraints.
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (base > 0)
+              Expanded(
+                flex: base,
+                child: ColoredBox(color: theme.colorScheme.primary),
+              ),
+            if (gold > 0)
+              Expanded(
+                flex: gold,
+                child: const ColoredBox(color: _Row._enhancedGold),
+              ),
+            if (red > 0)
+              Expanded(
+                flex: red,
+                child: const ColoredBox(color: _reducedRed),
+              ),
+            if (rest > 0)
+              Expanded(
+                flex: rest,
+                child: ColoredBox(
+                    color: theme.colorScheme.surfaceContainerHighest),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -486,6 +542,9 @@ class _BreakerSection extends StatelessWidget {
   }
 }
 
+/// The catalyst's effect — what it grants (perks + stat bonuses), resolved
+/// from the weapon definition so it shows regardless of unlock state.
+/// Unlock state and objectives live in [_MasterworkSection].
 class _CatalystSection extends StatelessWidget {
   const _CatalystSection({required this.catalyst});
 
@@ -494,54 +553,105 @@ class _CatalystSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final showBar = !catalyst.complete && catalyst.completionValue > 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SectionTitle('Catalyst'),
-        Row(
-          children: [
-            Expanded(
-              child: Text(catalyst.name,
+        Text(catalyst.name,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        for (final option in catalyst.options) ...[
+          const SizedBox(height: 6),
+          // With several selectable options (crafting-era catalysts) the
+          // option name is the heading; a lone option leads with its effect.
+          if (catalyst.options.length > 1)
+            Text(option.name,
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600)),
+          for (final effect in option.effects) ...[
+            if (catalyst.options.length == 1)
+              Text(effect.name,
                   style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600)),
-            ),
-            Text(
-              catalyst.complete ? 'Complete' : 'Locked',
-              style: TextStyle(
-                fontSize: 11,
-                color: catalyst.complete
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
+                      fontSize: 12, fontWeight: FontWeight.w600)),
+            if (effect.description.isNotEmpty)
+              Text(
+                effect.description,
+                style: TextStyle(
+                    fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
               ),
+          ],
+          for (final bonus in option.statBonuses) ...[
+            const SizedBox(height: 4),
+            Text(
+              '+${bonus.value} ${bonus.name}',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary),
             ),
           ],
-        ),
-        if (catalyst.description.isNotEmpty) ...[
-          const SizedBox(height: 2),
-          Text(
-            catalyst.description,
-            style: TextStyle(
-                fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
-          ),
         ],
-        if (showBar) ...[
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+}
+
+/// The Masterwork section: any masterwork plugs (the equipped catalyst or
+/// empty slot), plus per-objective progress bars while the catalyst is being
+/// unlocked.
+class _MasterworkSection extends StatelessWidget {
+  const _MasterworkSection({required this.plugs, required this.catalyst});
+
+  final List<ItemPlug> plugs;
+  final CatalystProgress? catalyst;
+
+  @override
+  Widget build(BuildContext context) {
+    final catalyst = this.catalyst;
+    final objectives = catalyst != null && catalyst.acquired && !catalyst.complete
+        ? catalyst.objectives
+        : const <CatalystObjective>[];
+    if (plugs.isEmpty && objectives.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle('Masterwork'),
+        for (final plug in plugs)
+          _Row(
+            iconUrl: plug.iconUrl,
+            name: plug.name,
+            description: plug.description,
+            dim: !plug.isEnabled,
+          ),
+        for (final o in objectives) ...[
           const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(o.name, style: const TextStyle(fontSize: 12)),
+              ),
+              Text(
+                '${o.progress} / ${o.completionValue}',
+                style: TextStyle(
+                    fontSize: 11,
+                    color: o.complete
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
           ClipRRect(
             borderRadius: BorderRadius.circular(2),
             child: LinearProgressIndicator(
-              value: (catalyst.progress / catalyst.completionValue)
-                  .clamp(0.0, 1.0),
-              minHeight: 6,
+              value: o.completionValue > 0
+                  ? (o.progress / o.completionValue).clamp(0.0, 1.0)
+                  : (o.complete ? 1.0 : 0.0),
+              minHeight: 5,
               backgroundColor: theme.colorScheme.surfaceContainerHighest,
               color: theme.colorScheme.primary,
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            '${catalyst.progress} / ${catalyst.completionValue}',
-            style: TextStyle(
-                fontSize: 10, color: theme.colorScheme.onSurfaceVariant),
           ),
         ],
         const SizedBox(height: 12),

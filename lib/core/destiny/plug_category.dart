@@ -11,7 +11,11 @@ PlugCategory classifyPlug(String? plugCategoryIdentifier) {
   if (id == 'intrinsics' || id.contains('intrinsic')) {
     return PlugCategory.frame;
   }
-  if (id.contains('masterwork') || id.contains('tracker')) {
+  if (id.contains('masterwork') ||
+      id.contains('tracker') ||
+      // Crafting-era selectable catalysts ("Rapid Hit Refit"...) belong with
+      // the masterwork/catalyst display, not the weapon's traits.
+      id == 'catalysts') {
     return PlugCategory.masterwork;
   }
   if (id.contains('skins') ||

@@ -39,6 +39,12 @@ class ManifestDatabase {
   Map<String, dynamic>? getBreakerType(int hash) =>
       getDefinition('DestinyBreakerTypeDefinition', hash);
 
+  Map<String, dynamic>? getObjective(int hash) =>
+      getDefinition('DestinyObjectiveDefinition', hash);
+
+  Map<String, dynamic>? getPlugSet(int hash) =>
+      getDefinition('DestinyPlugSetDefinition', hash);
+
   /// Find the catalyst record for a weapon, matched by the convention that its
   /// name is `weaponName Catalyst`. Returns null when no such record exists.
   Map<String, dynamic>? findCatalystRecord(String weaponName) {

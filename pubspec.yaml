@@ -88,6 +88,9 @@ flutter:
     # serve https (Bungie requires an https redirect). Not a real secret.
     - assets/certs/loopback_cert.pem
     - assets/certs/loopback_key.pem
+    # DIM's generated exotic-weapon-hash -> catalyst-record-hash map (the
+    # manifest doesn't express this link), used to resolve catalyst progress.
+    - assets/data/exotic_to_catalyst_record.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:

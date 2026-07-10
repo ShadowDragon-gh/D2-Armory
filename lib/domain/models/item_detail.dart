@@ -7,17 +7,25 @@ enum StatDisplay { bar, numeric, recoil }
 
 /// A resolved stat line for the detail panel. [display] controls rendering:
 /// a 0-100 bar, a bare number (e.g. RPM, Magazine, Zoom), or the recoil
-/// direction gauge.
+/// direction gauge. [bonus] is what equipped masterwork/catalyst/mod plugs
+/// add, drawn as a gold segment within the bar; [reduction] is what equipped
+/// plugs of any kind (including barrel/magazine perks) subtract, drawn as a
+/// red deficit segment after the bar. Positive perk contributions fold into
+/// the base bar, matching the in-game display.
 class ItemStat {
   const ItemStat({
     required this.name,
     required this.value,
     this.display = StatDisplay.bar,
+    this.bonus = 0,
+    this.reduction = 0,
   });
 
   final String name;
   final int value;
   final StatDisplay display;
+  final int bonus;
+  final int reduction;
 }
 
 /// A resolved socket plug (perk / mod / masterwork / cosmetic / frame).
@@ -57,22 +65,70 @@ class BreakerType {
       iconPath.isEmpty ? null : '${AppConfig.bungieBaseUrl}$iconPath';
 }
 
-/// An exotic weapon's catalyst objective progress. When [complete] is false,
-/// [progress]/[completionValue] describe how close it is to unlocking.
-class CatalystProgress {
-  const CatalystProgress({
-    required this.name,
-    required this.description,
-    required this.complete,
-    required this.progress,
-    required this.completionValue,
-  });
+/// A single catalyst effect perk (name + description).
+class CatalystEffect {
+  const CatalystEffect({required this.name, required this.description});
 
   final String name;
   final String description;
-  final bool complete;
+}
+
+/// A stat bonus granted by a catalyst, e.g. "+30 Stability".
+class CatalystStatBonus {
+  const CatalystStatBonus({required this.name, required this.value});
+
+  final String name;
+  final int value;
+}
+
+/// A single named catalyst objective (e.g. "Arc Mode Kills 38/150").
+class CatalystObjective {
+  const CatalystObjective({
+    required this.name,
+    required this.progress,
+    required this.completionValue,
+    required this.complete,
+  });
+
+  final String name;
   final int progress;
   final int completionValue;
+  final bool complete;
+}
+
+/// One selectable catalyst plug and what it grants. Classic exotics have a
+/// single option; crafting-era exotics (e.g. Slayer's Fang) offer several.
+class CatalystOption {
+  const CatalystOption({
+    required this.name,
+    this.effects = const [],
+    this.statBonuses = const [],
+  });
+
+  final String name;
+  final List<CatalystEffect> effects;
+  final List<CatalystStatBonus> statBonuses;
+}
+
+/// An exotic weapon's catalyst: its granted effect [options] (resolved from
+/// the weapon definition so they are known even before the catalyst is
+/// obtained) and its unlock state — [acquired] (the player owns the catalyst),
+/// [complete] (fully unlocked), and the [objectives] tracked while it is
+/// acquired but not yet complete.
+class CatalystProgress {
+  const CatalystProgress({
+    required this.name,
+    required this.complete,
+    required this.acquired,
+    this.options = const [],
+    this.objectives = const [],
+  });
+
+  final String name;
+  final bool complete;
+  final bool acquired;
+  final List<CatalystOption> options;
+  final List<CatalystObjective> objectives;
 }
 
 /// The weapon's masterwork kill tracker: its icon and current count.

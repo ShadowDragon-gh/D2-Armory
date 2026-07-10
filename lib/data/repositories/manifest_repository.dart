@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:logger/logger.dart';
 
 import '../../core/errors/failures.dart';
@@ -34,6 +36,10 @@ class ManifestRepository {
   final Logger _log;
 
   ManifestDatabase? _db;
+
+  // DIM's bundled exotic itemHash -> catalyst recordHash map (keys are the
+  // unsigned item hashes as strings).
+  Map<String, dynamic> _catalystRecordMap = const {};
 
   ManifestDatabase get database {
     final db = _db;
@@ -80,8 +86,26 @@ class ManifestRepository {
 
     onProgress?.call(const ManifestProgress(ManifestPhase.opening));
     _db = ManifestDatabase.open(localPath);
+    await _loadCatalystRecordMap();
     onProgress?.call(const ManifestProgress(ManifestPhase.ready));
   }
+
+  Future<void> _loadCatalystRecordMap() async {
+    if (_catalystRecordMap.isNotEmpty) return;
+    try {
+      final raw = await rootBundle
+          .loadString('assets/data/exotic_to_catalyst_record.json');
+      _catalystRecordMap = jsonDecode(raw) as Map<String, dynamic>;
+    } catch (e) {
+      // Non-fatal: catalyst progress just falls back to name matching.
+      _log.w('Could not load catalyst-record map: $e');
+    }
+  }
+
+  /// The catalyst record hash for an exotic weapon [itemHash], from DIM's
+  /// bundled map. Null when the weapon has no known catalyst record.
+  int? catalystRecordHashFor(int itemHash) =>
+      (_catalystRecordMap['$itemHash'] as num?)?.toInt();
 
   Map<String, dynamic>? getInventoryItem(int hash) =>
       database.getInventoryItem(hash);
@@ -99,6 +123,13 @@ class ManifestRepository {
 
   Map<String, dynamic>? findCatalystRecord(String weaponName) =>
       database.findCatalystRecord(weaponName);
+
+  Map<String, dynamic>? getRecord(int hash) =>
+      database.getDefinition('DestinyRecordDefinition', hash);
+
+  Map<String, dynamic>? getObjective(int hash) => database.getObjective(hash);
+
+  Map<String, dynamic>? getPlugSet(int hash) => database.getPlugSet(hash);
 
   /// Remove manifest files from previous versions so they do not accumulate.
   /// Failure here is non-fatal but logged, not swallowed silently.

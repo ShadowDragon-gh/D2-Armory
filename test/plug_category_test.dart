@@ -33,6 +33,12 @@ void main() {
           PlugCategory.masterwork);
     });
 
+    test('crafting-era catalyst refits group with masterwork', () {
+      expect(classifyPlug('catalysts'), PlugCategory.masterwork);
+      expect(classifyPlug('v400.empty.exotic.masterwork'),
+          PlugCategory.masterwork);
+    });
+
     test('empty / unknown', () {
       expect(classifyPlug(null), PlugCategory.other);
       expect(classifyPlug(''), PlugCategory.other);

@@ -43,6 +43,10 @@ class InventoryRepository {
     900, // Records (catalyst progress)
   ];
 
+  /// The classic "Empty Catalyst Socket" plug — a stable well-known hash,
+  /// used as an icon fallback for era-specific shells that have none.
+  static const _classicEmptyCatalystHash = 1498917124;
+
   Future<InventoryGrid> fetchInventory() async {
     final membership = await _memberships.resolvePrimary();
     final profile = await _api.getProfile(
@@ -110,56 +114,259 @@ class InventoryRepository {
     final objectivesData =
         id == null ? null : _plugObjectives[id] as Map<String, dynamic>?;
 
+    final catalyst = _resolveCatalyst(item);
+    var plugs = _resolvePlugs(socketsData);
+    // Craftable exotics hide the empty catalyst socket on live instances;
+    // stand in with the definition's shell plug so the Masterwork section
+    // still shows the empty slot.
+    if (catalyst != null &&
+        !plugs.any((p) => p.category == PlugCategory.masterwork)) {
+      final emptySlot = _emptyCatalystPlug(item);
+      if (emptySlot != null) plugs = [...plugs, emptySlot];
+    }
+
     return ItemDetail(
       item: item,
-      stats: _resolveStats(statsData),
-      plugs: _resolvePlugs(socketsData),
+      stats: _resolveStats(statsData, _resolveStatModifiers(socketsData)),
+      plugs: plugs,
       breaker: _resolveBreaker(item, socketsData),
       killTracker: _resolveKillTracker(socketsData, objectivesData),
-      catalyst: _resolveCatalyst(item),
+      catalyst: catalyst,
     );
   }
 
-  /// The exotic catalyst's objective progress, matched to a record named
-  /// `weapon Catalyst` and read from the Records (900) component. Null when
-  /// the weapon has no catalyst record or the record isn't in the player's
-  /// records (e.g. non-exotic).
+  /// The exotic catalyst: its effect (from the weapon definition, so it is
+  /// known even before the catalyst is obtained) and its unlock state from the
+  /// Records (900) component. The weapon is linked to its catalyst record via
+  /// DIM's bundled map, falling back to matching a record named
+  /// `<weapon> Catalyst`. Null when the weapon has no catalyst record.
   CatalystProgress? _resolveCatalyst(DestinyItem item) {
-    final record = _manifest.findCatalystRecord(item.name);
+    // Preferred: DIM's authoritative itemHash -> recordHash map.
+    int? recordHash = _manifest.catalystRecordHashFor(item.itemHash);
+    Map<String, dynamic>? record =
+        recordHash == null ? null : _manifest.getRecord(recordHash);
+    // Fallback: match a record by the "<weapon> Catalyst" name convention.
+    record ??= _manifest.findCatalystRecord(item.name);
     if (record == null) return null;
-    final recordHash = (record['hash'] as num?)?.toInt();
+    recordHash = (record['hash'] as num?)?.toInt();
     if (recordHash == null) return null;
 
     final state = _records['$recordHash'] as Map<String, dynamic>?;
-    if (state == null) return null;
-
     // DestinyRecordState bit 4 (ObjectiveNotCompleted): set = not yet done.
-    final stateFlags = (state['state'] as num?)?.toInt() ?? 0;
-    final complete = (stateFlags & 4) == 0;
+    // Bit 8 (Obscured): the player has not obtained the catalyst yet. A
+    // missing record state is treated the same as not obtained.
+    final stateFlags = (state?['state'] as num?)?.toInt() ?? 8;
+    final complete = state != null && (stateFlags & 4) == 0;
+    final acquired = state != null && (stateFlags & 8) == 0;
 
-    // Progress for the incomplete bar: the first not-yet-complete objective
-    // (summing across objectives with different scales is meaningless).
-    var progress = 0, completionValue = 0;
-    final objectives = state['objectives'];
-    if (objectives is List) {
-      final pending = objectives.cast<Map<String, dynamic>>().firstWhere(
-            (o) => o['complete'] != true,
-            orElse: () => objectives.isEmpty
-                ? <String, dynamic>{}
-                : objectives.first as Map<String, dynamic>,
-          );
-      progress = (pending['progress'] as num?)?.toInt() ?? 0;
-      completionValue = (pending['completionValue'] as num?)?.toInt() ?? 0;
+    // Each objective, named from its definition (e.g. "Arc Mode Kills").
+    final objectives = <CatalystObjective>[];
+    final rawObjectives = state?['objectives'];
+    if (rawObjectives is List) {
+      for (final o in rawObjectives) {
+        final obj = o as Map<String, dynamic>;
+        final objHash = (obj['objectiveHash'] as num?)?.toInt();
+        final objDef = objHash == null ? null : _manifest.getObjective(objHash);
+        final name =
+            (objDef?['progressDescription'] as String?)?.trim() ?? '';
+        if (name.isEmpty) continue; // skip unnamed / trivial insert steps
+        objectives.add(CatalystObjective(
+          name: name,
+          progress: (obj['progress'] as num?)?.toInt() ?? 0,
+          completionValue: (obj['completionValue'] as num?)?.toInt() ?? 0,
+          complete: obj['complete'] == true,
+        ));
+      }
     }
 
     final display = record['displayProperties'] as Map<String, dynamic>?;
     return CatalystProgress(
       name: (display?['name'] as String?) ?? 'Catalyst',
-      description: (display?['description'] as String?) ?? '',
       complete: complete,
-      progress: progress,
-      completionValue: completionValue,
+      acquired: acquired,
+      options: _resolveCatalystOptions(item),
+      objectives: objectives,
     );
+  }
+
+  /// The catalyst option plugs, resolved from the weapon definition's catalyst
+  /// socket: listed inline (classic exotics, Graviton Spike) or in the
+  /// socket's plug set (crafted exotics like Slayer's Fang). Each option
+  /// carries sandbox perks (e.g. "Ionic Interment") and/or flat stat bonuses
+  /// (e.g. +30 Stability); placeholder shell plugs carry neither and are
+  /// dropped.
+  List<CatalystOption> _resolveCatalystOptions(DestinyItem item) {
+    final weaponDef = _manifest.getInventoryItem(item.itemHash);
+    final entries = weaponDef?['sockets']?['socketEntries'];
+    if (entries is! List) return const [];
+
+    for (final entry in entries) {
+      final options = <CatalystOption>[];
+      for (final plugHash in _catalystSocketCandidates(entry as Map)) {
+        final option = _catalystOptionFrom(plugHash);
+        if (option != null) options.add(option);
+      }
+      // The catalyst socket is unique; stop once it yielded options.
+      if (options.isNotEmpty) return options;
+    }
+    return const [];
+  }
+
+  /// Candidate plug hashes of a definition socket entry: the initial plug,
+  /// inline entries, and — for sockets that look like the catalyst socket
+  /// (masterwork initial plug or no initial plug at all) — the socket's plug
+  /// sets. Trait/perk sockets have a real initial plug so their large plug
+  /// sets are never fetched.
+  List<int> _catalystSocketCandidates(Map socket) {
+    final candidates = <int>[];
+    final seen = <int>{};
+    void add(int? h) {
+      if (h != null && h != 0 && seen.add(h)) candidates.add(h);
+    }
+
+    final initHash = (socket['singleInitialItemHash'] as num?)?.toInt() ?? 0;
+    add(initHash);
+    final plugItems = socket['reusablePlugItems'];
+    if (plugItems is List) {
+      for (final pi in plugItems) {
+        add(((pi as Map)['plugItemHash'] as num?)?.toInt());
+      }
+    }
+    final initCat = initHash == 0
+        ? ''
+        : _manifest.getInventoryItem(initHash)?['plug']
+                ?['plugCategoryIdentifier'] as String? ??
+            '';
+    final catalystish = initHash == 0 ||
+        (initCat.contains('masterwork') && !initCat.contains('tracker'));
+    if (catalystish) {
+      for (final key in ['reusablePlugSetHash', 'randomizedPlugSetHash']) {
+        final setHash = (socket[key] as num?)?.toInt();
+        if (setHash == null) continue;
+        final plugSet = _manifest.getPlugSet(setHash);
+        final setItems = plugSet?['reusablePlugItems'];
+        if (setItems is! List) continue;
+        for (final pi in setItems) {
+          add(((pi as Map)['plugItemHash'] as num?)?.toInt());
+        }
+      }
+    }
+    return candidates;
+  }
+
+  /// The definition's empty-catalyst-socket shell plug, as a Masterwork row.
+  /// Craftable exotics hide the empty catalyst socket on live instances, so
+  /// when the live sockets yield no masterwork plug this stands in. Null when
+  /// the definition has no shell plug.
+  ItemPlug? _emptyCatalystPlug(DestinyItem item) {
+    final weaponDef = _manifest.getInventoryItem(item.itemHash);
+    final entries = weaponDef?['sockets']?['socketEntries'];
+    if (entries is! List) return null;
+
+    for (final entry in entries) {
+      for (final plugHash in _catalystSocketCandidates(entry as Map)) {
+        final def = _manifest.getInventoryItem(plugHash);
+        final cat = def?['plug']?['plugCategoryIdentifier'] as String? ?? '';
+        final isCatalyst = cat == 'catalysts' ||
+            (cat.contains('masterwork') && !cat.contains('tracker'));
+        // A shell is a catalyst-category plug with no effect content.
+        if (!isCatalyst || _catalystOptionFrom(plugHash) != null) continue;
+        final display = def?['displayProperties'] as Map<String, dynamic>?;
+        final name = (display?['name'] as String?) ?? '';
+        if (name.isEmpty) continue;
+        var iconPath = (display?['icon'] as String?) ?? '';
+        if (iconPath.isEmpty) {
+          // Era-specific shells (e.g. Choir of One's) carry no icon of their
+          // own; borrow the classic empty-catalyst-socket plug's icon.
+          final classic =
+              _manifest.getInventoryItem(_classicEmptyCatalystHash);
+          iconPath =
+              (classic?['displayProperties']?['icon'] as String?) ?? '';
+        }
+        return ItemPlug(
+          name: name,
+          iconPath: iconPath,
+          description: (display?['description'] as String?) ?? '',
+          category: PlugCategory.masterwork,
+          isEnabled: true,
+          isEnhanced: false,
+        );
+      }
+    }
+    return null;
+  }
+
+  /// Build a [CatalystOption] from a plug definition, or null when the plug is
+  /// not a catalyst (or is an empty placeholder shell). Catalyst plug
+  /// categories vary per weapon era: "catalysts" on crafting-era refits,
+  /// otherwise "...masterwork" variants ("v620.exotic.weapon.masterwork",
+  /// "v710.new.scout_rifle0.masterwork", "v320_repackage_..._masterwork");
+  /// kill trackers share "masterworks" and are excluded.
+  CatalystOption? _catalystOptionFrom(int plugHash) {
+    final def = _manifest.getInventoryItem(plugHash);
+    final cat = def?['plug']?['plugCategoryIdentifier'] as String? ?? '';
+    final isCatalyst = cat == 'catalysts' ||
+        (cat.contains('masterwork') && !cat.contains('tracker'));
+    if (!isCatalyst) return null;
+
+    // Sandbox perks on the plug describe the effect.
+    final effects = <CatalystEffect>[];
+    final perks = def?['perks'];
+    if (perks is List) {
+      for (final p in perks) {
+        final perkHash = ((p as Map)['perkHash'] as num?)?.toInt();
+        if (perkHash == null) continue;
+        final perkDef = _manifest.getSandboxPerk(perkHash);
+        if (perkDef?['isDisplayable'] == false) continue;
+        final display = perkDef?['displayProperties'] as Map<String, dynamic>?;
+        final name = (display?['name'] as String?) ?? '';
+        if (name.isEmpty) continue;
+        effects.add(CatalystEffect(
+          name: name,
+          description:
+              _cleanDisplayText((display?['description'] as String?) ?? ''),
+        ));
+      }
+    }
+
+    // Investment stats are the flat stat bonuses (e.g. +30 Stability).
+    final statBonuses = <CatalystStatBonus>[];
+    final invStats = def?['investmentStats'];
+    if (invStats is List) {
+      for (final s in invStats) {
+        final statHash = ((s as Map)['statTypeHash'] as num?)?.toInt();
+        final value = (s['value'] as num?)?.toInt() ?? 0;
+        if (statHash == null || value == 0) continue;
+        final statDef = _manifest.getStat(statHash);
+        final name = (statDef?['displayProperties']?['name'] as String?) ?? '';
+        if (name.isEmpty) continue;
+        statBonuses.add(CatalystStatBonus(name: name, value: value));
+      }
+    }
+
+    if (effects.isEmpty && statBonuses.isEmpty) return null;
+    final name =
+        (def?['displayProperties']?['name'] as String?) ?? 'Catalyst';
+    return CatalystOption(
+        name: name, effects: effects, statBonuses: statBonuses);
+  }
+
+  /// Replace Bungie's `[###DestinyNamedSubstitutions...###]` template tokens
+  /// (platform-specific button glyphs in game) with readable text, stripping
+  /// any unrecognised token.
+  static String _cleanDisplayText(String text) {
+    if (!text.contains('[###')) return text;
+    const substitutions = {
+      '[###DestinyNamedSubstitutions.ui_player_action_interact_button###]':
+          '[Interact]',
+      '[###DestinyNamedSubstitutions.ui_player_action_interact_verb###]': '',
+      '[###DestinyNamedSubstitutions.ui_player_action_jump_button###]':
+          '[Jump]',
+    };
+    var out = text;
+    substitutions.forEach((token, word) => out = out.replaceAll(token, word));
+    out = out.replaceAll(RegExp(r'\[###[^\]]*###\]'), '');
+    return out.replaceAll(RegExp(r' {2,}'), ' ').trim();
   }
 
   /// The masterwork kill tracker: the tracker plug's icon plus its objective
@@ -269,15 +476,16 @@ class InventoryRepository {
     'zoom',
     'swing speed',
     'ammo capacity',
-    'blast radius',
-    'velocity',
     'guard efficiency',
     'guard resistance',
     'guard endurance',
     'charge rate',
   };
 
-  List<ItemStat> _resolveStats(Map<String, dynamic>? statsData) {
+  List<ItemStat> _resolveStats(
+    Map<String, dynamic>? statsData,
+    ({Map<int, int> gains, Map<int, int> losses}) modifiers,
+  ) {
     final map = statsData?['stats'];
     if (map is! Map) return const [];
     final result = <ItemStat>[];
@@ -295,9 +503,55 @@ class InventoryRepository {
           : _numericStatNames.contains(lower)
               ? StatDisplay.numeric
               : StatDisplay.bar;
-      result.add(ItemStat(name: name, value: value, display: display));
+      result.add(ItemStat(
+        name: name,
+        value: value,
+        display: display,
+        bonus: (modifiers.gains[statHash] ?? 0).clamp(0, value),
+        reduction: modifiers.losses[statHash] ?? 0,
+      ));
     }
     return result;
+  }
+
+  /// Per-stat contributions of the equipped plugs (their investment stats),
+  /// keyed by stat hash. [gains] holds what masterwork/catalyst/mod plugs add
+  /// (the gold bar segment); [losses] holds what plugs of any kind subtract,
+  /// including barrel/magazine perk drawbacks (the red deficit segment).
+  /// Positive perk contributions count as part of the base roll.
+  ({Map<int, int> gains, Map<int, int> losses}) _resolveStatModifiers(
+      Map<String, dynamic>? socketsData) {
+    final gains = <int, int>{};
+    final losses = <int, int>{};
+    final sockets = socketsData?['sockets'];
+    if (sockets is! List) return (gains: gains, losses: losses);
+    for (final socket in sockets) {
+      final s = socket as Map<String, dynamic>;
+      if (s['isEnabled'] == false) continue;
+      final plugHash = (s['plugHash'] as num?)?.toInt();
+      if (plugHash == null) continue;
+      final def = _manifest.getInventoryItem(plugHash);
+      final plugCategory =
+          def?['plug']?['plugCategoryIdentifier'] as String?;
+      final category = classifyPlug(plugCategory);
+      final countsAsBonus = category == PlugCategory.masterwork ||
+          category == PlugCategory.mod;
+      final invStats = def?['investmentStats'];
+      if (invStats is! List) continue;
+      for (final stat in invStats) {
+        final st = stat as Map<String, dynamic>;
+        if (st['isConditionallyActive'] == true) continue;
+        final statHash = (st['statTypeHash'] as num?)?.toInt();
+        final value = (st['value'] as num?)?.toInt() ?? 0;
+        if (statHash == null || value == 0) continue;
+        if (value < 0) {
+          losses[statHash] = (losses[statHash] ?? 0) - value;
+        } else if (countsAsBonus) {
+          gains[statHash] = (gains[statHash] ?? 0) + value;
+        }
+      }
+    }
+    return (gains: gains, losses: losses);
   }
 
   List<ItemPlug> _resolvePlugs(Map<String, dynamic>? socketsData) {
