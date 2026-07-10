@@ -6,6 +6,7 @@ import '../../core/search/search_suggestions.dart';
 import '../providers/auth_provider.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/search_provider.dart';
+import '../providers/settings_provider.dart';
 import 'inventory/inventory_screen.dart';
 import 'stub_page.dart';
 
@@ -51,12 +52,23 @@ class _AppShellState extends ConsumerState<AppShell> {
           ],
         ),
         actions: [
-          if (_tab == _Tab.inventory)
+          if (_tab == _Tab.inventory) ...[
+            IconButton(
+              tooltip: ref.watch(showCosmeticsProvider)
+                  ? 'Hide cosmetics'
+                  : 'Show cosmetics',
+              icon: Icon(ref.watch(showCosmeticsProvider)
+                  ? Icons.auto_awesome
+                  : Icons.auto_awesome_outlined),
+              onPressed: () =>
+                  ref.read(showCosmeticsProvider.notifier).toggle(),
+            ),
             IconButton(
               tooltip: 'Refresh',
               icon: const Icon(Icons.refresh),
               onPressed: () => ref.invalidate(inventoryGridProvider),
             ),
+          ],
           IconButton(
             tooltip: 'Sign out',
             icon: const Icon(Icons.logout),

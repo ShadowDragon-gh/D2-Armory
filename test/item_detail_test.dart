@@ -21,6 +21,11 @@ void main() {
   const modPlugHash = 3003; // weapon mod
   const trackerPlugHash = 3004; // masterwork kill tracker
   const masterworkPlugHash = 3006; // range masterwork (+10)
+  const ornamentPlugHash = 3007; // applied weapon ornament
+  // A "Default Ornament" whose hash is NOT in the well-known blocklist:
+  // it must be skipped by its name.
+  const defaultOrnamentHash = 3009;
+  const mementoSocketHash = 3008; // craftable's empty memento socket
   const breakerHash = 2611060930; // Disruption
 
   late _MockApi api;
@@ -86,6 +91,27 @@ void main() {
       'displayProperties': {'name': 'Kill Tracker', 'icon': '/i/tracker.jpg'},
       'plug': {'plugCategoryIdentifier': 'v400.plugs.weapons.masterworks.trackers'},
     });
+    // Ornament plugs: the default one restores the original look and never
+    // overrides the icon; the applied one supplies the tile's icon.
+    when(() => manifest.getInventoryItem(defaultOrnamentHash)).thenReturn({
+      'displayProperties': {'name': 'Default Ornament', 'icon': '/i/swirl.jpg'},
+      'itemSubType': 21,
+      'plug': {'plugCategoryIdentifier': 'exotic_all_skins'},
+    });
+    when(() => manifest.getInventoryItem(ornamentPlugHash)).thenReturn({
+      'displayProperties': {'name': 'Gilded Smoke', 'icon': '/i/ornament.jpg'},
+      'itemSubType': 21,
+      'plug': {'plugCategoryIdentifier': 'exotic_all_skins'},
+    });
+    // The craftable memento socket shares the generic crafting empty-socket
+    // category but belongs with the cosmetics.
+    when(() => manifest.getInventoryItem(mementoSocketHash)).thenReturn({
+      'displayProperties': {
+        'name': 'Empty Memento Socket',
+        'icon': '/i/memento.jpg',
+      },
+      'plug': {'plugCategoryIdentifier': 'crafting.recipes.empty_socket'},
+    });
     when(() => manifest.getInventoryItem(masterworkPlugHash)).thenReturn({
       'displayProperties': {'name': 'Masterwork: Range', 'icon': '/i/mw.jpg'},
       'plug': {
@@ -107,6 +133,9 @@ void main() {
     });
     when(() => manifest.getStat(handlingStatHash)).thenReturn({
       'displayProperties': {'name': 'Handling'},
+    });
+    when(() => manifest.getStat(4043523819)).thenReturn({
+      'displayProperties': {'name': 'Weapons'},
     });
     when(() => manifest.getBreakerType(breakerHash)).thenReturn({
       'displayProperties': {'name': 'Disruption', 'icon': '/i/breaker.jpg'},
@@ -168,7 +197,10 @@ void main() {
                     '$handlingStatHash': {
                       'statHash': handlingStatHash,
                       'value': 30
-                    }
+                    },
+                    // Negative values occur (armor tuning) and must not
+                    // invert the bonus clamp range.
+                    '4043523819': {'statHash': 4043523819, 'value': -5}
                   }
                 }
               }
@@ -183,6 +215,9 @@ void main() {
                     {'plugHash': modPlugHash, 'isEnabled': true, 'isVisible': true},
                     {'plugHash': trackerPlugHash, 'isEnabled': true, 'isVisible': true},
                     {'plugHash': masterworkPlugHash, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': defaultOrnamentHash, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': ornamentPlugHash, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': mementoSocketHash, 'isEnabled': true, 'isVisible': true},
                     {'plugHash': 55, 'isEnabled': true, 'isVisible': false},
                   ]
                 }
@@ -224,6 +259,10 @@ void main() {
     expect(handling.value, 30);
     expect(handling.bonus, 0);
     expect(handling.reduction, 16);
+    // A negative stat value resolves without throwing, with no gold segment.
+    final weapons = detail.stats.firstWhere((s) => s.name == 'Weapons');
+    expect(weapons.value, -5);
+    expect(weapons.bonus, 0);
 
     // Plugs categorised; the invisible socket and the tracker are skipped.
     expect(detail.plugsOf(PlugCategory.frame).single.name, 'Adaptive Frame');
@@ -231,7 +270,18 @@ void main() {
     expect(perks.map((p) => p.name),
         containsAll(['Headstone', 'Enhanced Headstone']));
     expect(detail.plugsOf(PlugCategory.mod).single.name, 'Backup Mag');
-    expect(detail.plugs.length, 5);
+    expect(detail.plugs.length, 8);
+
+    // The memento socket is cosmetic, not a trait, despite its generic
+    // crafting empty-socket category.
+    expect(detail.plugsOf(PlugCategory.cosmetic).map((p) => p.name),
+        contains('Empty Memento Socket'));
+    expect(perks.map((p) => p.name),
+        isNot(contains('Empty Memento Socket')));
+
+    // The applied ornament's icon overrides the tile icon; the well-known
+    // Default Ornament plug (socketed first) is skipped.
+    expect(weapon.ornamentIconPath, '/i/ornament.jpg');
     // The kill tracker is surfaced separately, not as a masterwork plug.
     expect(detail.plugsOf(PlugCategory.masterwork).single.name,
         'Masterwork: Range');

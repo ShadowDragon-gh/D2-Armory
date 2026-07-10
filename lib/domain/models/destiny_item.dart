@@ -10,6 +10,7 @@ class DestinyItem {
     required this.bucketHash,
     required this.name,
     required this.iconPath,
+    this.ornamentIconPath,
     this.itemType = 0,
     this.itemSubType = 0,
     this.tierType = 0,
@@ -29,6 +30,10 @@ class DestinyItem {
   final int bucketHash;
   final String name;
   final String iconPath;
+
+  /// Icon of the applied (non-default) ornament, shown in place of [iconPath]
+  /// when cosmetics display is enabled. Null when no ornament is socketed.
+  final String? ornamentIconPath;
 
   /// DestinyItemType: 2=Armor, 3=Weapon (and others).
   final int itemType;
@@ -63,6 +68,11 @@ class DestinyItem {
 
   String? get iconUrl =>
       iconPath.isEmpty ? null : '${AppConfig.bungieBaseUrl}$iconPath';
+
+  String? get ornamentIconUrl =>
+      (ornamentIconPath == null || ornamentIconPath!.isEmpty)
+          ? null
+          : '${AppConfig.bungieBaseUrl}$ornamentIconPath';
 
   String? get elementIconUrl =>
       (elementIconPath == null || elementIconPath!.isEmpty)

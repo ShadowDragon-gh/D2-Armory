@@ -47,6 +47,16 @@ class InventoryRepository {
   /// used as an icon fallback for era-specific shells that have none.
   static const _classicEmptyCatalystHash = 1498917124;
 
+  /// The "Default Ornament" plugs (weapon, armor, and weapon-tiering
+  /// variants) that restore an item's original appearance — socketed by
+  /// default, never an icon override.
+  static const _defaultOrnamentHashes = {
+    2931483505,
+    1959648454,
+    702981643,
+    3854296178,
+  };
+
   Future<InventoryGrid> fetchInventory() async {
     final membership = await _memberships.resolvePrimary();
     final profile = await _api.getProfile(
@@ -507,7 +517,9 @@ class InventoryRepository {
         name: name,
         value: value,
         display: display,
-        bonus: (modifiers.gains[statHash] ?? 0).clamp(0, value),
+        // Stat values can go negative (armor tuning); clamp needs a
+        // non-inverted range.
+        bonus: value > 0 ? (modifiers.gains[statHash] ?? 0).clamp(0, value) : 0,
         reduction: modifiers.losses[statHash] ?? 0,
       ));
     }
@@ -582,11 +594,19 @@ class InventoryRepository {
       // Enhanced traits are identified by their itemTypeDisplayName; base
       // traits share the same "frames" plug category but read "Trait".
       final enhanced = def['itemTypeDisplayName'] == 'Enhanced Trait';
+      var category = classifyPlug(plugCategory);
+      // Craftables' "Empty Memento Socket" shares the generic crafting
+      // empty-socket category with trait/frame sockets; mementos (empty or
+      // filled) belong with the cosmetics.
+      if (plugCategory == 'crafting.recipes.empty_socket' &&
+          name.toLowerCase().contains('memento')) {
+        category = PlugCategory.cosmetic;
+      }
       result.add(ItemPlug(
         name: name,
         iconPath: (display?['icon'] as String?) ?? '',
         description: (display?['description'] as String?) ?? '',
-        category: classifyPlug(plugCategory),
+        category: category,
         isEnabled: s['isEnabled'] != false,
         isEnhanced: enhanced,
       ));
@@ -652,6 +672,8 @@ class InventoryRepository {
         bucketHash: bucketHash,
         name: (display?['name'] as String?) ?? '',
         iconPath: (display?['icon'] as String?) ?? '',
+        ornamentIconPath:
+            instanceId == null ? null : _ornamentIconPath(instanceId),
         itemType: (def['itemType'] as num?)?.toInt() ?? 0,
         itemSubType: (def['itemSubType'] as num?)?.toInt() ?? 0,
         tierType: (def['inventory']?['tierType'] as num?)?.toInt() ?? 0,
@@ -670,6 +692,35 @@ class InventoryRepository {
       ));
     }
     return result;
+  }
+
+  /// The applied ornament's icon for an instance, or null when none (or only
+  /// the default ornament) is socketed. Ornament plugs are itemSubType 21 /
+  /// skin-category plugs; shaders ("shader") are not icon overrides.
+  String? _ornamentIconPath(String instanceId) {
+    final socketsData = _sockets[instanceId] as Map<String, dynamic>?;
+    final sockets = socketsData?['sockets'];
+    if (sockets is! List) return null;
+    for (final socket in sockets) {
+      final s = socket as Map<String, dynamic>;
+      if (s['isEnabled'] == false) continue;
+      final plugHash = (s['plugHash'] as num?)?.toInt();
+      if (plugHash == null || _defaultOrnamentHashes.contains(plugHash)) {
+        continue;
+      }
+      final def = _manifest.getInventoryItem(plugHash);
+      if (def == null) continue;
+      // New eras add fresh "Default Ornament" plug hashes; match the name too
+      // so unknown variants never override the item icon.
+      if (def['displayProperties']?['name'] == 'Default Ornament') continue;
+      final cat = def['plug']?['plugCategoryIdentifier'] as String? ?? '';
+      final isOrnament =
+          (def['itemSubType'] as num?)?.toInt() == 21 || cat.contains('skins');
+      if (!isOrnament) continue;
+      final icon = def['displayProperties']?['icon'] as String?;
+      if (icon != null && icon.isNotEmpty) return icon;
+    }
+    return null;
   }
 
   Map<int, List<DestinyItem>> _groupByBucket(List<DestinyItem> items) {

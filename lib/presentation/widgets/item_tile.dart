@@ -6,6 +6,7 @@ import '../../core/destiny/destiny_buckets.dart';
 import '../../domain/models/destiny_item.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/search_provider.dart';
+import '../providers/settings_provider.dart';
 
 /// A single inventory item: the icon square with a footer row beneath it
 /// showing the element glyph and power level (so neither covers the art).
@@ -28,6 +29,10 @@ class ItemTile extends ConsumerWidget {
     final query = ref.watch(compiledQueryProvider);
     final dimmed = !query.isEmpty && !query.matches(item);
     final selected = identical(ref.watch(selectedItemProvider), item);
+    final showCosmetics = ref.watch(showCosmeticsProvider);
+    final iconUrl = showCosmetics
+        ? (item.ornamentIconUrl ?? item.iconUrl)
+        : item.iconUrl;
 
     final elementColor =
         item.damageType == null ? null : DamageType.color(item.damageType!);
@@ -47,7 +52,7 @@ class ItemTile extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _iconSquare(selected: selected),
+                _iconSquare(iconUrl: iconUrl, selected: selected),
                 if (item.power != null ||
                     elementColor != null ||
                     item.isLocked)
@@ -60,7 +65,7 @@ class ItemTile extends ConsumerWidget {
     );
   }
 
-  Widget _iconSquare({bool selected = false}) {
+  Widget _iconSquare({required String? iconUrl, bool selected = false}) {
     final borderColor = selected
         ? const Color(0xFF7AB8FF) // selection highlight
         : item.isEquipped
@@ -83,11 +88,11 @@ class ItemTile extends ConsumerWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (item.iconUrl == null)
+          if (iconUrl == null)
             const ColoredBox(color: Colors.black26)
           else
             CachedNetworkImage(
-              imageUrl: item.iconUrl!,
+              imageUrl: iconUrl,
               fit: BoxFit.cover,
               errorWidget: (_, _, _) => const ColoredBox(color: Colors.black26),
             ),
