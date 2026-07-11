@@ -20,6 +20,20 @@ final inventoryGridProvider = FutureProvider<InventoryGrid>((ref) {
   return ref.watch(inventoryRepositoryProvider).fetchInventory();
 });
 
+/// Warms the inventory search facets (perk/stat/breaker/source/catalyst) for
+/// every owned item once the grid loads, in yielding batches, so the first
+/// facet-backed search is instant instead of decoding on the first keystroke.
+/// Runs on the UI isolate (the decode needs the live profile components), but
+/// is bounded by owned items. Recomputed when the grid changes.
+final inventoryFacetsWarmProvider = FutureProvider<void>((ref) async {
+  final grid = await ref.watch(inventoryGridProvider.future);
+  final items = [
+    for (final owner in grid.owners)
+      for (final list in owner.itemsByBucket.values) ...list,
+  ];
+  await ref.watch(inventoryRepositoryProvider).warmFacets(items);
+});
+
 /// Deduped, sorted item names from the loaded grid, for search autocomplete.
 /// Empty until the grid has loaded.
 final itemNamesProvider = Provider<List<String>>((ref) {

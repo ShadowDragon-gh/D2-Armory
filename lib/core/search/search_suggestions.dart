@@ -29,17 +29,20 @@ class Suggestion {
 
 /// Builds ranked suggestions for [token] against the filter catalog and the
 /// given item [names]. Excludes `exactname:` and never echoes raw text.
-/// [max] caps the result count.
+/// [max] caps the result count. [instanceData] is forwarded to
+/// [filterSuggestionCatalog] so the Database tab (false) does not suggest
+/// filters that need live account data.
 List<Suggestion> suggestionsFor(
   String token,
   Iterable<String> names, {
   int max = 8,
+  bool instanceData = true,
 }) {
   final t = token.trim().toLowerCase();
   if (t.isEmpty) return const [];
 
   final filters = <Suggestion>[];
-  for (final entry in filterSuggestionCatalog) {
+  for (final entry in filterSuggestionCatalog(instanceData: instanceData)) {
     if (entry.toLowerCase().startsWith(t)) {
       filters.add(Suggestion(entry));
     }

@@ -1,10 +1,12 @@
 import '../../core/destiny/destiny_buckets.dart';
 import '../../core/destiny/plug_category.dart';
+import '../../core/search/item_filter.dart';
 import '../../domain/models/destiny_character.dart';
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/inventory_grid.dart';
 import '../../domain/models/item_detail.dart';
 import '../remote/bungie_api.dart';
+import 'facet_builder.dart';
 import 'manifest_repository.dart';
 import 'membership_service.dart';
 
@@ -25,10 +27,20 @@ class InventoryRepository {
   // panel can resolve a selected item without another network call.
   Map<String, dynamic> _stats = const {};
   Map<String, dynamic> _sockets = const {};
+  // Instance-keyed rolled plug options per socket (component 310). A weapon's
+  // trait sockets list all the perks that copy can roll to, so `perk1:`/`perk2:`
+  // search matches any of a column's options, not just the equipped one.
+  Map<String, dynamic> _reusablePlugs = const {};
   Map<String, dynamic> _plugObjectives = const {};
   // Record hash -> record component (catalyst/triumph progress), merged from
   // the profile- and character-scoped Records (900) components.
   Map<String, dynamic> _records = const {};
+
+  // Search facets per item instance id, resolved lazily by [inventoryFacetsFor]
+  // (the socket/stat/catalyst decode is the same work the detail panel does, so
+  // a search only pays for the items it tests) and cached. Cleared on each
+  // fetch so a refresh never serves facets from a stale instance.
+  final Map<String, SearchFacets> _facetsByInstance = {};
 
   static const _components = [
     100, // Profiles
@@ -39,6 +51,7 @@ class InventoryRepository {
     300, // ItemInstances (power, damage type, breaker)
     304, // ItemStats
     305, // ItemSockets
+    310, // ItemReusablePlugs (rolled options per socket)
     309, // ItemPlugObjectives (kill-tracker counts)
     900, // Records (catalyst progress)
   ];
@@ -69,8 +82,10 @@ class InventoryRepository {
     final instances = _dataMap(itemComponents?['instances']);
     _stats = _dataMap(itemComponents?['stats']);
     _sockets = _dataMap(itemComponents?['sockets']);
+    _reusablePlugs = _dataMap(itemComponents?['reusablePlugs']);
     _plugObjectives = _dataMap(itemComponents?['plugObjectives']);
     _records = _mergeRecords(profile);
+    _facetsByInstance.clear(); // stale after a refresh
 
     // Characters, newest-played first — these become the leading columns.
     final characters = _dataMap(profile['characters'])
@@ -143,6 +158,127 @@ class InventoryRepository {
       killTracker: _resolveKillTracker(socketsData, objectivesData),
       catalyst: catalyst,
     );
+  }
+
+  /// The searchable [SearchFacets] for an inventory [item], resolved from the
+  /// same live components the detail panel uses, plus the item definition's
+  /// source and description. Lets the inventory search evaluate the
+  /// definition-backed filters (perk/stat/source/breaker/description/keyword)
+  /// and the account-only `catalyst:` state. Resolved lazily and cached by
+  /// instance id; uninstanced items still resolve (definition facets only).
+  SearchFacets inventoryFacetsFor(DestinyItem item) {
+    final id = item.itemInstanceId;
+    if (id != null) {
+      final cached = _facetsByInstance[id];
+      if (cached != null) return cached;
+    }
+
+    final detail = resolveDetail(item);
+    // Socketed perk/frame plugs are the item's rolled traits — the DIM `perk:`
+    // target (barrels/mags fold in too, matching the definition-side pool).
+    final perks = <String>{
+      for (final plug in detail.plugs)
+        if (plug.category == PlugCategory.perk ||
+            plug.category == PlugCategory.frame)
+          plug.name.toLowerCase(),
+    };
+    final stats = <String, int>{
+      for (final s in detail.stats)
+        if (s.name.isNotEmpty) s.name.toLowerCase(): s.value,
+    };
+
+    final def = _manifest.getInventoryItem(item.itemHash);
+
+    final facets = SearchFacets(
+      perks: perks,
+      perkColumns: def == null ? const [] : _perkColumnsFor(item, def),
+      stats: stats,
+      breaker: detail.breaker?.name.toLowerCase(),
+      sources: def == null ? const {} : _sourceStringsOf(def),
+      description: def == null ? '' : _descriptionOf(def),
+      catalyst: _catalystStateOf(detail.catalyst),
+    );
+    if (id != null) _facetsByInstance[id] = facets;
+    return facets;
+  }
+
+  /// The rolled perk options for each random *trait* column of this weapon
+  /// instance, in column order — the `perk1:`/`perk2:` search targets. Reads the
+  /// copy's own options from the live ItemReusablePlugs (310) component at the
+  /// definition's trait socket indexes (Bungie aligns the two by index), so a
+  /// search matches any perk the column can roll to, not just the equipped one.
+  /// Empty for uninstanced items or weapons without random trait sockets.
+  List<Set<String>> _perkColumnsFor(DestinyItem item, Map<String, dynamic> def) {
+    final id = item.itemInstanceId;
+    if (id == null) return const [];
+    final builder = FacetBuilder(_manifest);
+    final indexes = builder.traitSocketIndexes(def);
+    if (indexes.isEmpty) return const [];
+    final plugs = (_reusablePlugs[id] as Map<String, dynamic>?)?['plugs'];
+    if (plugs is! Map) return const [];
+
+    final columns = <Set<String>>[];
+    for (final index in indexes) {
+      final options = plugs['$index'];
+      if (options is! List) continue;
+      final names = <String>{};
+      for (final option in options) {
+        final plugHash = ((option as Map)['plugItemHash'] as num?)?.toInt();
+        final name = plugHash == null ? null : builder.perkNameFor(plugHash);
+        if (name != null) names.add(name);
+      }
+      if (names.isNotEmpty) columns.add(names);
+    }
+    return columns;
+  }
+
+  /// Resolve and cache the search facets for every item in [items], in yielding
+  /// batches so the per-item socket/stat/catalyst decode never blocks a frame.
+  /// Warms the inventory `perk:`/`stat:`/`breaker:`/`source:`/`catalyst:` search
+  /// at startup so the first such search is instant. Unlike the Database's
+  /// facet warm this stays on the UI isolate — the decode reads the live
+  /// profile components in memory, which a background isolate cannot see — but
+  /// it is bounded by owned items (hundreds), not the full manifest.
+  Future<void> warmFacets(Iterable<DestinyItem> items) async {
+    const batch = 40;
+    var i = 0;
+    for (final item in items) {
+      // inventoryFacetsFor caches by instance id, so this fills the cache.
+      inventoryFacetsFor(item);
+      if (++i % batch == 0) await Future<void>.delayed(Duration.zero);
+    }
+  }
+
+  /// Map a resolved [CatalystProgress] to a search [CatalystState]: not
+  /// acquired → missing; acquired and complete → complete; acquired but not
+  /// complete → incomplete. Null when the item has no catalyst.
+  CatalystState? _catalystStateOf(CatalystProgress? catalyst) {
+    if (catalyst == null) return null;
+    if (!catalyst.acquired) return CatalystState.missing;
+    return catalyst.complete
+        ? CatalystState.complete
+        : CatalystState.incomplete;
+  }
+
+  /// The item's collectible source string(s), lowercased. Empty when the item
+  /// has no collectible or source text.
+  Set<String> _sourceStringsOf(Map<String, dynamic> def) {
+    final collectibleHash = (def['collectibleHash'] as num?)?.toInt();
+    if (collectibleHash == null || collectibleHash == 0) return const {};
+    final source =
+        _manifest.getCollectible(collectibleHash)?['sourceString'] as String?;
+    if (source == null || source.isEmpty) return const {};
+    return {source.toLowerCase()};
+  }
+
+  /// The item's searchable description text: mechanical description plus flavor
+  /// (lore) text, lowercased. Empty when it carries neither.
+  String _descriptionOf(Map<String, dynamic> def) {
+    final parts = [
+      (def['displayProperties']?['description'] as String?) ?? '',
+      (def['flavorText'] as String?) ?? '',
+    ].where((s) => s.isNotEmpty);
+    return parts.join(' ').toLowerCase();
   }
 
   /// The exotic catalyst: its effect (from the weapon definition, so it is
@@ -655,6 +791,7 @@ class InventoryRepository {
           : instances[instanceId] as Map<String, dynamic>?;
       final display = def['displayProperties'] as Map<String, dynamic>?;
       final state = (item['state'] as num?)?.toInt() ?? 0;
+      final tierType = (def['inventory']?['tierType'] as num?)?.toInt() ?? 0;
 
       // Element glyph comes from the damage-type definition (its transparent
       // icon), resolved via the instance's damageTypeHash.
@@ -667,16 +804,36 @@ class InventoryRepository {
             (dmgDef?['displayProperties']?['icon'] as String?);
       }
 
+      // An applied ornament's flat icon carries the ornament's own (legendary)
+      // background. For exotics we instead composite the ornament's transparent
+      // foreground over the exotic's rarity plate, so the tile keeps the exotic
+      // background (mirrors how DIM layers the icon definition).
+      final ornamentDef =
+          instanceId == null ? null : _appliedOrnamentDef(instanceId);
+      final ornamentIconPath =
+          ornamentDef?['displayProperties']?['icon'] as String?;
+      String? ornamentForegroundPath;
+      String? rarityPlatePath;
+      if (ornamentDef != null && tierType == 6) {
+        final fg = _foregroundPath(ornamentDef);
+        final plate = _backgroundPath(def);
+        if (fg != null && plate != null) {
+          ornamentForegroundPath = fg;
+          rarityPlatePath = plate;
+        }
+      }
+
       result.add(DestinyItem(
         itemHash: itemHash,
         bucketHash: bucketHash,
         name: (display?['name'] as String?) ?? '',
         iconPath: (display?['icon'] as String?) ?? '',
-        ornamentIconPath:
-            instanceId == null ? null : _ornamentIconPath(instanceId),
+        ornamentIconPath: ornamentIconPath,
+        ornamentForegroundPath: ornamentForegroundPath,
+        rarityPlatePath: rarityPlatePath,
         itemType: (def['itemType'] as num?)?.toInt() ?? 0,
         itemSubType: (def['itemSubType'] as num?)?.toInt() ?? 0,
-        tierType: (def['inventory']?['tierType'] as num?)?.toInt() ?? 0,
+        tierType: tierType,
         classType: (def['classType'] as num?)?.toInt(),
         ammoType: (def['equippingBlock']?['ammoType'] as num?)?.toInt() ?? 0,
         itemTypeDisplayName:
@@ -694,10 +851,11 @@ class InventoryRepository {
     return result;
   }
 
-  /// The applied ornament's icon for an instance, or null when none (or only
-  /// the default ornament) is socketed. Ornament plugs are itemSubType 21 /
-  /// skin-category plugs; shaders ("shader") are not icon overrides.
-  String? _ornamentIconPath(String instanceId) {
+  /// The applied ornament's plug definition for an instance, or null when none
+  /// (or only the default ornament) is socketed. Ornament plugs are
+  /// itemSubType 21 / skin-category plugs; shaders ("shader") are not icon
+  /// overrides.
+  Map<String, dynamic>? _appliedOrnamentDef(String instanceId) {
     final socketsData = _sockets[instanceId] as Map<String, dynamic>?;
     final sockets = socketsData?['sockets'];
     if (sockets is! List) return null;
@@ -718,9 +876,27 @@ class InventoryRepository {
           (def['itemSubType'] as num?)?.toInt() == 21 || cat.contains('skins');
       if (!isOrnament) continue;
       final icon = def['displayProperties']?['icon'] as String?;
-      if (icon != null && icon.isNotEmpty) return icon;
+      if (icon != null && icon.isNotEmpty) return def;
     }
     return null;
+  }
+
+  /// The `foreground` (transparent art) path from a definition's layered icon,
+  /// resolved via `displayProperties.iconHash`. Null when absent.
+  String? _foregroundPath(Map<String, dynamic>? def) {
+    final iconHash = (def?['displayProperties']?['iconHash'] as num?)?.toInt();
+    if (iconHash == null) return null;
+    final fg = _manifest.getIcon(iconHash)?['foreground'] as String?;
+    return (fg == null || fg.isEmpty) ? null : fg;
+  }
+
+  /// The `background` (rarity plate) path from a definition's layered icon.
+  /// Null when absent.
+  String? _backgroundPath(Map<String, dynamic> def) {
+    final iconHash = (def['displayProperties']?['iconHash'] as num?)?.toInt();
+    if (iconHash == null) return null;
+    final bg = _manifest.getIcon(iconHash)?['background'] as String?;
+    return (bg == null || bg.isEmpty) ? null : bg;
   }
 
   Map<int, List<DestinyItem>> _groupByBucket(List<DestinyItem> items) {

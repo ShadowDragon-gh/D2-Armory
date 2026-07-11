@@ -62,5 +62,31 @@ void main() {
       final many = List.generate(50, (i) => 'Item Winter $i');
       expect(suggestionsFor('winter', many, max: 5).length, 5);
     });
+
+    test('suggests the definition-backed filter keys (perk:, stat:, …)', () {
+      expect(suggestionsFor('per', names).map((e) => e.insert),
+          contains('perk:'));
+      expect(suggestionsFor('desc', names).map((e) => e.insert),
+          contains('description:'));
+    });
+
+    test('instanceData:false hides live-only filters (power/count/catalyst)',
+        () {
+      final dbPower = suggestionsFor('pow', names, instanceData: false)
+          .map((e) => e.insert);
+      expect(dbPower, isNot(contains('power:')));
+      final dbCatalyst = suggestionsFor('catalyst', names, instanceData: false)
+          .map((e) => e.insert);
+      expect(dbCatalyst, isEmpty);
+    });
+
+    test('instanceData:true offers the live-only filters', () {
+      expect(suggestionsFor('pow', names, instanceData: true).map((e) => e.insert),
+          contains('power:'));
+      expect(
+          suggestionsFor('catalyst', names, instanceData: true)
+              .map((e) => e.insert),
+          contains('catalyst:complete'));
+    });
   });
 }
