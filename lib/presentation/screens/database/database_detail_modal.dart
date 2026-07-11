@@ -6,6 +6,7 @@ import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/destiny/destiny_enums.dart';
 import '../../../domain/models/item_detail.dart';
 import '../../providers/database_provider.dart';
+import '../../theme/armory_palette.dart';
 
 /// The Database tab's purpose-built detail view: a centered modal, rendered
 /// over the dimmed list, that shows the full "all-options" nature of a
@@ -136,7 +137,7 @@ class _Header extends ConsumerWidget {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-      color: Colors.black.withValues(alpha: 0.25),
+      color: ArmoryPalette.scrim26,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -146,7 +147,7 @@ class _Header extends ConsumerWidget {
               width: 56,
               height: 56,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: ArmoryRadius.md,
                 border: Border.all(
                     color: DestinyEnums.rarityColor(item.tierType), width: 2),
               ),
@@ -155,7 +156,8 @@ class _Header extends ConsumerWidget {
                 imageUrl: item.iconUrl!,
                 fit: BoxFit.cover,
                 fadeInDuration: Duration.zero,
-                errorWidget: (_, _, _) => const ColoredBox(color: Colors.black26),
+                errorWidget: (_, _, _) =>
+                    const ColoredBox(color: ArmoryPalette.scrim26),
               ),
             ),
           const SizedBox(width: 14),
@@ -165,7 +167,10 @@ class _Header extends ConsumerWidget {
               children: [
                 Text(item.name,
                     style: const TextStyle(
-                        fontSize: 24, fontWeight: FontWeight.bold)),
+                        fontFamily: ArmoryFonts.display,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3)),
                 if (detail.flavorText.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -329,21 +334,21 @@ class _Screenshot extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = detail.screenshotUrl;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: ArmoryRadius.md,
       child: AspectRatio(
         aspectRatio: 16 / 9,
         child: url == null
-            ? const ColoredBox(color: Colors.black26)
+            ? const ColoredBox(color: ArmoryPalette.scrim26)
             : CachedNetworkImage(
                 imageUrl: url,
                 fit: BoxFit.cover,
                 placeholder: (_, _) =>
-                    const ColoredBox(color: Colors.black26),
+                    const ColoredBox(color: ArmoryPalette.scrim26),
                 errorWidget: (_, _, _) => const ColoredBox(
-                  color: Colors.black26,
+                  color: ArmoryPalette.scrim26,
                   child: Center(
                       child: Icon(Icons.image_not_supported_outlined,
-                          color: Colors.white38)),
+                          color: ArmoryPalette.textMuted)),
                 ),
               ),
       ),
@@ -357,9 +362,6 @@ class _Screenshot extends StatelessWidget {
 /// come from [databaseSelectedStatDeltasProvider].
 class _StatBlock extends ConsumerWidget {
   const _StatBlock({required this.stats});
-
-  static const _gold = Color(0xFFE5C15B);
-  static const _red = Color(0xFFB84C43);
 
   final List<ItemStat> stats;
 
@@ -395,7 +397,9 @@ class _StatBlock extends ConsumerWidget {
                             fontWeight: FontWeight.bold,
                             color: delta == 0
                                 ? theme.colorScheme.onSurface
-                                : (delta > 0 ? _gold : _red))),
+                                : (delta > 0
+                                    ? ArmoryPalette.masterworkGold
+                                    : ArmoryPalette.statPenaltyRed))),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -439,14 +443,18 @@ class _StatBar extends StatelessWidget {
             if (solid > 0)
               Expanded(
                   flex: solid,
-                  child: ColoredBox(color: theme.colorScheme.primary)),
+                  // Steel, not bronze, so the gold gain segment reads apart.
+                  child: ColoredBox(color: theme.colorScheme.secondary)),
             if (gain > 0)
               Expanded(
                   flex: gain,
-                  child: const ColoredBox(color: _StatBlock._gold)),
+                  child:
+                      const ColoredBox(color: ArmoryPalette.masterworkGold)),
             if (loss > 0)
               Expanded(
-                  flex: loss, child: const ColoredBox(color: _StatBlock._red)),
+                  flex: loss,
+                  child:
+                      const ColoredBox(color: ArmoryPalette.statPenaltyRed)),
             if (rest > 0)
               Expanded(
                   flex: rest,
@@ -644,9 +652,6 @@ class _SelectedEffects extends ConsumerWidget {
 class _EffectsColumn extends StatelessWidget {
   const _EffectsColumn({required this.plugs});
 
-  static const _gold = Color(0xFFE5C15B);
-  static const _red = Color(0xFFB84C43);
-
   final List<ItemPlug> plugs;
 
   @override
@@ -681,7 +686,9 @@ class _EffectsColumn extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
-                          color: e.value > 0 ? _gold : _red),
+                          color: e.value > 0
+                              ? ArmoryPalette.masterworkGold
+                              : ArmoryPalette.statPenaltyRed),
                     ),
                   ),
                 // Gameplay effect description — the non-stat effect, so
@@ -772,12 +779,9 @@ class _PerkColumnView extends ConsumerWidget {
           width: _chipWidth,
           child: Text(
             column.label.isEmpty ? '—' : column.label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
           ),
         ),
         const SizedBox(height: 8),
@@ -828,7 +832,7 @@ class _PerkChip extends StatelessWidget {
             padding:
                 const EdgeInsets.symmetric(horizontal: _chipHPad, vertical: 3),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: ArmoryRadius.md,
               color: selected
                   ? theme.colorScheme.primary.withValues(alpha: 0.16)
                   : Colors.transparent,
@@ -874,8 +878,6 @@ class _PerkChip extends StatelessWidget {
 class _PerkIcon extends StatelessWidget {
   const _PerkIcon({required this.plug, this.size = 30, this.selected = false});
 
-  static const _enhancedGold = Color(0xFFE5C15B);
-
   final ItemPlug plug;
   final double size;
   final bool selected;
@@ -884,31 +886,37 @@ class _PerkIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final image = plug.iconUrl == null
-        ? const ColoredBox(color: Colors.black26)
+        ? const ColoredBox(color: ArmoryPalette.scrim26)
         : CachedNetworkImage(
             imageUrl: plug.iconUrl!,
             fit: BoxFit.cover,
-            errorWidget: (_, _, _) => const ColoredBox(color: Colors.black26),
+            errorWidget: (_, _, _) =>
+                const ColoredBox(color: ArmoryPalette.scrim26),
           );
     // A selected non-enhanced perk gets a primary ring; enhanced keeps its gold
     // ring/glow (a selected enhanced perk is highlighted by the chip's border).
     final borderColor = selected && !plug.isEnhanced
         ? theme.colorScheme.primary
         : plug.isEnhanced
-            ? _enhancedGold
-            : Colors.white24;
+            ? ArmoryPalette.masterworkGold
+            : ArmoryPalette.borderStronger;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.black26,
+        color: ArmoryPalette.scrim26,
         border: Border.all(
           color: borderColor,
           width: plug.isEnhanced || selected ? 1.5 : 1,
         ),
         boxShadow: plug.isEnhanced
-            ? [BoxShadow(color: _enhancedGold.withValues(alpha: 0.4), blurRadius: 4)]
+            ? [
+                BoxShadow(
+                    color:
+                        ArmoryPalette.masterworkGold.withValues(alpha: 0.4),
+                    blurRadius: 4)
+              ]
             : null,
       ),
       clipBehavior: Clip.antiAlias,
@@ -926,12 +934,6 @@ class _PerkIcon extends StatelessWidget {
 class _PerkTooltip extends StatelessWidget {
   const _PerkTooltip({required this.plug, required this.child});
 
-  // A dark, near-opaque tooltip surface with a faint border, independent of the
-  // (possibly light) theme so the tooltip always reads as a dark overlay.
-  static const _background = Color(0xF01A1C22);
-  static const _border = Color(0x33FFFFFF);
-  static const _text = Color(0xFFF2F3F5);
-
   final ItemPlug plug;
   final Widget child;
 
@@ -942,9 +944,9 @@ class _PerkTooltip extends StatelessWidget {
       // beneath, so hovering a perk does not block scrolling the perk grid.
       ignorePointer: true,
       decoration: BoxDecoration(
-        color: _background,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
+        color: ArmoryPalette.tooltipSurface,
+        borderRadius: ArmoryRadius.md,
+        border: Border.all(color: ArmoryPalette.borderStrong),
       ),
       padding: const EdgeInsets.all(12),
       richMessage: WidgetSpan(
@@ -958,19 +960,20 @@ class _PerkTooltip extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
-                      color: _text)),
+                      color: ArmoryPalette.textPrimary)),
               if (plug.isEnhanced)
                 const Text('Enhanced',
                     style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: _PerkIcon._enhancedGold)),
+                        color: ArmoryPalette.masterworkGold)),
               if (plug.description.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text(plug.description,
                     style: TextStyle(
                         fontSize: 12,
-                        color: _text.withValues(alpha: 0.82))),
+                        color: ArmoryPalette.textPrimary
+                            .withValues(alpha: 0.82))),
               ],
               // Clarity community-research block goes here once wired.
             ],
@@ -991,11 +994,8 @@ class _SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
         text.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.8,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
       );
 }

@@ -7,6 +7,7 @@ import '../../domain/models/destiny_item.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/search_provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/armory_palette.dart';
 
 /// A single inventory item: the icon square with a footer row beneath it
 /// showing the element glyph and power level (so neither covers the art).
@@ -21,7 +22,6 @@ class ItemTile extends ConsumerWidget {
   /// Size of the icon square. The footer row adds a little height below it.
   final double size;
 
-  static const _masterwork = Color(0xFFE5C15B);
   static const double _footerHeight = 16;
 
   @override
@@ -51,12 +51,6 @@ class ItemTile extends ConsumerWidget {
         message:
             item.power != null ? '${item.name} · ${item.power}' : item.name,
         waitDuration: const Duration(milliseconds: 400),
-        decoration: BoxDecoration(
-          color: const Color(0xEE111318),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: const Color(0xFF2A2E38)),
-        ),
-        textStyle: const TextStyle(color: Color(0xFFE6E8EC), fontSize: 12),
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
@@ -90,16 +84,16 @@ class ItemTile extends ConsumerWidget {
     String? foregroundUrl,
   }) {
     final borderColor = selected
-        ? const Color(0xFF7AB8FF) // selection highlight
+        ? ArmoryPalette.accent200 // selection highlight
         : item.isMasterwork
-            ? _masterwork.withValues(alpha: 0.5)
-            : Colors.white24;
+            ? ArmoryPalette.masterworkGold.withValues(alpha: 0.5)
+            : ArmoryPalette.borderStronger;
 
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: ArmoryRadius.sm,
         border: Border.all(
           color: borderColor,
           width: selected ? 2 : 1,
@@ -116,7 +110,7 @@ class ItemTile extends ConsumerWidget {
               imageUrl: plateUrl,
               fit: BoxFit.cover,
               fadeInDuration: Duration.zero,
-              errorWidget: (_, _, _) => const ColoredBox(color: Colors.black26),
+              errorWidget: (_, _, _) => const ColoredBox(color: ArmoryPalette.scrim26),
             ),
             CachedNetworkImage(
               imageUrl: foregroundUrl,
@@ -125,13 +119,13 @@ class ItemTile extends ConsumerWidget {
               errorWidget: (_, _, _) => const SizedBox.shrink(),
             ),
           ] else if (iconUrl == null)
-            const ColoredBox(color: Colors.black26)
+            const ColoredBox(color: ArmoryPalette.scrim26)
           else
             CachedNetworkImage(
               imageUrl: iconUrl,
               fit: BoxFit.cover,
               fadeInDuration: Duration.zero,
-              errorWidget: (_, _, _) => const ColoredBox(color: Colors.black26),
+              errorWidget: (_, _, _) => const ColoredBox(color: ArmoryPalette.scrim26),
             ),
           // Subtle translucent gold gradient rising from the bottom.
           if (item.isMasterwork)
@@ -140,7 +134,10 @@ class ItemTile extends ConsumerWidget {
                 gradient: LinearGradient(
                   begin: Alignment.bottomCenter,
                   end: Alignment.center,
-                  colors: [Color.fromARGB(66, 229, 192, 91), Color(0x00E5C15B)],
+                  colors: [
+                    ArmoryPalette.masterworkGlow,
+                    ArmoryPalette.masterworkGlowEnd,
+                  ],
                 ),
               ),
             ),
@@ -153,10 +150,12 @@ class ItemTile extends ConsumerWidget {
     return Container(
       width: size,
       height: _footerHeight,
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.35),
-        border: Border.all(color: Colors.white24, width: 0.5),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(4)),
+      decoration: const BoxDecoration(
+        color: ArmoryPalette.scrim35,
+        border: Border.fromBorderSide(
+            BorderSide(color: ArmoryPalette.borderStronger, width: 0.5)),
+        borderRadius:
+            BorderRadius.vertical(bottom: ArmoryRadius.smRadius),
       ),
       child: Stack(
         children: [
@@ -183,7 +182,8 @@ class ItemTile extends ConsumerWidget {
               right: 1,
               top: 0,
               bottom: 0,
-              child: Icon(Icons.lock, size: 10, color: Colors.white70),
+              child: Icon(Icons.lock,
+                  size: 10, color: ArmoryPalette.textSecondary),
             ),
           // Power — always centered.
           if (item.power != null)

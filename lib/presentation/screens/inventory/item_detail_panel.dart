@@ -9,6 +9,7 @@ import '../../../core/destiny/destiny_enums.dart';
 import '../../../core/destiny/plug_category.dart';
 import '../../../domain/models/item_detail.dart';
 import '../../providers/inventory_provider.dart';
+import '../../theme/armory_palette.dart';
 
 /// Wraps [ItemDetailPanel] with a slide animation. Designed to be placed on
 /// the right edge of a [Stack] as an overlay over the grid, so opening/closing
@@ -171,7 +172,7 @@ class _Header extends ConsumerWidget {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-      color: Colors.black.withValues(alpha: 0.3),
+      color: ArmoryPalette.scrim35,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -181,7 +182,10 @@ class _Header extends ConsumerWidget {
                 child: Text(
                   item.name,
                   style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold),
+                      fontFamily: ArmoryFonts.display,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.3),
                 ),
               ),
               IconButton(
@@ -230,9 +234,10 @@ class _Header extends ConsumerWidget {
                 Text(
                   '${item.power}',
                   style: const TextStyle(
+                      fontFamily: ArmoryFonts.display,
                       fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.amber),
+                      fontWeight: FontWeight.w700,
+                      color: ArmoryPalette.masterworkGold),
                 ),
             ],
           ),
@@ -351,8 +356,6 @@ class _StatBar extends StatelessWidget {
     required this.reduction,
   });
 
-  static const _reducedRed = Color(0xFFB84C43);
-
   final int value;
   final int bonus;
   final int reduction;
@@ -377,17 +380,20 @@ class _StatBar extends StatelessWidget {
             if (base > 0)
               Expanded(
                 flex: base,
-                child: ColoredBox(color: theme.colorScheme.primary),
+                // Steel, not bronze, so the gold bonus segment reads apart.
+                child: ColoredBox(color: theme.colorScheme.secondary),
               ),
             if (gold > 0)
               Expanded(
                 flex: gold,
-                child: const ColoredBox(color: _Row._enhancedGold),
+                child:
+                    const ColoredBox(color: ArmoryPalette.masterworkGold),
               ),
             if (red > 0)
               Expanded(
                 flex: red,
-                child: const ColoredBox(color: _reducedRed),
+                child:
+                    const ColoredBox(color: ArmoryPalette.statPenaltyRed),
               ),
             if (rest > 0)
               Expanded(
@@ -419,8 +425,8 @@ class _RecoilGauge extends StatelessWidget {
       size: const Size(22, 11),
       painter: _RecoilPainter(
         value: value.clamp(0, 100).toDouble(),
-        color: Colors.white,
-        trackColor: const Color(0xFF333333),
+        color: ArmoryPalette.textPrimary,
+        trackColor: ArmoryPalette.surface4,
       ),
     );
   }
@@ -669,12 +675,9 @@ class _SectionTitle extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 6, top: 4),
         child: Text(
           title.toUpperCase(),
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.8,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
         ),
       );
 }
@@ -687,9 +690,6 @@ class _Row extends StatelessWidget {
     this.dim = false,
     this.enhanced = false,
   });
-
-  // The masterwork gold used across the app for masterworked/enhanced flair.
-  static const _enhancedGold = Color(0xFFE5C15B);
 
   final String? iconUrl;
   final String name;
@@ -751,7 +751,7 @@ class _Row extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: _enhancedGold.withValues(alpha: 0.4),
+              color: ArmoryPalette.masterworkGold.withValues(alpha: 0.4),
               blurRadius: 4,
             ),
           ],

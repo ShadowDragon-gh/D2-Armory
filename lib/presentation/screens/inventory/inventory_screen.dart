@@ -6,6 +6,7 @@ import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/errors/failures.dart';
 import '../../../domain/models/inventory_grid.dart';
 import '../../providers/inventory_provider.dart';
+import '../../theme/armory_palette.dart';
 import '../../widgets/class_emblem.dart';
 import '../../widgets/item_tile.dart';
 import 'item_detail_panel.dart';
@@ -83,7 +84,7 @@ class _Grid extends StatelessWidget {
           for (final bucket in EquipmentBucket.values) ...[
             _BucketRow(bucket: bucket, characters: characters, vault: vault),
             // Full-width rule spanning columns and the gaps between them.
-            const Divider(height: 1, thickness: 1, color: Colors.white10),
+            const Divider(height: 1, thickness: 1),
           ],
           const SizedBox(height: 24),
         ],
@@ -184,7 +185,7 @@ class _ColumnGap extends StatelessWidget {
           // `gap` padding on the side facing this divider).
           Padding(
             padding: const EdgeInsets.only(left: InventoryScreen.gap),
-            child: Container(width: 1, color: Colors.white10),
+            child: Container(width: 1, color: ArmoryPalette.border),
           ),
         ],
       ),
@@ -275,8 +276,8 @@ class _EmptySlot extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DecoratedBox(
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.white12),
-          color: Colors.white.withValues(alpha: 0.02),
+          border: Border.all(color: ArmoryPalette.border),
+          color: ArmoryPalette.textPrimary.withValues(alpha: 0.02),
         ),
       );
 }
@@ -296,7 +297,7 @@ class _OwnerHeader extends StatelessWidget {
       margin: const EdgeInsets.only(left: InventoryScreen.gap),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: ArmoryRadius.md,
         color: theme.colorScheme.surfaceContainerHighest,
       ),
       child: Stack(
@@ -313,7 +314,7 @@ class _OwnerHeader extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
-                colors: [Colors.black87, Colors.black26],
+                colors: [ArmoryPalette.scrim87, ArmoryPalette.scrim26],
               ),
             ),
           ),
@@ -322,7 +323,8 @@ class _OwnerHeader extends StatelessWidget {
             child: Row(
               children: [
                 if (owner.isVault)
-                  const Icon(Icons.inventory_2, size: 20, color: Colors.white)
+                  const Icon(Icons.inventory_2,
+                      size: 20, color: ArmoryPalette.textPrimary)
                 else
                   ClassEmblem(
                     classType: owner.character?.classType ?? 3,
@@ -337,9 +339,11 @@ class _OwnerHeader extends StatelessWidget {
                       Text(
                         owner.title,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
+                          fontFamily: ArmoryFonts.display,
+                          color: ArmoryPalette.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          letterSpacing: 0.5,
                         ),
                       ),
                       if (!owner.isVault && owner.character != null)
@@ -350,7 +354,7 @@ class _OwnerHeader extends StatelessWidget {
                             Text(
                               '${owner.character!.light}',
                               style: const TextStyle(
-                                  color: Colors.amber,
+                                  color: ArmoryPalette.masterworkGold,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13),
                             ),
@@ -405,7 +409,8 @@ class _PowerDiamond extends StatelessWidget {
         width: 7,
         height: 7,
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.amber, width: 1.6),
+          border:
+              Border.all(color: ArmoryPalette.masterworkGold, width: 1.6),
         ),
       ),
     );

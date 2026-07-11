@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/search_provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/armory_palette.dart';
 import '../widgets/search_bar_field.dart';
 import 'database/database_screen.dart';
 import 'inventory/inventory_screen.dart';
@@ -30,7 +32,16 @@ class _AppShellState extends ConsumerState<AppShell> {
         titleSpacing: 16,
         title: Row(
           children: [
-            const Text('D2 Loadout Planner'),
+            SvgPicture.asset(
+              'assets/branding/logo-icon-transparent.svg',
+              width: 40,
+              height: 40,
+            ),
+            const SizedBox(width: 12),
+            SvgPicture.asset(
+              'assets/branding/logo-wordmark-transparent.svg',
+              height: 48,
+            ),
             const SizedBox(width: 24),
             _TabButton(
                 label: 'Inventory',
@@ -117,10 +128,12 @@ class _TabButton extends StatelessWidget {
               selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
         ),
         child: Text(
-          label,
+          label.toUpperCase(),
           style: TextStyle(
-            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-            fontSize: 15,
+            fontFamily: ArmoryFonts.display,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            fontSize: 16,
+            letterSpacing: 1.2,
           ),
         ),
       ),

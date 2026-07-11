@@ -257,12 +257,15 @@ class AuthRepository implements TokenProvider {
     await request.response.close();
   }
 
+  /// The one-shot page shown in the browser after Bungie redirects back.
+  /// Colors are the D2 Armory brand tokens (armory_palette.dart) as CSS hex —
+  /// vault-bronze accent on the surface-1 background.
   String _callbackPage(bool ok) {
-    final accent = ok ? '#7986CB' : '#C42B1C';
+    final accent = ok ? '#C98A3C' : '#D1453B';
     final glyph = ok ? '&#10003;' : '&#33;';
     final title = ok ? 'Signed in' : 'Sign-in failed';
     final message = ok
-        ? 'You can close this tab and return to Destiny Loadout Planner.'
+        ? 'You can close this tab and return to D2 Armory.'
         : 'Return to the app and try again.';
     return '''
 <!doctype html>
@@ -270,12 +273,12 @@ class AuthRepository implements TokenProvider {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>$title &middot; Destiny Loadout Planner</title>
+<title>$title &middot; D2 Armory</title>
 <style>
   html, body { height: 100%; margin: 0; }
   body {
     display: flex; align-items: center; justify-content: center;
-    background: #14151A; color: #E6E7EB;
+    background: #12161B; color: #ECEFF2;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .card { text-align: center; padding: 2rem; max-width: 24rem; }
@@ -285,8 +288,11 @@ class AuthRepository implements TokenProvider {
     background: ${accent}22; border: 2px solid $accent;
     color: $accent; font-size: 2.25rem; line-height: 1;
   }
-  h1 { margin: 0 0 0.5rem; font-size: 1.5rem; font-weight: 600; letter-spacing: 0.01em; }
-  p { margin: 0; color: #9A9CA6; font-size: 0.95rem; line-height: 1.5; }
+  h1 {
+    margin: 0 0 0.5rem; font-size: 1.5rem; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  p { margin: 0; color: #8A95A1; font-size: 0.95rem; line-height: 1.5; }
 </style>
 </head>
 <body>

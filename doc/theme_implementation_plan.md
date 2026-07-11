@@ -1,7 +1,7 @@
-# D2 Armoury Theme — Implementation Plan
+# D2 Armory Theme — Implementation Plan
 
-Adopt the brand system defined in `doc/design/d2-armoury-brand-handover.html` — the
-"D2 Armoury" steel-and-bronze tactical dark theme — as the app's design system:
+Adopt the brand system defined in `doc/design/d2-armory-brand-handover.html` — the
+"D2 Armory" steel-and-bronze tactical dark theme — as the app's design system:
 color tokens, typography, radii, shadows, and logo assets, replacing today's
 seeded-indigo Material theme and the ~80 hardcoded color literals scattered
 across the presentation layer.
@@ -15,7 +15,7 @@ migration — there is no legacy token system to fight, only literals to replace
 
 ## What the handover defines (source of truth)
 
-`doc/design/d2-armoury-brand-handover.html`, tokens in its `:root` block:
+`doc/design/d2-armory-brand-handover.html`, tokens in its `:root` block:
 
 - **Surfaces** (elevation ramp): `surface-0` #0D1013 → `surface-4` #2E3742 (5 steps)
 - **Borders**: `border` #2A323B, `border-strong` #3A4552, `border-stronger` #5A6672
@@ -74,7 +74,7 @@ migration — there is no legacy token system to fight, only literals to replace
 These are the three places where the handover and the existing code disagree.
 All three were decided per the proposals below: **D1 keep in-game rarity
 colors, D2 keep masterwork gold as its own token, D3 rename user-facing
-strings to "D2 Armoury".**
+strings to "D2 Armory".**
 
 ### D1. Rarity colors: handover tokens vs in-game-derived colors
 The handover's rarity set (common #8A95A1 … exotic #D1A13C) is deliberately
@@ -99,11 +99,11 @@ gear look interactive/branded.
 (`masterworkGold`), not part of the brand accent ramp. Bronze = interactive/brand;
 gold = game meaning. They must stay visually distinguishable.
 
-### D3. App name: "Destiny 2 Loadout Planner" vs "D2 Armoury"
-The brand is "D2 Armoury"; the app title (MaterialApp title, title-bar text,
+### D3. App name: "Destiny 2 Loadout Planner" vs "D2 Armory"
+The brand is "D2 Armory"; the app title (MaterialApp title, title-bar text,
 `Runner.rc` product strings, README) says "Destiny 2 Loadout Planner".
 
-**Proposed**: rename user-facing strings to "D2 Armoury" (keep the pubspec package
+**Proposed**: rename user-facing strings to "D2 Armory" (keep the pubspec package
 name `destiny2_loadout_planner` — renaming the Dart package is churn with no user
 value). If the rename is not wanted yet, Phase 5 shrinks to just the icon/logo swap.
 
@@ -114,13 +114,13 @@ value). If the rename is not wanted yet, Phase 5 shrinks to just the icon/logo s
 New directory `lib/presentation/theme/` with three files. No new dependencies —
 fonts are bundled assets, logos render with the existing `flutter_svg`.
 
-### `armoury_palette.dart` — raw token constants
+### `armory_palette.dart` — raw token constants
 Private-ish constants mirroring the handover 1:1 (same names, same hexes), so the
 handover HTML stays diff-able against this file. Includes the domain colors that
 the handover doesn't own (masterwork gold, penalty red — per D2) so every literal
 in the app has exactly one home.
 
-### `armoury_theme_extension.dart` — `ArmouryColors extends ThemeExtension<ArmouryColors>`
+### `armory_theme_extension.dart` — `ArmoryColors extends ThemeExtension<ArmoryColors>`
 For every token that has **no Material `ColorScheme` slot**:
 - `borderStronger` (#5A6672)
 - `textMuted` (#5A6672), `textDisabled` (#3A4552)
@@ -131,12 +131,12 @@ For every token that has **no Material `ColorScheme` slot**:
 - `tooltipSurface` (surface-3 at high alpha — replaces the three ad-hoc
   near-black chrome hexes)
 
-Accessed as `Theme.of(context).extension<ArmouryColors>()!`. Since the app is
+Accessed as `Theme.of(context).extension<ArmoryColors>()!`. Since the app is
 dark-only, `lerp` can be a simple `this`-return; still implement it properly
 (trivial `Color.lerp` per field) so a future light theme doesn't require rework.
 
 Radius and shadows are compile-time constants, not theme state:
-`ArmouryRadius.sm/md/lg` (4/8/12) and `ArmouryShadows.sm/md/lg` as
+`ArmoryRadius.sm/md/lg` (4/8/12) and `ArmoryShadows.sm/md/lg` as
 `List<BoxShadow>` matching the handover's three shadow levels.
 
 ### `app_theme.dart` — builds the `ThemeData`
@@ -204,9 +204,9 @@ checked by running the app before the next begins (checkpoint per phase).
 ### Phase 1 — Token foundation
 1. Add `assets/fonts/` (Rajdhani, Inter, JetBrains Mono; OFL licenses committed
    alongside), register fonts + `assets/branding/` in `pubspec.yaml`.
-2. Create `lib/presentation/theme/` (`armoury_palette.dart`,
-   `armoury_theme_extension.dart`, `app_theme.dart`) per the mapping above.
-3. Wire `theme: buildArmouryTheme()` in `main.dart`, registering the extension.
+2. Create `lib/presentation/theme/` (`armory_palette.dart`,
+   `armory_theme_extension.dart`, `app_theme.dart`) per the mapping above.
+3. Wire `theme: buildArmoryTheme()` in `main.dart`, registering the extension.
 
 **Checkpoint**: app runs; every theme-token-consuming screen (login, stubs,
 manifest loading, most chrome) already shows steel/bronze. Hardcoded surfaces
@@ -219,16 +219,16 @@ still look old — expected.
 2. `app_shell.dart`: tab styling (active tab = accent-500, display font,
    letter-spacing), action icons, shell background surface-1.
 3. `search_bar_field.dart`: swap `Material(elevation: 6)` overlay to surface-3 +
-   `ArmouryShadows.md` + border; suggestion highlight from accent tokens.
+   `ArmoryShadows.md` + border; suggestion highlight from accent tokens.
 
 **Checkpoint**: shell, tabs, title bar, search all on-brand.
 
 ### Phase 3 — Inventory surfaces
-1. `item_tile.dart`: `_masterwork` → `ArmouryColors.masterworkGold`; tooltip
+1. `item_tile.dart`: `_masterwork` → `ArmoryColors.masterworkGold`; tooltip
    literals → `tooltipSurface`/outline/onSurface; selection highlight
    `0xFF7AB8FF` → accent-200 (verify it still reads as "selected" against
    masterwork gold — if too close, use `borderStronger` + accent glow);
-   placeholder/border idioms → shared tokens; radius literals → `ArmouryRadius`.
+   placeholder/border idioms → shared tokens; radius literals → `ArmoryRadius`.
 2. `inventory_screen.dart`: `Colors.white10/12` dividers → `outlineVariant`;
    `Colors.amber` power + `_PowerDiamond` → masterworkGold (power/light is the
    same gold family in-game — one token, per D2).
@@ -265,7 +265,7 @@ distinguishable.
    (16/32/48/256 px layers — ImageMagick: render PNGs at each size, then
    `magick ... app_icon.ico`; one-off, done locally, commit the .ico).
 5. Per D3: update `MaterialApp.title`, title-bar text, and `Runner.rc`
-   product/file description strings to "D2 Armoury".
+   product/file description strings to "D2 Armory".
 
 **Checkpoint**: taskbar icon, title bar, and login screen carry the brand.
 

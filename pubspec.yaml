@@ -91,6 +91,35 @@ flutter:
     # DIM's generated exotic-weapon-hash -> catalyst-record-hash map (the
     # manifest doesn't express this link), used to resolve catalyst progress.
     - assets/data/exotic_to_catalyst_record.json
+    # D2 Armory logo assets (source of truth in doc/design/).
+    - assets/branding/logo-icon-transparent.svg
+    - assets/branding/logo-wordmark-transparent.svg
+
+  # D2 Armory brand typography (OFL-licensed; licenses in assets/fonts/).
+  # Rajdhani = display/headings, Inter = body, JetBrains Mono = stats/data.
+  fonts:
+    - family: Rajdhani
+      fonts:
+        - asset: assets/fonts/Rajdhani-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Rajdhani-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Rajdhani-Bold.ttf
+          weight: 700
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+    - family: JetBrains Mono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMono-Bold.ttf
+          weight: 700
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'presentation/screens/root_screen.dart';
+import 'presentation/theme/app_theme.dart';
 import 'presentation/widgets/window_title_bar.dart';
 
 Future<void> main() async {
@@ -33,14 +34,9 @@ class DestinyLoadoutPlannerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Destiny 2 Loadout Planner',
+      title: 'D2 Armory',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF5C6BC0),
-          brightness: Brightness.dark,
-        ),
-      ),
+      theme: buildArmoryTheme(),
       // A slim custom title bar sits above every screen.
       builder: (context, child) => WindowScaffold(child: child!),
       home: const RootScreen(),

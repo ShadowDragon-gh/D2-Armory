@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/search/search_suggestions.dart';
+import '../theme/armory_palette.dart';
+import '../theme/armory_theme_extension.dart';
 
 /// The shared search field with filter autocomplete, used by both the Inventory
 /// and Database tabs. It owns the text controller, the suggestion overlay, and
@@ -286,7 +288,8 @@ class _Field extends StatelessWidget {
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(vertical: 8),
             hintText: hintText,
-            hintStyle: TextStyle(fontSize: fontSize - 1),
+            hintStyle: TextStyle(
+                fontSize: fontSize - 1, color: context.armory.textMuted),
             prefixIcon: const Icon(Icons.search, size: 18),
             suffixIcon: Row(
               mainAxisSize: MainAxisSize.min,
@@ -307,7 +310,6 @@ class _Field extends StatelessWidget {
                   ),
               ],
             ),
-            border: const OutlineInputBorder(),
           ),
         );
       },
@@ -331,46 +333,54 @@ class _SuggestionsOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Material(
-      elevation: 6,
-      borderRadius: BorderRadius.circular(6),
-      color: theme.colorScheme.surfaceContainerHigh,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 320),
-        child: ListView.builder(
-          shrinkWrap: true,
-          padding: EdgeInsets.zero,
-          itemCount: options.length,
-          itemBuilder: (context, i) {
-            final option = options[i];
-            final selected = i == selectedIndex;
-            return InkWell(
-              onTap: () => onPick(option),
-              child: Container(
-                color: selected
-                    ? theme.colorScheme.primary.withValues(alpha: 0.14)
-                    : Colors.transparent,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Row(
-                  children: [
-                    Icon(Icons.search,
-                        size: 16,
-                        color: selected ? theme.colorScheme.primary : null),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(option.label,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight:
-                                selected ? FontWeight.w600 : FontWeight.normal,
-                          )),
-                    ),
-                  ],
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: ArmoryRadius.md,
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        boxShadow: ArmoryShadows.md,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        type: MaterialType.transparency,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480, maxHeight: 320),
+          child: ListView.builder(
+            shrinkWrap: true,
+            padding: EdgeInsets.zero,
+            itemCount: options.length,
+            itemBuilder: (context, i) {
+              final option = options[i];
+              final selected = i == selectedIndex;
+              return InkWell(
+                onTap: () => onPick(option),
+                child: Container(
+                  color: selected
+                      ? theme.colorScheme.primary.withValues(alpha: 0.14)
+                      : Colors.transparent,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Row(
+                    children: [
+                      Icon(Icons.search,
+                          size: 16,
+                          color: selected ? theme.colorScheme.primary : null),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(option.label,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: selected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            )),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );

@@ -1,5 +1,5 @@
 <svg width="620" height="200" viewBox="0 0 620 200" xmlns="http://www.w3.org/2000/svg" role="img">
-<title>D2 Armoury logo</title>
+<title>D2 Armory logo</title>
 <defs>
 <linearGradient id="steel" x1="0%" y1="0%" x2="100%" y2="100%">
 <stop offset="0%" stop-color="#3a4552"/>
@@ -25,7 +25,7 @@
 </g>
 
 <text x="210" y="125" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="2" fill="#c98a3c">D2</text>
-<text x="285" y="125" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="4" fill="#eceff2">ARMOURY</text>
+<text x="285" y="125" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="4" fill="#eceff2">ARMORY</text>
 <text x="212" y="160" font-family="Arial, sans-serif" font-size="16" font-weight="400" letter-spacing="5" fill="#8a95a1">DESTINY 2 LOADOUT MANAGER</text>
 
 </svg>

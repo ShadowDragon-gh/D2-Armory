@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/failures.dart';
 import '../../providers/auth_provider.dart';
+import '../../theme/armory_palette.dart';
 
 /// Entry screen. Presents Bungie sign-in and drives the OAuth flow via
 /// [authControllerProvider]. When Bungie credentials are missing from the env
@@ -27,11 +29,31 @@ class LoginScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.shield_outlined, size: 72, color: theme.colorScheme.primary),
+                SvgPicture.asset(
+                  'assets/branding/logo-icon-transparent.svg',
+                  width: 96,
+                  height: 96,
+                ),
                 const SizedBox(height: 24),
-                Text(
-                  'Destiny 2 Loadout Planner',
-                  style: theme.textTheme.headlineSmall,
+                // The D2 Armory wordmark: bronze "D2", steel-white "ARMORY"
+                // (the lockup in doc/design/, set in the display face).
+                Text.rich(
+                  TextSpan(
+                    style: const TextStyle(
+                      fontFamily: ArmoryFonts.display,
+                      fontSize: 30,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 2,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'D2 ',
+                        style:
+                            TextStyle(color: theme.colorScheme.primary),
+                      ),
+                      const TextSpan(text: 'ARMORY'),
+                    ],
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),

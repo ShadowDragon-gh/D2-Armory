@@ -20,7 +20,7 @@ class WindowScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!_isDesktop) return child;
     return Material(
-      color: const Color(0xFF14151A),
+      color: Theme.of(context).colorScheme.surfaceContainerLowest,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -39,37 +39,13 @@ class _TitleBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return SizedBox(
+    return const SizedBox(
       height: height,
       child: Row(
         children: [
-          Expanded(
-            child: DragToMoveArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Row(
-                  children: [
-                    Icon(Icons.shield_moon_outlined,
-                        size: 16, color: theme.colorScheme.primary),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Text(
-                        'Destiny 2 Loadout Planner',
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.85),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const _WindowButtons(),
+          // Bare drag strip — branding lives in the app bar, not the chrome.
+          Expanded(child: DragToMoveArea(child: SizedBox.expand())),
+          _WindowButtons(),
         ],
       ),
     );
@@ -159,7 +135,8 @@ class _WindowButtonState extends State<_WindowButton> {
 
   @override
   Widget build(BuildContext context) {
-    final hover = widget.hoverColor ?? Colors.white.withValues(alpha: 0.10);
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final hover = widget.hoverColor ?? onSurface.withValues(alpha: 0.10);
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -173,7 +150,7 @@ class _WindowButtonState extends State<_WindowButton> {
           child: Icon(
             widget.icon,
             size: widget.iconSize,
-            color: Colors.white.withValues(alpha: 0.9),
+            color: onSurface.withValues(alpha: 0.9),
           ),
         ),
       ),

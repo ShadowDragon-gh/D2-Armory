@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../theme/armory_palette.dart';
+
 /// The Destiny class mark (Titan / Hunter / Warlock), drawn as a vector so no
 /// assets or network are needed. [classType] follows DestinyClass:
 /// 0 = Titan, 1 = Hunter, 2 = Warlock.
@@ -10,7 +12,7 @@ class ClassEmblem extends StatelessWidget {
     super.key,
     required this.classType,
     this.size = 20,
-    this.color = Colors.white,
+    this.color = ArmoryPalette.textPrimary,
   });
 
   final int classType;

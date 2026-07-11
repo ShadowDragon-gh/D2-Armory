@@ -6,6 +6,7 @@ import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/destiny/destiny_enums.dart';
 import '../../../domain/models/item_detail.dart';
 import '../../providers/database_provider.dart';
+import '../../theme/armory_palette.dart';
 import '../../widgets/search_bar_field.dart';
 import 'database_detail_modal.dart';
 
@@ -227,18 +228,18 @@ class _GearRow extends ConsumerWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.white24),
+                  borderRadius: ArmoryRadius.sm,
+                  border: Border.all(color: ArmoryPalette.borderStronger),
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: gear.iconUrl == null
-                    ? const ColoredBox(color: Colors.black26)
+                    ? const ColoredBox(color: ArmoryPalette.scrim26)
                     : CachedNetworkImage(
                         imageUrl: gear.iconUrl!,
                         fit: BoxFit.cover,
                         fadeInDuration: Duration.zero,
                         errorWidget: (_, _, _) =>
-                            const ColoredBox(color: Colors.black26),
+                            const ColoredBox(color: ArmoryPalette.scrim26),
                       ),
               ),
               const SizedBox(width: 12),
