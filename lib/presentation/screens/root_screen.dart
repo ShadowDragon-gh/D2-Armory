@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/auth_state.dart';
+import '../providers/app_warmup_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/manifest_provider.dart';
 import 'app_shell.dart';
@@ -38,9 +39,12 @@ class _SignedInGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final manifestReady = ref.watch(manifestBootstrapProvider).hasValue;
-    return manifestReady
-        ? const AppShell()
-        : const ManifestLoadingScreen();
+    if (!manifestReady) return const ManifestLoadingScreen();
+    // Manifest is open: show the shell immediately and start warming every
+    // tab's data in the background. The shell does not wait — each tab shows
+    // its own spinner until its data lands, without blocking the others.
+    ref.watch(appWarmupProvider);
+    return const AppShell();
   }
 }
 

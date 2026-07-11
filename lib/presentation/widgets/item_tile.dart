@@ -30,9 +30,16 @@ class ItemTile extends ConsumerWidget {
     final dimmed = !query.isEmpty && !query.matches(item);
     final selected = identical(ref.watch(selectedItemProvider), item);
     final showCosmetics = ref.watch(showCosmeticsProvider);
-    final iconUrl = showCosmetics
-        ? (item.ornamentIconUrl ?? item.iconUrl)
-        : item.iconUrl;
+    // An applied ornament's flat icon carries the ornament's own (legendary)
+    // background. When the item ships a rarity plate + transparent ornament
+    // foreground (exotics), composite those so the exotic background is kept;
+    // otherwise fall back to the flat ornament icon.
+    final plateUrl = showCosmetics ? item.rarityPlateUrl : null;
+    final foregroundUrl = showCosmetics ? item.ornamentForegroundUrl : null;
+    final useComposite = plateUrl != null && foregroundUrl != null;
+    final iconUrl = useComposite
+        ? null
+        : (showCosmetics ? item.ornamentIconUrl : null) ?? item.iconUrl;
 
     final elementColor =
         item.damageType == null ? null : DamageType.color(item.damageType!);
@@ -44,6 +51,12 @@ class ItemTile extends ConsumerWidget {
         message:
             item.power != null ? '${item.name} · ${item.power}' : item.name,
         waitDuration: const Duration(milliseconds: 400),
+        decoration: BoxDecoration(
+          color: const Color(0xEE111318),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFF2A2E38)),
+        ),
+        textStyle: const TextStyle(color: Color(0xFFE6E8EC), fontSize: 12),
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
@@ -52,7 +65,12 @@ class ItemTile extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _iconSquare(iconUrl: iconUrl, selected: selected),
+                _iconSquare(
+                  iconUrl: iconUrl,
+                  selected: selected,
+                  plateUrl: plateUrl,
+                  foregroundUrl: foregroundUrl,
+                ),
                 if (item.power != null ||
                     elementColor != null ||
                     item.isLocked)
@@ -65,14 +83,17 @@ class ItemTile extends ConsumerWidget {
     );
   }
 
-  Widget _iconSquare({required String? iconUrl, bool selected = false}) {
+  Widget _iconSquare({
+    required String? iconUrl,
+    bool selected = false,
+    String? plateUrl,
+    String? foregroundUrl,
+  }) {
     final borderColor = selected
         ? const Color(0xFF7AB8FF) // selection highlight
-        : item.isEquipped
-            ? Colors.amber
-            : item.isMasterwork
-                ? _masterwork.withValues(alpha: 0.5)
-                : Colors.white24;
+        : item.isMasterwork
+            ? _masterwork.withValues(alpha: 0.5)
+            : Colors.white24;
 
     return Container(
       width: size,
@@ -81,19 +102,35 @@ class ItemTile extends ConsumerWidget {
         borderRadius: BorderRadius.circular(4),
         border: Border.all(
           color: borderColor,
-          width: selected || item.isEquipped ? 2 : 1,
+          width: selected ? 2 : 1,
         ),
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (iconUrl == null)
+          // Composite the rarity plate + transparent ornament foreground when
+          // both are provided (ornamented exotics); otherwise the flat icon.
+          if (plateUrl != null && foregroundUrl != null) ...[
+            CachedNetworkImage(
+              imageUrl: plateUrl,
+              fit: BoxFit.cover,
+              fadeInDuration: Duration.zero,
+              errorWidget: (_, _, _) => const ColoredBox(color: Colors.black26),
+            ),
+            CachedNetworkImage(
+              imageUrl: foregroundUrl,
+              fit: BoxFit.cover,
+              fadeInDuration: Duration.zero,
+              errorWidget: (_, _, _) => const SizedBox.shrink(),
+            ),
+          ] else if (iconUrl == null)
             const ColoredBox(color: Colors.black26)
           else
             CachedNetworkImage(
               imageUrl: iconUrl,
               fit: BoxFit.cover,
+              fadeInDuration: Duration.zero,
               errorWidget: (_, _, _) => const ColoredBox(color: Colors.black26),
             ),
           // Subtle translucent gold gradient rising from the bottom.
