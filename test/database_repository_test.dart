@@ -1,0 +1,382 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+import 'package:destiny2_loadout_planner/core/destiny/destiny_buckets.dart';
+import 'package:destiny2_loadout_planner/data/repositories/database_repository.dart';
+import 'package:destiny2_loadout_planner/data/repositories/manifest_repository.dart';
+import 'package:destiny2_loadout_planner/domain/models/item_detail.dart';
+
+class _MockManifest extends Mock implements ManifestRepository {}
+
+/// Socket-category hashes as they appear in real definitions.
+const _weaponPerksCategory = 4241085061;
+
+/// A minimal plug (perk/frame) definition. [typeName] sets itemTypeDisplayName
+/// (e.g. "Enhanced Trait"); [enhancedViaTooltip] instead marks it enhanced only
+/// through the game's enhanced tooltip style — the way enhanced origin traits
+/// are flagged while their itemTypeDisplayName stays a plain "Origin Trait".
+Map<String, dynamic> _plug(String name,
+        {String category = 'frames',
+        String? typeName,
+        bool enhancedViaTooltip = false}) =>
+    {
+      'displayProperties': {'name': name, 'icon': '/i/$name.png'},
+      'plug': {'plugCategoryIdentifier': category},
+      'itemTypeDisplayName': ?typeName,
+      if (enhancedViaTooltip)
+        'tooltipNotifications': [
+          {'displayStyle': 'ui_display_style_enhanced_perk'}
+        ],
+    };
+
+void main() {
+  late _MockManifest manifest;
+  late DatabaseRepository repo;
+
+  setUpAll(() => registerFallbackValue(GearKind.weapon));
+
+  setUp(() {
+    manifest = _MockManifest();
+    repo = DatabaseRepository(manifest: manifest);
+  });
+
+  /// A projected summary row as queryGearSummaries returns it.
+  Map<String, Object?> row({
+    required int hash,
+    required String name,
+    String icon = '/i.png',
+    int tierType = 5,
+    int itemType = 3,
+    int itemSubType = 9,
+    int classType = 3,
+    int damageType = 1,
+    int index = 0,
+  }) =>
+      {
+        'hash': hash,
+        'name': name,
+        'icon': icon,
+        'tierType': tierType,
+        'itemType': itemType,
+        'itemSubType': itemSubType,
+        'itemTypeDisplayName': '',
+        'classType': classType,
+        'damageType': damageType,
+        'damageTypeHash': null,
+        'ammoType': 1,
+        'bucketHash': 1498876634,
+        'idx': index,
+      };
+
+  group('listGear dedupe', () {
+    test('dedupes by name, keeping the highest manifest index (newest)', () {
+      when(() => manifest.queryGearSummaries(GearKind.weapon)).thenReturn([
+        row(hash: 1, name: 'Fatebringer', icon: '/old.png', index: 10),
+        row(hash: 2, name: 'Fatebringer', icon: '/new.png', index: 42),
+        row(hash: 3, name: 'Palindrome', icon: '/p.png', index: 5),
+      ]);
+
+      final rows = repo.listGear(const GearFilter(kind: GearKind.weapon));
+      final byName = {for (final r in rows) r.name: r};
+
+      expect(byName.keys.toSet(), {'Fatebringer', 'Palindrome'});
+      // The newer (index 42) Fatebringer wins: its hash and icon are kept.
+      expect(byName['Fatebringer']!.itemHash, 2);
+      expect(byName['Fatebringer']!.iconPath, '/new.png');
+    });
+
+    test('caches the per-kind index — the manifest scan runs once', () {
+      when(() => manifest.queryGearSummaries(GearKind.weapon))
+          .thenReturn([row(hash: 1, name: 'RealHC')]);
+
+      repo.listGear(const GearFilter(kind: GearKind.weapon));
+      repo.listGear(const GearFilter(kind: GearKind.weapon, tierType: 6));
+      repo.listGear(const GearFilter(kind: GearKind.weapon));
+
+      verify(() => manifest.queryGearSummaries(GearKind.weapon)).called(1);
+    });
+  });
+
+  group('listGear facet filters', () {
+    setUp(() {
+      when(() => manifest.queryGearSummaries(GearKind.weapon)).thenReturn([
+        row(hash: 1, name: 'ExoticSolarHC', tierType: 6, damageType: 3),
+        row(hash: 2, name: 'LegendaryVoidAR', itemSubType: 6, damageType: 4),
+        row(hash: 3, name: 'LegendarySolarHC', damageType: 3),
+      ]);
+    });
+
+    test('tier filter keeps only the matching rarity', () {
+      final rows = repo
+          .listGear(const GearFilter(kind: GearKind.weapon, tierType: 6));
+      expect(rows.map((r) => r.name), ['ExoticSolarHC']);
+    });
+
+    test('subtype filter keeps only the matching weapon type', () {
+      final rows = repo
+          .listGear(const GearFilter(kind: GearKind.weapon, itemSubType: 6));
+      expect(rows.map((r) => r.name), ['LegendaryVoidAR']);
+    });
+
+    test('damage filter keeps only the matching element', () {
+      final rows = repo
+          .listGear(const GearFilter(kind: GearKind.weapon, damageType: 3));
+      expect(rows.map((r) => r.name).toSet(),
+          {'ExoticSolarHC', 'LegendarySolarHC'});
+    });
+  });
+
+  group('resolveGearDetail — weapon perk columns', () {
+    setUp(() {
+      // resolveGearDetail resolves versions via the cached index; no reissues
+      // needed here, so the summaries scan returns empty.
+      when(() => manifest.queryGearSummaries(any())).thenReturn([]);
+      when(() => manifest.getSocketType(any())).thenReturn(null);
+
+      // A weapon with one WEAPON PERKS socket (index 1) drawing from a
+      // randomized plug set. Socket index 0 is a non-perk intrinsic frame.
+      when(() => manifest.getInventoryItem(100)).thenReturn({
+        'hash': 100,
+        'displayProperties': {'name': 'Test Cannon', 'icon': '/tc.png'},
+        'itemType': 3,
+        'itemSubType': 9,
+        'defaultDamageType': 1,
+        'flavorText': 'A test.',
+        'screenshot': '/shot/tc.jpg',
+        'inventory': {'tierType': 5, 'bucketTypeHash': 1498876634},
+        'stats': {
+          'stats': {
+            '1': {'statHash': 111, 'value': 60},
+            '2': {'statHash': 222, 'value': 30},
+          }
+        },
+        'sockets': {
+          'socketCategories': [
+            {
+              'socketCategoryHash': _weaponPerksCategory,
+              'socketIndexes': [1]
+            },
+          ],
+          'socketEntries': [
+            {'singleInitialItemHash': 900}, // frame intrinsic (index 0)
+            {'randomizedPlugSetHash': 555}, // perk column (index 1)
+          ],
+        },
+      });
+
+      // Stat definitions.
+      when(() => manifest.getStat(111)).thenReturn({
+        'displayProperties': {'name': 'Range'}
+      });
+      when(() => manifest.getStat(222)).thenReturn({
+        'displayProperties': {'name': 'Magazine'}
+      });
+
+      // The intrinsic frame plug.
+      when(() => manifest.getInventoryItem(900))
+          .thenReturn(_plug('Adaptive Frame', category: 'intrinsics'));
+
+      // The perk column's plug set: a base perk, an enhanced trait, an enhanced
+      // barrel, an enhanced-via-tooltip copy of the base perk (same name, as
+      // enhanced origin traits appear), and one empty placeholder.
+      when(() => manifest.getPlugSet(555)).thenReturn({
+        'reusablePlugItems': [
+          {'plugItemHash': 801},
+          {'plugItemHash': 802},
+          {'plugItemHash': 804},
+          {'plugItemHash': 805}, // enhanced "Rampage" via tooltip → NOT deduped
+          {'plugItemHash': 803}, // placeholder (no display name) → dropped
+        ]
+      });
+      when(() => manifest.getInventoryItem(801))
+          .thenReturn(_plug('Rampage', category: 'frames.traits'));
+      when(() => manifest.getInventoryItem(802)).thenReturn(
+          _plug('Kill Clip', category: 'frames.traits', typeName: 'Enhanced Trait'));
+      // An enhanced barrel — enhanced via itemTypeDisplayName, not a trait.
+      when(() => manifest.getInventoryItem(804)).thenReturn(
+          _plug('Fluted Barrel', category: 'barrels', typeName: 'Enhanced Barrel'));
+      // The enhanced Rampage: same name as 801, flagged only by the enhanced
+      // tooltip style (its itemTypeDisplayName stays plain).
+      when(() => manifest.getInventoryItem(805)).thenReturn(
+          _plug('Rampage', category: 'frames.traits', enhancedViaTooltip: true));
+      // Placeholder plug with no name.
+      when(() => manifest.getInventoryItem(803)).thenReturn({
+        'displayProperties': {'name': ''},
+        'plug': {'plugCategoryIdentifier': 'frames.traits'},
+      });
+      when(() => manifest.getBreakerType(any())).thenReturn(null);
+    });
+
+    test('stats come from the definition with no instance bonus/reduction', () {
+      final detail = repo.resolveGearDetail(100)!;
+      final range = detail.stats.firstWhere((s) => s.name == 'Range');
+      expect(range.value, 60);
+      expect(range.bonus, 0);
+      expect(range.reduction, 0);
+      // Magazine is a numeric stat (bare number, not a bar).
+      final mag = detail.stats.firstWhere((s) => s.name == 'Magazine');
+      expect(mag.display, StatDisplay.numeric);
+    });
+
+    test('flavor text and screenshot are carried through', () {
+      final detail = repo.resolveGearDetail(100)!;
+      expect(detail.flavorText, 'A test.');
+      expect(detail.screenshotPath, '/shot/tc.jpg');
+    });
+
+    test('perk column lists every candidate, dropping empty placeholders', () {
+      final plugs = repo.resolveGearDetail(100)!.perkColumns.single.plugs;
+      // 803 (empty placeholder) dropped. The base and enhanced Rampage are both
+      // kept — same-named base/enhanced rolls are distinct, real options and
+      // are never deduped.
+      expect(plugs.length, 4);
+      expect(plugs.map((p) => p.name).toSet(),
+          {'Rampage', 'Kill Clip', 'Fluted Barrel'});
+      expect(plugs.where((p) => p.name == 'Rampage').length, 2);
+    });
+
+    test('enhanced plugs are ordered before base plugs in a column', () {
+      final plugs = repo.resolveGearDetail(100)!.perkColumns.single.plugs;
+      // All three enhanced (Kill Clip, Fluted Barrel, enhanced Rampage) come
+      // first; the base Rampage comes last.
+      final firstBase = plugs.indexWhere((p) => !p.isEnhanced);
+      final lastEnhanced = plugs.lastIndexWhere((p) => p.isEnhanced);
+      expect(lastEnhanced, lessThan(firstBase));
+      expect(plugs.last.name, 'Rampage');
+      expect(plugs.last.isEnhanced, isFalse);
+    });
+
+    test('enhanced flagged across families: trait, barrel, and tooltip-only', () {
+      final plugs = repo.resolveGearDetail(100)!.perkColumns.single.plugs;
+      expect(plugs.firstWhere((p) => p.name == 'Kill Clip').isEnhanced, isTrue);
+      expect(
+          plugs.firstWhere((p) => p.name == 'Fluted Barrel').isEnhanced, isTrue);
+      // Rampage appears twice: one base, one enhanced (flagged only by the
+      // enhanced tooltip style — the origin-trait case).
+      final rampages = plugs.where((p) => p.name == 'Rampage').toList();
+      expect(rampages.where((p) => p.isEnhanced).length, 1);
+      expect(rampages.where((p) => !p.isEnhanced).length, 1);
+    });
+
+    test('intrinsic frame plug is resolved', () {
+      final detail = repo.resolveGearDetail(100)!;
+      expect(detail.frame?.name, 'Adaptive Frame');
+    });
+  });
+
+  group('resolveGearDetail — armor', () {
+    test('armor gets its exotic intrinsic but no weapon perk columns', () {
+      when(() => manifest.queryGearSummaries(any())).thenReturn([]);
+      when(() => manifest.getSocketType(any())).thenReturn(null);
+      when(() => manifest.getInventoryItem(200)).thenReturn({
+        'hash': 200,
+        'displayProperties': {'name': 'Exotic Helm', 'icon': '/h.png'},
+        'itemType': 2,
+        'itemSubType': 26,
+        'defaultDamageType': 0,
+        'inventory': {'tierType': 6, 'bucketTypeHash': 3448274439},
+        'stats': {
+          'stats': {
+            '1': {'statHash': 111, 'value': 12},
+          }
+        },
+        'sockets': {
+          // Armor has an ARMOR PERKS category, never WEAPON PERKS.
+          'socketCategories': [
+            {
+              'socketCategoryHash': 2518356196,
+              'socketIndexes': [0]
+            },
+          ],
+          'socketEntries': [
+            {'singleInitialItemHash': 910}, // exotic intrinsic (index 0)
+          ],
+        },
+      });
+      when(() => manifest.getStat(111)).thenReturn({
+        'displayProperties': {'name': 'Mobility'}
+      });
+      when(() => manifest.getInventoryItem(910))
+          .thenReturn(_plug('Nightmare Fuel', category: 'intrinsics'));
+      when(() => manifest.getBreakerType(any())).thenReturn(null);
+
+      final detail = repo.resolveGearDetail(200)!;
+      expect(detail.perkColumns, isEmpty);
+      expect(detail.frame?.name, 'Nightmare Fuel');
+      expect(detail.stats.single.name, 'Mobility');
+    });
+  });
+
+  group('facetsFor — search facet build', () {
+    setUp(() {
+      when(() => manifest.queryGearSummaries(GearKind.weapon))
+          .thenReturn([row(hash: 100, name: 'Facet Cannon')]);
+
+      when(() => manifest.getInventoryItem(100)).thenReturn({
+        'hash': 100,
+        'displayProperties': {
+          'name': 'Facet Cannon',
+          'icon': '/fc.png',
+          'description': 'Precision matters.',
+        },
+        'flavorText': 'Forged in the Light.',
+        'itemType': 3,
+        'inventory': {'tierType': 6, 'bucketTypeHash': 1498876634},
+        'breakerTypeHash': 3178805705, // Stagger → Unstoppable
+        'collectibleHash': 777,
+        'stats': {
+          'stats': {
+            '1': {'statHash': 111, 'value': 60},
+            '2': {'statHash': 222, 'value': 30},
+          }
+        },
+        'sockets': {
+          'socketEntries': [
+            {'randomizedPlugSetHash': 555},
+          ],
+        },
+      });
+      when(() => manifest.getStat(111)).thenReturn({
+        'displayProperties': {'name': 'Range'}
+      });
+      when(() => manifest.getStat(222)).thenReturn({
+        'displayProperties': {'name': 'Reload Speed'}
+      });
+      // The perk pool: one real trait, plus a masterwork plug that must NOT be
+      // treated as a searchable perk.
+      when(() => manifest.getPlugSet(555)).thenReturn({
+        'reusablePlugItems': [
+          {'plugItemHash': 801},
+          {'plugItemHash': 802}, // masterwork → excluded from perks
+        ]
+      });
+      when(() => manifest.getInventoryItem(801))
+          .thenReturn(_plug('Rampage', category: 'frames.traits'));
+      when(() => manifest.getInventoryItem(802))
+          .thenReturn(_plug('Range MW', category: 'v400.weapon.masterworks'));
+      when(() => manifest.getBreakerType(3178805705)).thenReturn({
+        'displayProperties': {'name': 'Stagger'}
+      });
+      when(() => manifest.getCollectible(777)).thenReturn({
+        'sourceString': 'Source: Season of the Seraph',
+      });
+    });
+
+    test('resolves perks (traits only), stats, breaker, source, description',
+        () {
+      final facets = repo.facetsFor(GearKind.weapon, 100)!;
+      expect(facets.perks, {'rampage'}); // masterwork plug excluded
+      expect(facets.stats, {'range': 60, 'reload speed': 30});
+      // Stagger's champion effect is Unstoppable; both are searchable so
+      // breaker:stagger and breaker:unstoppable each match.
+      expect(facets.breaker, 'stagger unstoppable');
+      expect(facets.sources, {'source: season of the seraph'});
+      // Description folds in both the mechanical description and flavor text.
+      expect(facets.description, 'precision matters. forged in the light.');
+    });
+
+    test('returns null for a hash not in the index', () {
+      expect(repo.facetsFor(GearKind.weapon, 999), isNull);
+    });
+  });
+}
