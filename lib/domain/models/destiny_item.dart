@@ -11,6 +11,8 @@ class DestinyItem {
     required this.name,
     required this.iconPath,
     this.ornamentIconPath,
+    this.ornamentForegroundPath,
+    this.rarityPlatePath,
     this.itemType = 0,
     this.itemSubType = 0,
     this.tierType = 0,
@@ -34,6 +36,17 @@ class DestinyItem {
   /// Icon of the applied (non-default) ornament, shown in place of [iconPath]
   /// when cosmetics display is enabled. Null when no ornament is socketed.
   final String? ornamentIconPath;
+
+  /// The applied ornament's transparent foreground art (its icon definition's
+  /// `foreground`), composited over [rarityPlatePath] so an ornamented exotic
+  /// keeps the exotic background instead of the ornament's legendary one. Both
+  /// this and [rarityPlatePath] are set together, only when that composite is
+  /// warranted; null otherwise (fall back to [ornamentIconPath]).
+  final String? ornamentForegroundPath;
+
+  /// The base item's rarity plate (its icon definition's `background`) — the
+  /// gold plate for exotics — drawn beneath [ornamentForegroundPath].
+  final String? rarityPlatePath;
 
   /// DestinyItemType: 2=Armor, 3=Weapon (and others).
   final int itemType;
@@ -73,6 +86,16 @@ class DestinyItem {
       (ornamentIconPath == null || ornamentIconPath!.isEmpty)
           ? null
           : '${AppConfig.bungieBaseUrl}$ornamentIconPath';
+
+  String? get ornamentForegroundUrl =>
+      (ornamentForegroundPath == null || ornamentForegroundPath!.isEmpty)
+          ? null
+          : '${AppConfig.bungieBaseUrl}$ornamentForegroundPath';
+
+  String? get rarityPlateUrl =>
+      (rarityPlatePath == null || rarityPlatePath!.isEmpty)
+          ? null
+          : '${AppConfig.bungieBaseUrl}$rarityPlatePath';
 
   String? get elementIconUrl =>
       (elementIconPath == null || elementIconPath!.isEmpty)

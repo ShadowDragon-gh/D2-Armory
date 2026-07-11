@@ -27,6 +27,24 @@ enum EquipmentBucket {
     }
     return null;
   }
+
+  /// The equipment buckets belonging to [kind] (weapon slots or armor slots).
+  static List<EquipmentBucket> forKind(GearKind kind) => [
+        for (final b in EquipmentBucket.values)
+          if (b.isWeapon == (kind == GearKind.weapon)) b,
+      ];
+}
+
+/// Which family of gear the Database tab is browsing. Maps to DestinyItemType
+/// (weapon=3, armor=2) and to the weapon vs armor [EquipmentBucket] slots.
+enum GearKind {
+  weapon(3),
+  armor(2);
+
+  const GearKind(this.itemType);
+
+  /// DestinyItemType value for this kind.
+  final int itemType;
 }
 
 /// DestinyDamageType enum → display name + colour for weapon element badges.

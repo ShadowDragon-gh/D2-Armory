@@ -4,10 +4,12 @@ import 'dart:io';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:logger/logger.dart';
 
+import '../../core/destiny/destiny_buckets.dart';
 import '../../core/errors/failures.dart';
 import '../local/manifest_database.dart';
 import '../local/manifest_downloader.dart';
 import '../remote/bungie_api.dart';
+import 'facet_builder.dart' show FacetSource;
 
 /// Progress of the manifest bootstrap, for surfacing on the loading screen.
 enum ManifestPhase { checking, downloading, opening, ready }
@@ -24,7 +26,7 @@ class ManifestProgress {
 
 /// Ensures a current manifest is downloaded and opened, and serves definition
 /// lookups from it.
-class ManifestRepository {
+class ManifestRepository implements FacetSource {
   ManifestRepository({
     required this._api,
     required this._downloader,
@@ -36,6 +38,15 @@ class ManifestRepository {
   final Logger _log;
 
   ManifestDatabase? _db;
+
+  // The opened manifest's on-disk path, retained so a background isolate can
+  // open its own read-only connection to the same file (the sqlite3 handle
+  // itself is not sendable across isolates, but the read-only file is).
+  String? _dbPath;
+
+  /// The opened manifest file path, or null before [ensureLoaded]. Used to warm
+  /// heavy definition work in a background isolate without blocking the UI.
+  String? get databasePath => _dbPath;
 
   // DIM's bundled exotic itemHash -> catalyst recordHash map (keys are the
   // unsigned item hashes as strings).
@@ -86,6 +97,7 @@ class ManifestRepository {
 
     onProgress?.call(const ManifestProgress(ManifestPhase.opening));
     _db = ManifestDatabase.open(localPath);
+    _dbPath = localPath;
     await _loadCatalystRecordMap();
     onProgress?.call(const ManifestProgress(ManifestPhase.ready));
   }
@@ -107,17 +119,23 @@ class ManifestRepository {
   int? catalystRecordHashFor(int itemHash) =>
       (_catalystRecordMap['$itemHash'] as num?)?.toInt();
 
+  @override
   Map<String, dynamic>? getInventoryItem(int hash) =>
       database.getInventoryItem(hash);
+
+  Map<String, dynamic>? getIcon(int hash) => database.getIcon(hash);
 
   Map<String, dynamic>? getDamageType(int hash) =>
       database.getDamageType(hash);
 
+  @override
   Map<String, dynamic>? getStat(int hash) => database.getStat(hash);
 
+  @override
   Map<String, dynamic>? getBreakerType(int hash) =>
       database.getBreakerType(hash);
 
+  @override
   Map<String, dynamic>? getSandboxPerk(int hash) =>
       database.getSandboxPerk(hash);
 
@@ -129,7 +147,19 @@ class ManifestRepository {
 
   Map<String, dynamic>? getObjective(int hash) => database.getObjective(hash);
 
+  @override
+  Map<String, dynamic>? getCollectible(int hash) =>
+      database.getCollectible(hash);
+
+  @override
   Map<String, dynamic>? getPlugSet(int hash) => database.getPlugSet(hash);
+
+  List<Map<String, Object?>> queryGearSummaries(GearKind kind) =>
+      database.queryGearSummaries(kind);
+
+  @override
+  Map<String, dynamic>? getSocketType(int hash) =>
+      database.getDefinition('DestinySocketTypeDefinition', hash);
 
   /// Remove manifest files from previous versions so they do not accumulate.
   /// Failure here is non-fatal but logged, not swallowed silently.
