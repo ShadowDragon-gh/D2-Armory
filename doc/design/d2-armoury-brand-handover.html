@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>D2 Armoury — brand handover</title>
+<style>
+  :root {
+    /* ============================================================
+       D2 ARMOURY — COLOR TOKENS
+       A tactical / industrial dark theme. Steel neutrals with a
+       bronze-amber accent, evoking a vault door and gunmetal armor
+       plating. Designed for a dark-mode-first app.
+       ============================================================ */
+
+    /* Surfaces — elevation ramp, darkest to lightest */
+    --surface-0: #0d1013;   /* page canvas, deepest background */
+    --surface-1: #12161b;   /* base app background (matches logo bg) */
+    --surface-2: #1c232b;   /* raised card / panel */
+    --surface-3: #232b34;   /* elevated panel / popover */
+    --surface-4: #2e3742;   /* hover state on surface-3 */
+
+    /* Borders */
+    --border: #2a323b;          /* default hairline */
+    --border-strong: #3a4552;   /* emphasized divider (shield gradient top) */
+    --border-stronger: #5a6672; /* heavy divider (shield inner ring) */
+
+    /* Text */
+    --text-primary: #eceff2;
+    --text-secondary: #8a95a1;
+    --text-muted: #5a6672;
+    --text-disabled: #3a4552;
+
+    /* Accent — "vault bronze" */
+    --accent-50:  #f7e9d6;
+    --accent-200: #e0a355;
+    --accent-500: #c98a3c;  /* brand primary — logo accent color */
+    --accent-600: #b3742c;
+    --accent-800: #6b4419;
+    --on-accent:  #1c130a;  /* text/icon color on top of accent-500 fill */
+
+    /* Semantic */
+    --success: #4caf6d;
+    --success-bg: #1c2b21;
+    --danger: #d1453b;
+    --danger-bg: #2b1c1c;
+    --warning: #d1a13c;
+    --warning-bg: #2b2416;
+    --info: #4a90c9;
+    --info-bg: #1a232b;
+
+    /* Item rarity accents (optional, for loadout/gear tier display) */
+    --rarity-common: #8a95a1;
+    --rarity-uncommon: #4caf6d;
+    --rarity-rare: #4a90c9;
+    --rarity-legendary: #a565d1;
+    --rarity-exotic: #d1a13c;
+
+    /* Typography */
+    --font-display: 'Rajdhani', 'Oswald', Arial, sans-serif;
+    --font-body: 'Inter', 'Barlow', Arial, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+
+    /* Radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    /* Shadow */
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.45);
+    --shadow-lg: 0 12px 32px rgba(0,0,0,0.5);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--surface-0);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    line-height: 1.6;
+    padding: 0 0 80px;
+  }
+
+  header.hero {
+    padding: 64px 40px 48px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-1);
+  }
+
+  header.hero h1 {
+    font-family: var(--font-display);
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin: 0 0 8px;
+  }
+
+  header.hero p {
+    color: var(--text-secondary);
+    font-size: 15px;
+    margin: 0;
+    max-width: 640px;
+  }
+
+  main {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 0 40px;
+  }
+
+  section {
+    margin-top: 64px;
+  }
+
+  section > h2 {
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent-500);
+    margin: 0 0 4px;
+  }
+
+  section > .section-desc {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin: 0 0 28px;
+    max-width: 640px;
+  }
+
+  /* Logo preview grid */
+  .logo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+  }
+
+  .logo-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+
+  .logo-card .preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px;
+    min-height: 140px;
+  }
+
+  .logo-card .preview.checkered {
+    background-image:
+      linear-gradient(45deg, #20262d 25%, transparent 25%),
+      linear-gradient(-45deg, #20262d 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #20262d 75%),
+      linear-gradient(-45deg, transparent 75%, #20262d 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    background-color: #171b20;
+  }
+
+  .logo-card .preview svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .logo-card .meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-3);
+  }
+
+  .logo-card .meta .name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .logo-card .meta .filename {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .logo-card .meta a.dl {
+    font-size: 12px;
+    color: var(--accent-500);
+    text-decoration: none;
+    border: 1px solid var(--border-strong);
+    padding: 5px 10px;
+    border-radius: var(--radius-sm);
+  }
+
+  .logo-card .meta a.dl:hover {
+    background: var(--surface-4);
+    border-color: var(--accent-500);
+  }
+
+  /* Color token table */
+  .token-group {
+    margin-bottom: 32px;
+  }
+
+  .token-group h3 {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0 0 12px;
+    color: var(--text-primary);
+  }
+
+  .swatch-row {
+    display: grid;
+    grid-template-columns: 56px 1fr auto auto;
+    gap: 16px;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .swatch-row:last-child { border-bottom: none; }
+
+  .swatch {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong);
+  }
+
+  .swatch-token {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+
+  .swatch-usage {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .swatch-hex {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: right;
+  }
+
+  /* Code block */
+  pre {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px 24px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+  }
+
+  pre .tok { color: var(--accent-500); }
+  pre .val { color: var(--text-primary); }
+  pre .cmt { color: var(--text-muted); }
+
+  .copy-btn {
+    float: right;
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: 5px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: var(--font-body);
+  }
+  .copy-btn:hover { border-color: var(--accent-500); color: var(--accent-500); }
+
+  .type-sample {
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .type-sample:last-child { border-bottom: none; }
+  .type-sample .label {
+    width: 140px;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .note {
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--surface-2);
+    border-left: 2px solid var(--accent-500);
+    padding: 12px 16px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    margin-top: 16px;
+  }
+
+  footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>D2 Armoury — brand handover</h1>
+  <p>Logo lockups, icon marks, wordmarks, and the full color token system for the D2 Armoury loadout manager. Everything on this page is built from the same CSS custom properties listed below, so it can be dropped directly into the app's stylesheet.</p>
+</header>
+
+<main>
+
+  <section id="logos">
+    <h2>Logo assets</h2>
+    <p class="section-desc">Six variants: full lockup, icon only, and wordmark only — each with a solid background and a transparent background. Transparent versions are shown on a checkerboard so the transparency is visible; the actual files have no fill behind the artwork.</p>
+
+    <div class="logo-grid">
+
+      <div class="logo-card">
+        <div class="preview"><svg width="620" height="200" viewBox="0 0 620 200" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>D2 Armoury logo</title>
+<defs>
+<linearGradient id="steel" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stop-color="#3a4552"/>
+<stop offset="100%" stop-color="#1c232b"/>
+</linearGradient>
+</defs>
+
+<rect x="0" y="0" width="620" height="200" fill="#12161b"/>
+
+<g transform="translate(95,100) scale(0.82)">
+<polygon points="0,-85 74,-42 74,42 0,85 -74,42 -74,-42" fill="url(#steel)" stroke="#c98a3c" stroke-width="2.5"/>
+<polygon points="0,-65 57,-32 57,32 0,65 -57,32 -57,-32" fill="none" stroke="#5a6672" stroke-width="1"/>
+<circle cx="0" cy="0" r="30" fill="#12161b" stroke="#c98a3c" stroke-width="2.5"/>
+<circle cx="0" cy="0" r="8" fill="#c98a3c"/>
+<line x1="0" y1="-30" x2="0" y2="-16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="0" y1="30" x2="0" y2="16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="-30" y1="0" x2="-16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="30" y1="0" x2="16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="21" y1="-21" x2="12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="-21" x2="-12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="21" y1="21" x2="12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="21" x2="-12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+</g>
+
+<text x="210" y="125" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="2" fill="#c98a3c">D2</text>
+<text x="285" y="125" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="4" fill="#eceff2">ARMOURY</text>
+<text x="212" y="160" font-family="Arial, sans-serif" font-size="16" font-weight="400" letter-spacing="5" fill="#8a95a1">DESTINY 2 LOADOUT MANAGER</text>
+
+</svg></div>
+        <div class="meta">
+          <div>
+            <div class="name">Full lockup — background</div>
+            <div class="filename">logo-full-bg.svg</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="logo-card">
+        <div class="preview checkered"><svg width="620" height="200" viewBox="0 0 620 200" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>D2 Armoury logo</title>
+<defs>
+<linearGradient id="steel" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stop-color="#3a4552"/>
+<stop offset="100%" stop-color="#1c232b"/>
+</linearGradient>
+</defs>
+
+
+<g transform="translate(95,100) scale(0.82)">
+<polygon points="0,-85 74,-42 74,42 0,85 -74,42 -74,-42" fill="url(#steel)" stroke="#c98a3c" stroke-width="2.5"/>
+<polygon points="0,-65 57,-32 57,32 0,65 -57,32 -57,-32" fill="none" stroke="#5a6672" stroke-width="1"/>
+<circle cx="0" cy="0" r="30" fill="#12161b" stroke="#c98a3c" stroke-width="2.5"/>
+<circle cx="0" cy="0" r="8" fill="#c98a3c"/>
+<line x1="0" y1="-30" x2="0" y2="-16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="0" y1="30" x2="0" y2="16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="-30" y1="0" x2="-16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="30" y1="0" x2="16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="21" y1="-21" x2="12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="-21" x2="-12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="21" y1="21" x2="12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="21" x2="-12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+</g>
+
+<text x="210" y="125" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="2" fill="#c98a3c">D2</text>
+<text x="285" y="125" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="4" fill="#eceff2">ARMOURY</text>
+<text x="212" y="160" font-family="Arial, sans-serif" font-size="16" font-weight="400" letter-spacing="5" fill="#8a95a1">DESTINY 2 LOADOUT MANAGER</text>
+
+</svg></div>
+        <div class="meta">
+          <div>
+            <div class="name">Full lockup — transparent</div>
+            <div class="filename">logo-full-transparent.svg</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="logo-card">
+        <div class="preview"><svg width="180" height="180" viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>D2 Armoury icon</title>
+<defs>
+<linearGradient id="steel" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stop-color="#3a4552"/>
+<stop offset="100%" stop-color="#1c232b"/>
+</linearGradient>
+</defs>
+
+<rect x="0" y="0" width="180" height="180" fill="#12161b"/>
+
+<g transform="translate(90,90)">
+<polygon points="0,-85 74,-42 74,42 0,85 -74,42 -74,-42" fill="url(#steel)" stroke="#c98a3c" stroke-width="2.5"/>
+<polygon points="0,-65 57,-32 57,32 0,65 -57,32 -57,-32" fill="none" stroke="#5a6672" stroke-width="1"/>
+<circle cx="0" cy="0" r="30" fill="#12161b" stroke="#c98a3c" stroke-width="2.5"/>
+<circle cx="0" cy="0" r="8" fill="#c98a3c"/>
+<line x1="0" y1="-30" x2="0" y2="-16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="0" y1="30" x2="0" y2="16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="-30" y1="0" x2="-16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="30" y1="0" x2="16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="21" y1="-21" x2="12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="-21" x2="-12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="21" y1="21" x2="12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="21" x2="-12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+</g>
+
+</svg></div>
+        <div class="meta">
+          <div>
+            <div class="name">Icon only — background</div>
+            <div class="filename">logo-icon-bg.svg</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="logo-card">
+        <div class="preview checkered"><svg width="180" height="180" viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>D2 Armoury icon</title>
+<defs>
+<linearGradient id="steel" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stop-color="#3a4552"/>
+<stop offset="100%" stop-color="#1c232b"/>
+</linearGradient>
+</defs>
+
+
+<g transform="translate(90,90)">
+<polygon points="0,-85 74,-42 74,42 0,85 -74,42 -74,-42" fill="url(#steel)" stroke="#c98a3c" stroke-width="2.5"/>
+<polygon points="0,-65 57,-32 57,32 0,65 -57,32 -57,-32" fill="none" stroke="#5a6672" stroke-width="1"/>
+<circle cx="0" cy="0" r="30" fill="#12161b" stroke="#c98a3c" stroke-width="2.5"/>
+<circle cx="0" cy="0" r="8" fill="#c98a3c"/>
+<line x1="0" y1="-30" x2="0" y2="-16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="0" y1="30" x2="0" y2="16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="-30" y1="0" x2="-16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="30" y1="0" x2="16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="21" y1="-21" x2="12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="-21" x2="-12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="21" y1="21" x2="12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="21" x2="-12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+</g>
+
+</svg></div>
+        <div class="meta">
+          <div>
+            <div class="name">Icon only — transparent</div>
+            <div class="filename">logo-icon-transparent.svg</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="logo-card">
+        <div class="preview"><svg width="460" height="110" viewBox="0 0 460 110" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>D2 Armoury wordmark</title>
+
+<rect x="0" y="0" width="460" height="110" fill="#12161b"/>
+
+<text x="20" y="60" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="2" fill="#c98a3c">D2</text>
+<text x="95" y="60" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="4" fill="#eceff2">ARMOURY</text>
+<text x="22" y="95" font-family="Arial, sans-serif" font-size="16" font-weight="400" letter-spacing="5" fill="#8a95a1">DESTINY 2 LOADOUT MANAGER</text>
+
+</svg></div>
+        <div class="meta">
+          <div>
+            <div class="name">Wordmark only — background</div>
+            <div class="filename">logo-wordmark-bg.svg</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="logo-card">
+        <div class="preview checkered"><svg width="460" height="110" viewBox="0 0 460 110" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>D2 Armoury wordmark</title>
+
+
+<text x="20" y="60" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="2" fill="#c98a3c">D2</text>
+<text x="95" y="60" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="4" fill="#eceff2">ARMOURY</text>
+<text x="22" y="95" font-family="Arial, sans-serif" font-size="16" font-weight="400" letter-spacing="5" fill="#8a95a1">DESTINY 2 LOADOUT MANAGER</text>
+
+</svg></div>
+        <div class="meta">
+          <div>
+            <div class="name">Wordmark only — transparent</div>
+            <div class="filename">logo-wordmark-transparent.svg</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="note">The icon-only mark is the one to use as an app icon / favicon — it reads clearly down to ~32px. Use the transparent versions on any non-<code>surface-1</code> background; the solid-background versions are for contexts where you can't guarantee what's behind the logo (e.g. pasting into a doc or slide).</div>
+  </section>
+
+  <section id="colors">
+    <h2>Color tokens</h2>
+    <p class="section-desc">Steel-and-bronze dark theme. Surfaces step from near-black up through card and popover elevations; bronze is the single accent, reserved for interactive and brand moments so it doesn't get diluted.</p>
+
+    <div class="token-group">
+      <h3>Surfaces</h3>
+      <div class="swatch-row"><div class="swatch" style="background:#0d1013"></div><div><div class="swatch-token">--surface-0</div><div class="swatch-usage">Page canvas, deepest background</div></div><div class="swatch-hex">#0D1013</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#12161b"></div><div><div class="swatch-token">--surface-1</div><div class="swatch-usage">Base app background</div></div><div class="swatch-hex">#12161B</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#1c232b"></div><div><div class="swatch-token">--surface-2</div><div class="swatch-usage">Raised card / panel</div></div><div class="swatch-hex">#1C232B</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#232b34"></div><div><div class="swatch-token">--surface-3</div><div class="swatch-usage">Elevated panel / popover</div></div><div class="swatch-hex">#232B34</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#2e3742"></div><div><div class="swatch-token">--surface-4</div><div class="swatch-usage">Hover state on surface-3</div></div><div class="swatch-hex">#2E3742</div></div>
+    </div>
+
+    <div class="token-group">
+      <h3>Borders</h3>
+      <div class="swatch-row"><div class="swatch" style="background:#2a323b"></div><div><div class="swatch-token">--border</div><div class="swatch-usage">Default hairline divider</div></div><div class="swatch-hex">#2A323B</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#3a4552"></div><div><div class="swatch-token">--border-strong</div><div class="swatch-usage">Emphasized divider, card outlines</div></div><div class="swatch-hex">#3A4552</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#5a6672"></div><div><div class="swatch-token">--border-stronger</div><div class="swatch-usage">Heavy divider, active outlines</div></div><div class="swatch-hex">#5A6672</div></div>
+    </div>
+
+    <div class="token-group">
+      <h3>Text</h3>
+      <div class="swatch-row"><div class="swatch" style="background:#eceff2"></div><div><div class="swatch-token">--text-primary</div><div class="swatch-usage">Headings, primary body copy</div></div><div class="swatch-hex">#ECEFF2</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#8a95a1"></div><div><div class="swatch-token">--text-secondary</div><div class="swatch-usage">Supporting text, descriptions</div></div><div class="swatch-hex">#8A95A1</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#5a6672"></div><div><div class="swatch-token">--text-muted</div><div class="swatch-usage">Captions, timestamps, hints</div></div><div class="swatch-hex">#5A6672</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#3a4552"></div><div><div class="swatch-token">--text-disabled</div><div class="swatch-usage">Disabled labels</div></div><div class="swatch-hex">#3A4552</div></div>
+    </div>
+
+    <div class="token-group">
+      <h3>Accent — vault bronze</h3>
+      <div class="swatch-row"><div class="swatch" style="background:#f7e9d6"></div><div><div class="swatch-token">--accent-50</div><div class="swatch-usage">Accent tint background</div></div><div class="swatch-hex">#F7E9D6</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#e0a355"></div><div><div class="swatch-token">--accent-200</div><div class="swatch-usage">Hover state on accent-500</div></div><div class="swatch-hex">#E0A355</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#c98a3c"></div><div><div class="swatch-token">--accent-500</div><div class="swatch-usage">Brand primary — logo accent, primary CTA</div></div><div class="swatch-hex">#C98A3C</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#b3742c"></div><div><div class="swatch-token">--accent-600</div><div class="swatch-usage">Active / pressed state</div></div><div class="swatch-hex">#B3742C</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#6b4419"></div><div><div class="swatch-token">--accent-800</div><div class="swatch-usage">Text on accent-50 tint</div></div><div class="swatch-hex">#6B4419</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#1c130a"></div><div><div class="swatch-token">--on-accent</div><div class="swatch-usage">Text/icon on top of accent-500 fill</div></div><div class="swatch-hex">#1C130A</div></div>
+    </div>
+
+    <div class="token-group">
+      <h3>Semantic</h3>
+      <div class="swatch-row"><div class="swatch" style="background:#4caf6d"></div><div><div class="swatch-token">--success</div><div class="swatch-usage">Success state, positive stat deltas</div></div><div class="swatch-hex">#4CAF6D</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#d1453b"></div><div><div class="swatch-token">--danger</div><div class="swatch-usage">Errors, destructive actions</div></div><div class="swatch-hex">#D1453B</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#d1a13c"></div><div><div class="swatch-token">--warning</div><div class="swatch-usage">Warnings, caution states</div></div><div class="swatch-hex">#D1A13C</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#4a90c9"></div><div><div class="swatch-token">--info</div><div class="swatch-usage">Informational callouts</div></div><div class="swatch-hex">#4A90C9</div></div>
+    </div>
+
+    <div class="token-group">
+      <h3>Gear rarity (optional — for item tier display)</h3>
+      <div class="swatch-row"><div class="swatch" style="background:#8a95a1"></div><div><div class="swatch-token">--rarity-common</div><div class="swatch-usage">Common gear border/glow</div></div><div class="swatch-hex">#8A95A1</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#4caf6d"></div><div><div class="swatch-token">--rarity-uncommon</div><div class="swatch-usage">Uncommon gear border/glow</div></div><div class="swatch-hex">#4CAF6D</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#4a90c9"></div><div><div class="swatch-token">--rarity-rare</div><div class="swatch-usage">Rare gear border/glow</div></div><div class="swatch-hex">#4A90C9</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#a565d1"></div><div><div class="swatch-token">--rarity-legendary</div><div class="swatch-usage">Legendary gear border/glow</div></div><div class="swatch-hex">#A565D1</div></div>
+      <div class="swatch-row"><div class="swatch" style="background:#d1a13c"></div><div><div class="swatch-token">--rarity-exotic</div><div class="swatch-usage">Exotic gear border/glow</div></div><div class="swatch-hex">#D1A13C</div></div>
+    </div>
+
+    <div class="note">These rarity tokens are named generically (common / uncommon / rare / legendary / exotic) rather than tied to any specific game's exact palette — safe to use as your own design system rather than a reproduction of Bungie's UI.</div>
+  </section>
+
+  <section id="typography">
+    <h2>Typography</h2>
+    <p class="section-desc">A condensed, geometric display face for headings and stat numbers (tactical/HUD feel), paired with a clean grotesk for body text and a monospace for stats or data tables. These are suggested Google Fonts pairings — not the literal font used in the logo artwork above, which is set in a generic bold sans for portability.</p>
+
+    <div class="type-sample"><div class="label">display / headings</div><div style="font-family:'Arial Narrow', Arial, sans-serif; font-weight:700; font-size:26px; letter-spacing:1px;">Rajdhani · Oswald</div></div>
+    <div class="type-sample"><div class="label">body</div><div style="font-family:Arial, sans-serif; font-size:16px;">Inter · Barlow</div></div>
+    <div class="type-sample"><div class="label">mono / stats</div><div style="font-family:'Consolas', monospace; font-size:15px;">JetBrains Mono</div></div>
+  </section>
+
+  <section id="css-export">
+    <h2>CSS custom properties</h2>
+    <p class="section-desc">Full token block, ready to paste into a global stylesheet or :root.</p>
+    <pre id="css-block"><span class="cmt">:root {</span>
+  <span class="cmt">/* surfaces */</span>
+  <span class="tok">--surface-0</span>: <span class="val">#0d1013</span>;
+  <span class="tok">--surface-1</span>: <span class="val">#12161b</span>;
+  <span class="tok">--surface-2</span>: <span class="val">#1c232b</span>;
+  <span class="tok">--surface-3</span>: <span class="val">#232b34</span>;
+  <span class="tok">--surface-4</span>: <span class="val">#2e3742</span>;
+
+  <span class="cmt">/* borders */</span>
+  <span class="tok">--border</span>: <span class="val">#2a323b</span>;
+  <span class="tok">--border-strong</span>: <span class="val">#3a4552</span>;
+  <span class="tok">--border-stronger</span>: <span class="val">#5a6672</span>;
+
+  <span class="cmt">/* text */</span>
+  <span class="tok">--text-primary</span>: <span class="val">#eceff2</span>;
+  <span class="tok">--text-secondary</span>: <span class="val">#8a95a1</span>;
+  <span class="tok">--text-muted</span>: <span class="val">#5a6672</span>;
+  <span class="tok">--text-disabled</span>: <span class="val">#3a4552</span>;
+
+  <span class="cmt">/* accent — vault bronze */</span>
+  <span class="tok">--accent-50</span>: <span class="val">#f7e9d6</span>;
+  <span class="tok">--accent-200</span>: <span class="val">#e0a355</span>;
+  <span class="tok">--accent-500</span>: <span class="val">#c98a3c</span>;
+  <span class="tok">--accent-600</span>: <span class="val">#b3742c</span>;
+  <span class="tok">--accent-800</span>: <span class="val">#6b4419</span>;
+  <span class="tok">--on-accent</span>: <span class="val">#1c130a</span>;
+
+  <span class="cmt">/* semantic */</span>
+  <span class="tok">--success</span>: <span class="val">#4caf6d</span>;
+  <span class="tok">--success-bg</span>: <span class="val">#1c2b21</span>;
+  <span class="tok">--danger</span>: <span class="val">#d1453b</span>;
+  <span class="tok">--danger-bg</span>: <span class="val">#2b1c1c</span>;
+  <span class="tok">--warning</span>: <span class="val">#d1a13c</span>;
+  <span class="tok">--warning-bg</span>: <span class="val">#2b2416</span>;
+  <span class="tok">--info</span>: <span class="val">#4a90c9</span>;
+  <span class="tok">--info-bg</span>: <span class="val">#1a232b</span>;
+
+  <span class="cmt">/* gear rarity */</span>
+  <span class="tok">--rarity-common</span>: <span class="val">#8a95a1</span>;
+  <span class="tok">--rarity-uncommon</span>: <span class="val">#4caf6d</span>;
+  <span class="tok">--rarity-rare</span>: <span class="val">#4a90c9</span>;
+  <span class="tok">--rarity-legendary</span>: <span class="val">#a565d1</span>;
+  <span class="tok">--rarity-exotic</span>: <span class="val">#d1a13c</span>;
+
+  <span class="cmt">/* typography */</span>
+  <span class="tok">--font-display</span>: <span class="val">'Rajdhani', 'Oswald', Arial, sans-serif</span>;
+  <span class="tok">--font-body</span>: <span class="val">'Inter', 'Barlow', Arial, sans-serif</span>;
+  <span class="tok">--font-mono</span>: <span class="val">'JetBrains Mono', 'Consolas', monospace</span>;
+
+  <span class="cmt">/* radius */</span>
+  <span class="tok">--radius-sm</span>: <span class="val">4px</span>;
+  <span class="tok">--radius-md</span>: <span class="val">8px</span>;
+  <span class="tok">--radius-lg</span>: <span class="val">12px</span>;
+
+  <span class="cmt">/* shadow */</span>
+  <span class="tok">--shadow-sm</span>: <span class="val">0 1px 2px rgba(0,0,0,0.4)</span>;
+  <span class="tok">--shadow-md</span>: <span class="val">0 4px 12px rgba(0,0,0,0.45)</span>;
+  <span class="tok">--shadow-lg</span>: <span class="val">0 12px 32px rgba(0,0,0,0.5)</span>;
+<span class="cmt">}</span></pre>
+  </section>
+
+  <footer>
+    D2 Armoury brand handover · v1.0 · built as a single reference document for design + engineering handoff
+  </footer>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,30 @@
+<svg width="620" height="200" viewBox="0 0 620 200" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>D2 Armoury logo</title>
+<defs>
+<linearGradient id="steel" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stop-color="#3a4552"/>
+<stop offset="100%" stop-color="#1c232b"/>
+</linearGradient>
+</defs>
+
+
+<g transform="translate(95,100) scale(0.82)">
+<polygon points="0,-85 74,-42 74,42 0,85 -74,42 -74,-42" fill="url(#steel)" stroke="#c98a3c" stroke-width="2.5"/>
+<polygon points="0,-65 57,-32 57,32 0,65 -57,32 -57,-32" fill="none" stroke="#5a6672" stroke-width="1"/>
+<circle cx="0" cy="0" r="30" fill="#12161b" stroke="#c98a3c" stroke-width="2.5"/>
+<circle cx="0" cy="0" r="8" fill="#c98a3c"/>
+<line x1="0" y1="-30" x2="0" y2="-16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="0" y1="30" x2="0" y2="16" stroke="#c98a3c" stroke-width="4"/>
+<line x1="-30" y1="0" x2="-16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="30" y1="0" x2="16" y2="0" stroke="#c98a3c" stroke-width="4"/>
+<line x1="21" y1="-21" x2="12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="-21" x2="-12" y2="-12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="21" y1="21" x2="12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+<line x1="-21" y1="21" x2="-12" y2="12" stroke="#c98a3c" stroke-width="3"/>
+</g>
+
+<text x="210" y="125" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="2" fill="#c98a3c">D2</text>
+<text x="285" y="125" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="4" fill="#eceff2">ARMOURY</text>
+<text x="212" y="160" font-family="Arial, sans-serif" font-size="16" font-weight="400" letter-spacing="5" fill="#8a95a1">DESTINY 2 LOADOUT MANAGER</text>
+
+</svg>
