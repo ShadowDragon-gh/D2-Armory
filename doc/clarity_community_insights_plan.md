@@ -354,3 +354,235 @@ is a good reference:
 - Subclass aspects and artifact perks (Clarity doesn't cover them).
 - Rendering `table` / `formula` nodes (stripped from `dim.json`).
 - Grid-tile hover insights.
+
+---
+
+# Part 2 — Weapon/gear acquisition source (d2-additional-info)
+
+Clarity does **not** carry "how you get this weapon" — its `dim.json` is keyed
+by perk/mod hashes and holds gameplay effect text; weapons appear only as a
+parent `itemHash` reference (see [§Background](#background-what-clarity-is-verified)).
+The acquisition source lives in **two** places, and this part wires both:
+
+1. **The manifest itself** — already on disk. `DestinyInventoryItemDefinition.collectibleHash`
+   → `DestinyCollectibleDefinition`, whose `sourceString` is *"a human readable
+   string for a hint about how to acquire the item"* (e.g. *"Source: Complete
+   the raid 'Salvation's Edge'"*). Zero new download.
+2. **DIM's [d2-additional-info](https://github.com/DestinyItemManager/d2-additional-info)
+   (d2ai)** — a curated, cleaner `sourceHash → description` map (`sources.json`)
+   plus a `weaponHash → quest step` map (`weapon-from-quest.json`). MIT-licensed,
+   so it can be redistributed/bundled.
+
+> **Distribution decision (locked):** d2ai ships as a **bundled Flutter asset
+> only — no runtime download, no GitHub refresh.** Destiny 2 is no longer
+> receiving content updates, so the source data is effectively final and
+> snapshot staleness is not a concern. This removes the downloader, ETag
+> handling, and the async bootstrap entirely: the asset *is* the data, loaded
+> synchronously at startup. (This is the one place Part 2 deliberately diverges
+> from the Clarity Part 1 pattern.)
+
+## Goal
+
+Show a **Source** row in the item detail panel stating how the selected weapon
+(or armor) is obtained. Success criteria:
+
+- Opening a weapon with a known source (a raid drop, a vendor item, a quest
+  reward) shows a **Source** line with readable acquisition text.
+- Where d2ai has a cleaner string for the item's `sourceHash`, that text is
+  shown; otherwise the manifest's `sourceString` is shown; if neither exists,
+  **no Source row appears** (the panel looks exactly as today).
+- Works **fully offline, always** — the d2ai snapshot ships as a bundled app
+  asset and is never downloaded, so there is no network dependency at all.
+- No regression if the d2ai asset is missing a `sourceHash`: the manifest
+  `sourceString` is used; if that too is absent, no row renders.
+- Attribution to DIM / d2-additional-info is present (MIT requires the notice).
+
+## Decisions locked in
+
+- **Source of truth: manifest-first, d2ai as override.** The manifest
+  `sourceString` is always present (no dependency); when d2ai's `sources.json`
+  has an entry for the same `sourceHash`, its cleaner text wins. This is a
+  deterministic lookup (Rule 5), not a merge — **surface, don't average**
+  (Rule 7): pick d2ai-if-present-else-manifest, never concatenate both.
+- **Bundled asset only, no refresh.** The d2ai snapshots ship as committed
+  Flutter assets and are never downloaded or refreshed at runtime. The game is
+  no longer updated, so the snapshot is final. This is simpler than the Clarity
+  pipeline (no downloader, no version/ETag check, no async bootstrap) — the
+  asset is loaded synchronously once at startup (Rule 2 — no speculative
+  refresh machinery).
+- **Datasets in scope:** `sources.json` (the source text — the core feature)
+  and `weapon-from-quest.json` (quest-origin note, narrow but cheap). Season
+  badge from `watermark-to-season.json` is **out** — noted as a follow-up.
+
+## Background: d2ai data shapes (verified)
+
+**Source of the snapshot.** Files live under
+`https://raw.githubusercontent.com/DestinyItemManager/d2-additional-info/master/output/`.
+We commit a one-time snapshot of `sources.json` and `weapon-from-quest.json`
+into the repo as assets; the app never fetches them. **License: MIT** —
+redistribution and bundling are permitted with the license notice retained
+(the `LICENSE` ships alongside the snapshot).
+
+**`sources.json`** — flat object, **key = `sourceHash` (string), value =
+description**:
+
+```jsonc
+{
+  "10464158": "Source: Acquired from Xûr",
+  "11666839": "Source: High-Difficulty Activities or Dismantled Exotic or Legendary Gear",
+  "13912404": "Source: Unlock Your Arc Subclass"
+}
+```
+
+**`weapon-from-quest.json`** — `weaponItemHash → initial quest step item hash`.
+Resolve the quest step's name via `getInventoryItem(stepHash)` for a
+"From the quest: *<name>*" note. Narrow coverage (quest weapons only).
+
+**The join (verified against DIM's own code):**
+
+```
+collectibleHash = itemDef.collectibleHash            // on the weapon/armor def
+collectible      = getDefinition('DestinyCollectibleDefinition', collectibleHash)
+sourceHash       = collectible.sourceHash            // int, key into sources.json
+manifestText     = collectible.sourceString          // always-present fallback
+text = d2aiSources[sourceHash] ?? manifestText       // d2ai override, else manifest
+```
+
+`DestinyCollectibleDefinition` is present in the mobile-world-content SQLite the
+app already downloads — it just isn't queried yet.
+
+---
+
+## Implementation phases (Part 2)
+
+Ordered so each is independently verifiable. Checkpoint after each. Unlike
+Clarity Part 1, there is **no downloader, store-freshness, or provider
+bootstrap** — the d2ai data is a synchronously-loaded asset.
+
+### Phase A — Manifest-only source (no d2ai yet)
+
+Ship the always-available path first; it needs no new files or download.
+
+- `lib/data/local/manifest_database.dart` — add
+  `Map<String, dynamic>? getCollectible(int hash)` (a one-line sibling of the
+  existing `getDefinition` wrappers).
+- `lib/data/repositories/manifest_repository.dart` — expose it if the repo
+  wraps the DB (match how `getRecord`/`getObjective` are surfaced).
+- `lib/domain/models/item_detail.dart` — add `final String? source;` to
+  `ItemDetail` (nullable; null = no row).
+- `lib/data/repositories/inventory_repository.dart` — in `resolveDetail`,
+  resolve `collectibleHash → collectible.sourceString` and pass it as `source`.
+  Trim empties to null.
+- `lib/presentation/screens/inventory/item_detail_panel.dart` — render a
+  **Source** row only when `detail.source != null`.
+
+**Checkpoint (Rule 9):** for a weapon with a known `collectibleHash`,
+`resolveDetail(...).source` equals the manifest `sourceString`; for an item
+with no collectible, it is null and no row renders.
+
+### Phase B — Bundle the d2ai snapshot and load it
+
+**Bundle the snapshot.** Add `assets/d2ai/sources.json`,
+`assets/d2ai/weapon-from-quest.json`, and `assets/d2ai/LICENSE` (a one-time
+committed snapshot of the d2ai `output/` files) and register `assets/d2ai/`
+under `flutter: assets:` in `pubspec.yaml`.
+
+**New: `lib/data/local/d2ai_source_data.dart`** — a small loader that reads the
+two bundled assets via `rootBundle.loadString` and parses them once into memory:
+- `Map<int, String> sourcesByHash` (parse the string keys to int on load)
+- `Map<int, int> questStepByWeapon`
+
+Expose a single `Future<D2aiSourceData> load()` (or an async init on the
+repository). No Dio, no file I/O, no version check. If an asset fails to parse
+(should never happen for a committed file), log it and continue with empty maps
+(Rule 12 — visible), so a bad snapshot degrades to manifest-only, never crashes.
+
+**Checkpoint:** a unit test loads the bundled (or a fixture) `sources.json` and
+asserts a known `sourceHash` resolves to its expected string, and a known
+weapon hash resolves to a quest step hash.
+
+### Phase C — Repository/provider wiring and the override join
+
+**New: `lib/data/repositories/d2ai_repository.dart`** — wraps `D2aiSourceData`.
+Exposes `String? sourceFor(int sourceHash)`, `int? questStepFor(int weaponHash)`,
+and `bool get isReady`. Loading is a single `await load()` at construction/init.
+
+**New: `lib/presentation/providers/d2ai_provider.dart`** — a
+`d2aiRepositoryProvider`. Since the data is a bundled asset (a few hundred KB,
+parsed once), it can be a `FutureProvider` awaited during startup like the
+manifest, or eagerly initialised; there is no network timing to design around.
+
+**Apply the override.** In `resolveDetail` (or the panel — match Part 1's chosen
+attachment approach), compute:
+```dart
+final override = collectible?.sourceHash != null
+    ? d2ai.sourceFor(collectible.sourceHash) : null;
+final questStep = d2ai.questStepFor(item.itemHash);   // optional
+source = override ?? manifestSourceString;
+```
+
+**Checkpoint:** a weapon whose `sourceHash` is in `sources.json` shows the d2ai
+text; a weapon whose `sourceHash` is absent shows the manifest `sourceString`;
+neither present → no row.
+
+### Phase D — Quest-origin note + attribution
+
+- **Quest origin:** when `questStepFor(item.itemHash)` is non-null, resolve the
+  step's display name via the manifest and show a secondary
+  "From the quest: *<name>*" line under the Source row.
+- **Attribution (MIT requires it):** add a credit line — "Source data from
+  Bungie's manifest and DIM's [d2-additional-info](https://github.com/DestinyItemManager/d2-additional-info)
+  (MIT)" — in the same About/Settings surface as the Clarity credit, and keep
+  the d2ai `LICENSE` text with the bundled snapshot (`assets/d2ai/LICENSE`).
+
+**Checkpoint (Rule 9):** a known quest weapon shows the quest line; the About
+surface shows the d2ai attribution.
+
+---
+
+## Files touched (Part 2 summary)
+
+**New**
+- `lib/data/local/d2ai_source_data.dart` (bundled-asset loader/parser)
+- `lib/data/repositories/d2ai_repository.dart`
+- `lib/presentation/providers/d2ai_provider.dart`
+- `assets/d2ai/sources.json`, `assets/d2ai/weapon-from-quest.json`,
+  `assets/d2ai/LICENSE` (bundled snapshot + license)
+- tests: manifest `getCollectible`, d2ai asset parse, override precedence,
+  Source-row widget test
+
+**Modified**
+- `lib/data/local/manifest_database.dart` — add `getCollectible(int hash)`.
+- `lib/data/repositories/manifest_repository.dart` — surface it (if wrapped).
+- `lib/domain/models/item_detail.dart` — add `final String? source;` (and
+  optionally `final String? questOrigin;`).
+- `lib/data/repositories/inventory_repository.dart` — resolve source in
+  `resolveDetail` (collectible lookup + d2ai override).
+- `lib/presentation/screens/inventory/item_detail_panel.dart` — render the
+  Source row (and quest-origin line) when present.
+- `pubspec.yaml` — register `assets/d2ai/`.
+- attribution surface — add the d2ai credit.
+
+## Risks & open questions (Part 2)
+
+- **`sourceString` is a hint, not exact.** Some strings are vague ("High-Difficulty
+  Activities") or describe reacquisition rather than the original drop. This is
+  Bungie's wording; we render as-is. d2ai cleans many but not all.
+- **Snapshot is intentionally frozen.** The bundled `sources.json` is a one-time
+  snapshot with no refresh — accepted because the game is no longer updated, so
+  no new source hashes will appear. If that assumption ever changes, adding a
+  downloader is a self-contained follow-up (the loader interface stays the same).
+- **Coverage gaps.** Not every item has a `collectibleHash` (some crafted/quest
+  rewards); those simply show no Source row.
+
+## Explicitly out of scope (Part 2)
+
+- **Season/event badge** (`watermark-to-season.json` / `watermark-to-event.json`) —
+  deriving the season from the watermark icon. A clean, self-contained follow-up:
+  the item's watermark icon path is already available on the definition; map it
+  to a season number/name and render a small badge. Deferred per the scoping
+  decision.
+- d2ai's other outputs (`focusing-item-outputs.json`, `special-vendors-strings.json`,
+  `seasons.json`) — not needed for a source line.
+- Grid-tile source display — the Source line lives in the detail panel only,
+  matching the Clarity insight placement.
