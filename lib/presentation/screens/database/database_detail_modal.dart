@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -510,11 +512,11 @@ class _RolledPlugArea extends StatelessWidget {
           const _SectionLabel('Perks'),
           if (instance.perkColumns.isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text('Highlighted perks are active on this roll.',
+            Text('Click a perk to select it on this weapon in-game.',
                 style: TextStyle(
                     fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(height: 10),
-            _RolledPerkGrid(columns: instance.perkColumns),
+            _RolledPerkGrid(instance: instance, columns: instance.perkColumns),
           ] else ...[
             const SizedBox(height: 8),
             chips(perks, rolled: true),
@@ -524,7 +526,7 @@ class _RolledPlugArea extends StatelessWidget {
         if (mods.isNotEmpty) ...[
           const _SectionLabel('Mods'),
           const SizedBox(height: 8),
-          chips(mods),
+          _RolledMods(instance: instance, mods: mods),
           const SizedBox(height: 16),
         ],
         if (masterwork.isNotEmpty || objectives.isNotEmpty) ...[
@@ -577,16 +579,19 @@ class _RolledPlugArea extends StatelessWidget {
 
 /// The roll view's perk grid: this instance's own per-socket options
 /// ([ItemDetail.perkColumns]) laid out like the definition grid, with each
-/// column's active perk ([PerkColumn.activeIndex]) highlighted. Read-only —
-/// perk preview belongs to the definition view.
-class _RolledPerkGrid extends StatelessWidget {
-  const _RolledPerkGrid({required this.columns});
+/// column's active perk highlighted. Clicking a non-active perk selects it on
+/// the weapon in-game (via [MoveController.insertPlug]): the highlight moves
+/// optimistically ([gearModalPlugOverrideProvider]) while the insert runs.
+class _RolledPerkGrid extends ConsumerWidget {
+  const _RolledPerkGrid({required this.instance, required this.columns});
 
+  final ItemDetail instance;
   final List<PerkColumn> columns;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final overrides = ref.watch(gearModalPlugOverrideProvider);
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -609,20 +614,215 @@ class _RolledPerkGrid extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   for (var i = 0; i < column.plugs.length; i++)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 3),
-                      child: Opacity(
-                        opacity: column.plugs[i].isEnabled ? 1 : 0.4,
-                        child: _PerkChip(
-                          plug: column.plugs[i],
-                          selected: i == column.activeIndex,
+                    Builder(builder: (context) {
+                      final plug = column.plugs[i];
+                      // The highlighted plug is the optimistic override for this
+                      // socket if one is pending, else the roll's active plug.
+                      final overrideHash = overrides[column.socketIndex];
+                      final selected = overrideHash != null
+                          ? plug.plugHash == overrideHash
+                          : i == column.activeIndex;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Opacity(
+                          opacity: plug.isEnabled ? 1 : 0.4,
+                          child: _PerkChip(
+                            plug: plug,
+                            selected: selected,
+                            // Clicking the already-selected plug is a no-op.
+                            onTap: selected || column.socketIndex < 0
+                                ? null
+                                : () => ref
+                                    .read(moveControllerProvider.notifier)
+                                    .insertPlug(
+                                      instance.item,
+                                      socketIndex: column.socketIndex,
+                                      plugHash: plug.plugHash,
+                                      plugName: plug.name,
+                                    ),
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    }),
                 ],
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The roll view's Mods section: one chip per equipped weapon mod. When a mod
+/// socket offers alternatives ([ItemDetail.modColumns]) the chip is clickable
+/// and opens a menu of the socket's options — each hoverable for its details —
+/// so picking one selects it in-game. Sockets with no alternatives show a plain
+/// (non-clickable) chip.
+class _RolledMods extends ConsumerWidget {
+  const _RolledMods({required this.instance, required this.mods});
+
+  final ItemDetail instance;
+  final List<ItemPlug> mods;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final overrides = ref.watch(gearModalPlugOverrideProvider);
+    return Wrap(
+      spacing: 4,
+      runSpacing: 2,
+      children: [
+        for (final mod in mods)
+          Builder(builder: (context) {
+            // The options column for this mod's socket (matched by socket
+            // index), if the socket offers a choice; null when it doesn't.
+            final column = _modColumnFor(mod);
+            if (column == null) {
+              return Opacity(
+                opacity: mod.isEnabled ? 1 : 0.4,
+                child: _PerkChip(plug: mod, selected: false),
+              );
+            }
+            // Reflect a pending optimistic pick on the equipped chip.
+            final overrideHash = overrides[column.socketIndex];
+            final shown = overrideHash == null
+                ? mod
+                : column.plugs.firstWhere((p) => p.plugHash == overrideHash,
+                    orElse: () => mod);
+            return _ModPicker(
+              instance: instance,
+              column: column,
+              equipped: shown,
+            );
+          }),
+      ],
+    );
+  }
+
+  /// The mod-options column whose socket holds [mod], or null when this mod's
+  /// socket offers no alternatives.
+  PerkColumn? _modColumnFor(ItemPlug mod) {
+    for (final column in instance.modColumns) {
+      if (column.socketIndex == mod.socketIndex) return column;
+    }
+    return null;
+  }
+}
+
+/// A weapon mod chip that opens a menu of its socket's options on click. The
+/// menu lists every option as a hoverable [_PerkChip] (its tooltip shows the
+/// mod's details); picking a non-equipped one selects it in-game and closes the
+/// menu. Owns its [MenuController] so the option taps can close it (the custom
+/// chips are not [MenuItemButton]s, which would auto-close).
+class _ModPicker extends ConsumerStatefulWidget {
+  const _ModPicker({
+    required this.instance,
+    required this.column,
+    required this.equipped,
+  });
+
+  final ItemDetail instance;
+  final PerkColumn column;
+  final ItemPlug equipped;
+
+  @override
+  ConsumerState<_ModPicker> createState() => _ModPickerState();
+}
+
+class _ModPickerState extends ConsumerState<_ModPicker> {
+  final _controller = MenuController();
+
+  // Cells per row in the options grid — a compact DIM-style icon grid rather
+  // than a tall single column when a socket has many options.
+  static const _gridColumns = 6;
+  static const _cellSize = 40.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final column = widget.column;
+    final equipped = widget.equipped;
+    return MenuAnchor(
+      controller: _controller,
+      style: MenuStyle(
+        backgroundColor:
+            WidgetStatePropertyAll(Theme.of(context).colorScheme.surface),
+        padding: const WidgetStatePropertyAll(EdgeInsets.all(8)),
+      ),
+      builder: (context, controller, _) => Opacity(
+        opacity: equipped.isEnabled ? 1 : 0.4,
+        child: _PerkChip(
+          plug: equipped,
+          selected: false,
+          onTap: () =>
+              controller.isOpen ? controller.close() : controller.open(),
+        ),
+      ),
+      // A single menu child holding the whole icon grid — MenuAnchor stacks its
+      // children vertically, so the grid layout lives inside one Wrap.
+      menuChildren: [
+        SizedBox(
+          width: _gridColumns * _cellSize,
+          child: Wrap(
+            children: [
+              for (final option in column.plugs)
+                _ModOptionIcon(
+                  plug: option,
+                  size: _cellSize,
+                  selected: option.plugHash == equipped.plugHash,
+                  onTap: option.plugHash == equipped.plugHash
+                      ? null
+                      : () {
+                          _controller.close();
+                          ref.read(moveControllerProvider.notifier).insertPlug(
+                                widget.instance.item,
+                                socketIndex: column.socketIndex,
+                                plugHash: option.plugHash,
+                                plugName: option.name,
+                              );
+                        },
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One cell in the mod-options grid: the mod's circular icon, hoverable for its
+/// details ([_PerkTooltip]) and clickable to select it. The equipped option is
+/// ringed; clicking it is a no-op (null [onTap]).
+class _ModOptionIcon extends StatelessWidget {
+  const _ModOptionIcon({
+    required this.plug,
+    required this.size,
+    required this.selected,
+    this.onTap,
+  });
+
+  final ItemPlug plug;
+  final double size;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PerkTooltip(
+      plug: plug,
+      child: MouseRegion(
+        cursor: onTap == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Opacity(
+              opacity: plug.isEnabled ? 1 : 0.4,
+              child: _PerkIcon(
+                  plug: plug, size: size - 8, selected: selected),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -741,17 +941,53 @@ class _RolledStats extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: stat.display == StatDisplay.bar
-                      ? _StatBar(
-                          value: stat.value,
-                          bonus: stat.bonus,
-                          reduction: stat.reduction)
-                      : const SizedBox.shrink(),
+                  child: switch (stat.display) {
+                    StatDisplay.bar => _StatBar(
+                        value: stat.value,
+                        modBonus: stat.modBonus,
+                        masterworkBonus: stat.masterworkBonus,
+                        reduction: stat.reduction),
+                    StatDisplay.recoil => Align(
+                        alignment: Alignment.centerLeft,
+                        child: _RecoilGauge(value: stat.value)),
+                    // A numeric stat has no bar; show the mod/masterwork effect
+                    // inline as (±N), coloured by whether it helps.
+                    StatDisplay.numeric => _NumericModEffect(stat: stat),
+                  },
                 ),
               ],
             ),
           ),
       ],
+    );
+  }
+}
+
+/// The inline mod/masterwork effect on a numeric stat (which has no bar):
+/// `(±N)` in gold when it helps the item or red when it hurts — benefit, not
+/// raw sign, so a beneficial reduction to an inverted stat (Heat Generated)
+/// reads gold. Renders nothing when the stat has no net effect.
+class _NumericModEffect extends StatelessWidget {
+  const _NumericModEffect({required this.stat});
+
+  final ItemStat stat;
+
+  @override
+  Widget build(BuildContext context) {
+    final net = stat.netEffect;
+    if (net == 0) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        '(${net > 0 ? '+' : ''}$net)',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: stat.netBeneficial
+              ? ArmoryPalette.masterworkGold
+              : ArmoryPalette.statPenaltyRed,
+        ),
+      ),
     );
   }
 }
@@ -801,13 +1037,19 @@ class _StatBlock extends ConsumerWidget {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: stat.display == StatDisplay.bar
-                        ? _StatBar(
-                            value: stat.value + delta,
-                            bonus: delta > 0 ? delta : 0,
-                            reduction: delta < 0 ? -delta : 0,
-                          )
-                        : const SizedBox.shrink(),
+                    child: switch (stat.display) {
+                      StatDisplay.bar => _StatBar(
+                          value: stat.value + delta,
+                          // A definition-view perk-preview gain keeps the gold
+                          // segment (it is a hypothetical roll, not a mod).
+                          masterworkBonus: delta > 0 ? delta : 0,
+                          reduction: delta < 0 ? -delta : 0,
+                        ),
+                      StatDisplay.recoil => Align(
+                          alignment: Alignment.centerLeft,
+                          child: _RecoilGauge(value: stat.value + delta)),
+                      StatDisplay.numeric => const SizedBox.shrink(),
+                    },
                   ),
                 ],
               ),
@@ -818,27 +1060,33 @@ class _StatBlock extends ConsumerWidget {
   }
 }
 
-/// A 0-100 stat bar: the plain portion in steel, a gold segment for the part
-/// granted by bonuses or perk gains, and a red deficit segment after the
-/// current value for a penalty — shared by the rolled and definition views.
+/// A 0-100 stat bar: the plain portion in steel, a blue segment for the part
+/// granted by equipped weapon mods, a gold segment for the masterwork/catalyst
+/// (or a definition-view perk-preview gain), and a red deficit segment after
+/// the current value for a penalty — shared by the rolled and definition views.
 class _StatBar extends StatelessWidget {
   const _StatBar({
     required this.value,
-    required this.bonus,
+    this.modBonus = 0,
+    this.masterworkBonus = 0,
     required this.reduction,
   });
 
   final int value;
-  final int bonus;
+  final int modBonus;
+  final int masterworkBonus;
   final int reduction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final total = value.clamp(0, 100);
-    final gain = bonus.clamp(0, total);
+    // The two gain segments sit at the end of the filled portion; clamp them to
+    // the value so together they never exceed it (mod first, then masterwork).
+    final mod = modBonus.clamp(0, total);
+    final mw = masterworkBonus.clamp(0, total - mod);
     final loss = reduction.clamp(0, 100 - total);
-    final solid = total - gain; // plain portion
+    final solid = total - mod - mw; // plain portion
     final rest = 100 - total - loss;
     return ClipRRect(
       borderRadius: BorderRadius.circular(2),
@@ -850,11 +1098,15 @@ class _StatBar extends StatelessWidget {
             if (solid > 0)
               Expanded(
                   flex: solid,
-                  // Steel, not bronze, so the gold gain segment reads apart.
+                  // Steel, not bronze, so the gain segments read apart.
                   child: ColoredBox(color: theme.colorScheme.secondary)),
-            if (gain > 0)
+            if (mod > 0)
               Expanded(
-                  flex: gain,
+                  flex: mod,
+                  child: const ColoredBox(color: ArmoryPalette.statModBlue)),
+            if (mw > 0)
+              Expanded(
+                  flex: mw,
                   child:
                       const ColoredBox(color: ArmoryPalette.masterworkGold)),
             if (loss > 0)
@@ -872,6 +1124,101 @@ class _StatBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Recoil-direction gauge: a filled wedge inside a semicircle showing the
+/// recoil's direction and spread, derived from the single 0-100 value using
+/// DIM's formula. A higher value is narrower/more vertical; near 100 it renders
+/// as a straight vertical line (fixed recoil).
+class _RecoilGauge extends StatelessWidget {
+  const _RecoilGauge({required this.value});
+
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      // Box is the semicircle's bounds (2r x r); the painter clips to it so
+      // only the top half of the circle shows.
+      size: const Size(22, 11),
+      painter: _RecoilPainter(
+        value: value.clamp(0, 100).toDouble(),
+        color: ArmoryPalette.textPrimary,
+        trackColor: ArmoryPalette.surface4,
+      ),
+    );
+  }
+}
+
+class _RecoilPainter extends CustomPainter {
+  _RecoilPainter({
+    required this.value,
+    required this.color,
+    required this.trackColor,
+  });
+
+  final double value;
+  final Color color;
+  final Color trackColor;
+
+  // A value from 100 to -100 where positive is right, negative left, 0 = up.
+  // Ported verbatim from DIM's RecoilStat.
+  static double _recoilDirection(double v) =>
+      math.sin((v + 5) * (math.pi / 10)) * (100 - v);
+
+  static const double _verticalScale = 0.8;
+  static const double _maxSpread = 180; // degrees
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // DIM draws a full circle in a 2x1 viewBox that shows only the top half.
+    // Clip to the box so the bottom half of the circle/wedge is hidden, giving
+    // a true semicircle with its flat side on the bottom edge.
+    canvas.clipRect(Offset.zero & size);
+    final r = size.width / 2;
+    final center = Offset(size.width / 2, size.height);
+    Offset pt(double ux, double uy) =>
+        Offset(center.dx + ux * r, center.dy - uy * r);
+
+    canvas.drawCircle(center, r, Paint()..color = trackColor);
+
+    final direction =
+        _recoilDirection(value) * _verticalScale * (math.pi / 180);
+    final fill = Paint()..color = color;
+
+    if (value >= 95) {
+      // Essentially fixed/vertical recoil: a straight line through the centre.
+      final x = math.sin(direction), y = math.cos(direction);
+      canvas.drawLine(
+        pt(-x, -y),
+        pt(x, y),
+        Paint()
+          ..color = color
+          ..strokeWidth = r * 0.1
+          ..strokeCap = StrokeCap.round,
+      );
+      return;
+    }
+
+    // Filled wedge from the centre spanning direction ± spread.
+    final spread = ((100 - value) / 100) *
+        (_maxSpread / 2) *
+        (math.pi / 180) *
+        (direction < 0 ? -1 : 1);
+    final more = pt(math.sin(direction + spread), math.cos(direction + spread));
+    final less = pt(math.sin(direction - spread), math.cos(direction - spread));
+
+    final path = Path()
+      ..moveTo(center.dx, center.dy)
+      ..lineTo(more.dx, more.dy)
+      ..arcToPoint(less, radius: Radius.circular(r), clockwise: direction < 0)
+      ..close();
+    canvas.drawPath(path, fill);
+  }
+
+  @override
+  bool shouldRepaint(_RecoilPainter old) =>
+      old.value != value || old.color != color;
 }
 
 /// The intrinsic frame (with the selected-perk effects list beside it) plus the
@@ -1084,16 +1431,20 @@ class _EffectsColumn extends StatelessWidget {
                     ),
                   ],
                 ),
-                // Stat changes (gold gains / red penalties).
+                // Stat changes: coloured by whether they help the item (gold),
+                // not the raw sign — a beneficial reduction to an inverted stat
+                // (e.g. -10 Heat Generated) reads gold, a penalty reads red.
+                // Shows the raw investment plus the actual applied change when
+                // the two differ (an interpolated stat).
                 for (final e in plug.statEffects)
                   Padding(
                     padding: const EdgeInsets.only(left: 30, top: 1),
                     child: Text(
-                      '${e.value > 0 ? '+' : ''}${e.value} ${e.name}',
+                      _statEffectLabel(e),
                       style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
-                          color: e.value > 0
+                          color: e.beneficial
                               ? ArmoryPalette.masterworkGold
                               : ArmoryPalette.statPenaltyRed),
                     ),
@@ -1386,6 +1737,23 @@ class _PerkTooltip extends StatelessWidget {
                         color: ArmoryPalette.textPrimary
                             .withValues(alpha: 0.82))),
               ],
+              // Stat changes the plug applies, coloured by benefit (gold) vs
+              // penalty (red) — not the raw sign, so a beneficial reduction to
+              // an inverted stat (e.g. -10 Heat Generated) reads gold. Shows the
+              // raw investment plus the actual applied change when they differ.
+              if (plug.statEffects.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                for (final e in plug.statEffects)
+                  Text(
+                    _statEffectLabel(e),
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: e.beneficial
+                            ? ArmoryPalette.masterworkGold
+                            : ArmoryPalette.statPenaltyRed),
+                  ),
+              ],
               // Clarity community-research block goes here once wired.
             ],
           ),
@@ -1396,6 +1764,16 @@ class _PerkTooltip extends StatelessWidget {
       child: MouseRegion(cursor: SystemMouseCursors.help, child: child),
     );
   }
+}
+
+/// The label for a plug's stat effect: the raw investment value the game
+/// advertises ("-10 Heat Generated"), plus the actual applied change in
+/// parentheses when it differs after the weapon's interpolation ("… (-2)").
+String _statEffectLabel(PerkStatEffect e) {
+  String signed(int v) => '${v > 0 ? '+' : ''}$v';
+  final raw = '${signed(e.value)} ${e.name}';
+  final applied = e.applied;
+  return applied == null ? raw : '$raw (${signed(applied)})';
 }
 
 class _SectionLabel extends StatelessWidget {

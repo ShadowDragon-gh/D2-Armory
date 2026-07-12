@@ -66,6 +66,32 @@ class BungieApi {
         'membershipType': membershipType,
       });
 
+  /// POST /Destiny2/Actions/Items/InsertSocketPlugFree/ — insert [plugItemHash]
+  /// into the [socketIndex] socket of the instanced item [itemId] on
+  /// [characterId]. Used to select a weapon perk or mod. This is the "free and
+  /// reversible" socket action: it needs only the `MoveEquipDestinyItems` scope
+  /// (not `AdvancedWriteActions`, which the material-consuming `InsertSocketPlug`
+  /// requires). Bungie only allows randomized/reusable plugs with no insertion
+  /// material cost, and will not overwrite a non-free plug with a free one.
+  Future<void> insertSocketPlugFree({
+    required String itemId,
+    required String characterId,
+    required int membershipType,
+    required int socketIndex,
+    required int plugItemHash,
+  }) =>
+      _postResponse('/Destiny2/Actions/Items/InsertSocketPlugFree/', {
+        'itemId': itemId,
+        'characterId': characterId,
+        'membershipType': membershipType,
+        'socketIndex': socketIndex,
+        'plug': {
+          'socketIndex': socketIndex,
+          'plugItemHash': plugItemHash,
+          'plugObjectiveValues': const <String, dynamic>{},
+        },
+      });
+
   /// Performs the GET and unwraps Bungie's platform envelope, which nests the
   /// payload under `Response` and signals errors via `ErrorCode` (1 = Success).
   Future<Map<String, dynamic>> _getResponse(

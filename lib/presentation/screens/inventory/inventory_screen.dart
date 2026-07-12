@@ -11,8 +11,8 @@ import '../../providers/inventory_provider.dart';
 import '../../theme/armory_palette.dart';
 import '../../widgets/class_emblem.dart';
 import '../../widgets/inventory_poller.dart';
+import '../../widgets/action_toast.dart';
 import '../../widgets/item_tile.dart';
-import '../../widgets/move_toast.dart';
 import '../database/database_detail_modal.dart';
 import 'item_detail_panel.dart';
 
@@ -56,7 +56,7 @@ class InventoryScreen extends ConsumerWidget {
     // failure by colour and icon; never a silent success.
     ref.listen(moveControllerProvider, (_, outcome) {
       if (outcome == null) return;
-      showMoveToast(context, outcome);
+      showActionToast(context, outcome);
       ref.read(moveControllerProvider.notifier).clear();
     });
 

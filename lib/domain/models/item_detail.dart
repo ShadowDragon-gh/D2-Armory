@@ -5,21 +5,36 @@ import 'destiny_item.dart';
 /// How a stat renders in the detail panel.
 enum StatDisplay { bar, numeric, recoil }
 
+/// [stats] reordered for the detail panel: bar stats first, then the recoil
+/// gauge, then numeric stats — original (manifest) order kept within each group.
+/// Shared by the definition and instance resolvers so both views match.
+List<ItemStat> sortStatsForDisplay(List<ItemStat> stats) => [
+      for (final group in const [
+        StatDisplay.bar,
+        StatDisplay.recoil,
+        StatDisplay.numeric
+      ])
+        ...stats.where((s) => s.display == group),
+    ];
+
 /// A resolved stat line for the detail panel. [display] controls rendering:
 /// a 0-100 bar, a bare number (e.g. RPM, Magazine, Zoom), or the recoil
-/// direction gauge. [bonus] is what equipped masterwork/catalyst/mod plugs
-/// add, drawn as a gold segment within the bar; [reduction] is what equipped
-/// plugs of any kind (including barrel/magazine perks) subtract, drawn as a
-/// red deficit segment after the bar. Positive perk contributions fold into
-/// the base bar, matching the in-game display.
+/// direction gauge. [modBonus] is what equipped weapon *mods* add (a blue bar
+/// segment) and [masterworkBonus] is what the masterwork/catalyst adds (a gold
+/// segment) — kept separate so the two contributions read distinctly.
+/// [reduction] is what equipped plugs of any kind (including barrel/magazine
+/// perks) subtract, drawn as a red deficit segment after the bar. Positive perk
+/// contributions fold into the base bar, matching the in-game display.
 class ItemStat {
   const ItemStat({
     required this.name,
     required this.value,
     this.statHash = 0,
     this.display = StatDisplay.bar,
-    this.bonus = 0,
+    this.modBonus = 0,
+    this.masterworkBonus = 0,
     this.reduction = 0,
+    this.inverted = false,
   });
 
   /// The stat's definition hash, so a selected perk's [PerkStatEffect] can be
@@ -29,23 +44,56 @@ class ItemStat {
   final String name;
   final int value;
   final StatDisplay display;
-  final int bonus;
+
+  /// The gain from equipped weapon mods (the blue bar segment).
+  final int modBonus;
+
+  /// The gain from the masterwork/catalyst (the gold bar segment).
+  final int masterworkBonus;
   final int reduction;
+
+  /// Whether this is an inverted "lower is better" stat (e.g. Heat Generated),
+  /// so a [reduction] is beneficial rather than a penalty — the UI colours the
+  /// net effect by this.
+  final bool inverted;
+
+  /// The combined mod + masterwork gain (for callers that don't distinguish
+  /// the two).
+  int get bonus => modBonus + masterworkBonus;
+
+  /// The net applied mod/masterwork effect, signed for display: gains minus the
+  /// reduction. Negative when the stat's displayed value dropped.
+  int get netEffect => modBonus + masterworkBonus - reduction;
+
+  /// Whether [netEffect] helps the item: a rise for a normal stat, or a drop
+  /// for an [inverted] one. False when there is no net effect.
+  bool get netBeneficial =>
+      netEffect != 0 && (inverted ? netEffect < 0 : netEffect > 0);
 }
 
 /// A stat a plug changes when selected: the stat's [hash] (to align it with
-/// the weapon's own stat rows), its display [name], and the signed [value] it
-/// adds (negative for a penalty).
+/// the weapon's own stat rows), its display [name], and the signed raw
+/// investment [value] it adds (the number the game advertises on the mod, e.g.
+/// -10 Heat Generated). [applied] is the *actual* change to the displayed stat
+/// after the weapon's interpolation (e.g. -2), or null when it equals [value]
+/// (a 1:1 stat, where showing both would be redundant). [beneficial] is whether
+/// the change helps the item — usually a positive [value], but for an inverted
+/// "lower is better" stat (Heat Generated) a negative one is the beneficial one,
+/// so the UI colours by this flag rather than the raw sign.
 class PerkStatEffect {
   const PerkStatEffect({
     required this.hash,
     required this.name,
     required this.value,
+    this.applied,
+    this.beneficial = true,
   });
 
   final int hash;
   final String name;
   final int value;
+  final int? applied;
+  final bool beneficial;
 }
 
 /// A resolved socket plug (perk / mod / masterwork / cosmetic / frame).
@@ -58,6 +106,8 @@ class ItemPlug {
     this.isEnabled = true,
     this.isEnhanced = false,
     this.statEffects = const [],
+    this.plugHash = 0,
+    this.socketIndex = -1,
   });
 
   final String name;
@@ -65,6 +115,18 @@ class ItemPlug {
   final PlugCategory category;
   final String description;
   final bool isEnabled;
+
+  /// The plug's own item hash — the plug to insert when selecting this option
+  /// in-game. 0 for plugs resolved without it (definition-only perk columns,
+  /// which are not selectable). The `socketIndex` on the owning [PerkColumn]
+  /// (perks) or on this plug (mods) pairs with it for an insert.
+  final int plugHash;
+
+  /// The instance socket this plug sits in, for a per-plug insert (weapon
+  /// mods, whose chips are not grouped in a [PerkColumn]). -1 when unknown or
+  /// not applicable. Perk-column plugs use the column's [PerkColumn.socketIndex]
+  /// instead.
+  final int socketIndex;
 
   /// True for the enhanced version of a weapon trait, which the panel marks
   /// with a golden glow and an upward arrow.
@@ -174,7 +236,12 @@ class KillTracker {
 /// names the column (e.g. "Barrel", "Magazine", "Trait"), derived from the
 /// socket's plug whitelist.
 class PerkColumn {
-  const PerkColumn({required this.plugs, this.label = '', this.activeIndex});
+  const PerkColumn({
+    required this.plugs,
+    this.label = '',
+    this.activeIndex,
+    this.socketIndex = -1,
+  });
 
   final List<ItemPlug> plugs;
   final String label;
@@ -182,6 +249,10 @@ class PerkColumn {
   /// Index in [plugs] of the plug currently active on the owning instance
   /// (the roll's equipped perk in this column); null for definition columns.
   final int? activeIndex;
+
+  /// The instance socket index this column maps to, used to insert a selected
+  /// plug in-game. -1 for definition columns (not tied to a live socket).
+  final int socketIndex;
 }
 
 /// The full, definition-sourced detail for the Database tab's modal: the
@@ -224,6 +295,7 @@ class ItemDetail {
     required this.stats,
     required this.plugs,
     this.perkColumns = const [],
+    this.modColumns = const [],
     this.breaker,
     this.killTracker,
     this.catalyst,
@@ -237,6 +309,12 @@ class ItemDetail {
   /// flagged ([PerkColumn.activeIndex]). Resolved only on request (see
   /// `InventoryRepository.resolveDetail`); empty otherwise.
   final List<PerkColumn> perkColumns;
+
+  /// This roll's weapon *mod* sockets, each as a column of the selectable mod
+  /// options at that socket with the equipped one flagged
+  /// ([PerkColumn.activeIndex]). Lets the modal offer a mod picker per socket.
+  /// Resolved with [perkColumns] (on request); empty otherwise.
+  final List<PerkColumn> modColumns;
 
   final BreakerType? breaker;
   final KillTracker? killTracker;

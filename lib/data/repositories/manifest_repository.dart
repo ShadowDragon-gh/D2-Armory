@@ -131,6 +131,9 @@ class ManifestRepository implements FacetSource {
   @override
   Map<String, dynamic>? getStat(int hash) => database.getStat(hash);
 
+  Map<String, dynamic>? getStatGroup(int hash) =>
+      database.getStatGroup(hash);
+
   @override
   Map<String, dynamic>? getBreakerType(int hash) =>
       database.getBreakerType(hash);

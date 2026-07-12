@@ -59,6 +59,10 @@ abstract final class ArmoryPalette {
   static const masterworkGold = Color(0xFFE5C15B);
   static const statPenaltyRed = Color(0xFFB84C43);
 
+  /// The bar segment for a stat gain granted by an equipped weapon *mod*, kept
+  /// visually distinct from the gold masterwork segment.
+  static const statModBlue = Color(0xFF4A90C9);
+
   /// Gradient stops for the translucent gold wash on masterworked item tiles.
   static const masterworkGlow = Color(0x42E5C15B);
   static const masterworkGlowEnd = Color(0x00E5C15B);

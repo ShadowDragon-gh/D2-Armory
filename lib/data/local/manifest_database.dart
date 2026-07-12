@@ -47,6 +47,9 @@ class ManifestDatabase implements FacetSource {
   Map<String, dynamic>? getStat(int hash) =>
       getDefinition('DestinyStatDefinition', hash);
 
+  Map<String, dynamic>? getStatGroup(int hash) =>
+      getDefinition('DestinyStatGroupDefinition', hash);
+
   @override
   Map<String, dynamic>? getBreakerType(int hash) =>
       getDefinition('DestinyBreakerTypeDefinition', hash);

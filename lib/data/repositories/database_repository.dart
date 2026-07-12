@@ -95,6 +95,8 @@ class DatabaseRepository {
     'guard resistance',
     'guard endurance',
     'charge rate',
+    'heat generated',
+    'cooling efficiency',
   };
 
   /// The gear of [filter], as list-row summaries. Filtered in Dart against the
@@ -316,8 +318,8 @@ class DatabaseRepository {
 
   /// Base stats from the definition's `stats.stats` map. These are the raw
   /// definition values — no instance masterwork/mod bonuses, so no gold/red
-  /// segments (the plain bar path). Ordered bar/recoil stats first, then numeric
-  /// stats (matching the in-game layout), and the always-zero power-level stats
+  /// segments (the plain bar path). Ordered bar, then recoil, then numeric
+  /// stats via [sortStatsForDisplay], with the always-zero power-level stats
   /// dropped.
   List<ItemStat> _resolveStats(Map<String, dynamic> def) {
     final map = def['stats']?['stats'];
@@ -341,12 +343,7 @@ class DatabaseRepository {
       result.add(ItemStat(
           statHash: statHash, name: name, value: value, display: display));
     }
-    // Bar/recoil stats first, numeric stats last; stable within each group.
-    final bars =
-        result.where((s) => s.display != StatDisplay.numeric).toList();
-    final numerics =
-        result.where((s) => s.display == StatDisplay.numeric).toList();
-    return [...bars, ...numerics];
+    return sortStatsForDisplay(result);
   }
 
   /// The intrinsic frame plug(s): a weapon's frame ("Adaptive Frame") or an

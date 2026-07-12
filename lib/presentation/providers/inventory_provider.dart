@@ -93,17 +93,23 @@ class DraggingNotifier extends Notifier<bool> {
 final isDraggingProvider =
     NotifierProvider<DraggingNotifier, bool>(DraggingNotifier.new);
 
-/// The result of a completed move, surfaced to the UI for a snackbar. [ok] is
-/// false for a failed move; [message] is always safe to show (on failure it
-/// states what went wrong, including a stranded-in-vault partial failure).
+/// The result of a completed action (a move, equip, or perk/mod insert),
+/// surfaced to the UI for a toast. [ok] is false on failure; [message] is
+/// always safe to show (on failure it states what went wrong, including a
+/// stranded-in-vault partial failure). [title] is the toast's header line —
+/// caller-supplied so it names the specific action ("Move complete",
+/// "Perk selected", …); it defaults to move/failure wording.
 class MoveOutcome {
-  const MoveOutcome._(this.ok, this.message);
+  const MoveOutcome._(this.ok, this.message, this.title);
 
-  const MoveOutcome.success(String message) : this._(true, message);
-  const MoveOutcome.failure(String message) : this._(false, message);
+  const MoveOutcome.success(String message, {String title = 'Move complete'})
+      : this._(true, message, title);
+  const MoveOutcome.failure(String message, {String title = 'Action failed'})
+      : this._(false, message, title);
 
   final bool ok;
   final String message;
+  final String title;
 }
 
 /// Drives item moves triggered by a drag-and-drop: it resolves the source and
@@ -120,6 +126,13 @@ class MoveController extends Notifier<MoveOutcome?> {
   MoveOutcome? build() => null;
 
   bool _inFlight = false;
+
+  /// The most recent mod/perk pick made while an insert was already in flight,
+  /// run once the current one settles. Only the latest is kept — intermediate
+  /// clicks collapse to the last, so a rapid series stays serialised (never
+  /// concurrent POSTs) yet the final selection always wins.
+  ({DestinyItem item, int socketIndex, int plugHash, String plugName})?
+      _pendingInsert;
 
   /// True while a move is running, so the UI can show progress and the poll can
   /// pause.
@@ -156,10 +169,10 @@ class MoveController extends Notifier<MoveOutcome?> {
       // where it actually is (never a false success), and highlight it there.
       _patchMove(instanceId, drag.fromOwnerId, 'vault');
       ref.read(recentlyMovedProvider.notifier).mark(instanceId);
-      state = MoveOutcome.failure(e.message);
+      state = MoveOutcome.failure(e.message, title: 'Move failed');
     } on Failure catch (e) {
       // The move did not happen; leave the grid unchanged.
-      state = MoveOutcome.failure(e.message);
+      state = MoveOutcome.failure(e.message, title: 'Move failed');
     } finally {
       _inFlight = false;
     }
@@ -195,7 +208,7 @@ class MoveController extends Notifier<MoveOutcome?> {
         } on StrandedInVaultFailure catch (e) {
           _patchMove(instanceId, drag.fromOwnerId, 'vault');
           ref.read(recentlyMovedProvider.notifier).mark(instanceId);
-          state = MoveOutcome.failure(e.message);
+          state = MoveOutcome.failure(e.message, title: 'Move failed');
           return;
         }
         _patchMove(instanceId, drag.fromOwnerId, toOwner.id);
@@ -209,7 +222,8 @@ class MoveController extends Notifier<MoveOutcome?> {
           ref.read(recentlyMovedProvider.notifier).mark(instanceId);
           state = MoveOutcome.failure(
               'Moved ${drag.item.name} to ${toOwner.title}, but could not '
-              'equip it: ${e.message}');
+              'equip it: ${e.message}',
+              title: 'Move failed');
           return;
         }
         _patchEquip(instanceId, toOwner.id);
@@ -225,10 +239,150 @@ class MoveController extends Notifier<MoveOutcome?> {
       ref.read(recentlyMovedProvider.notifier).mark(instanceId);
       state = MoveOutcome.success('Equipped ${drag.item.name}.');
     } on Failure catch (e) {
-      state = MoveOutcome.failure(e.message);
+      state = MoveOutcome.failure(e.message, title: 'Move failed');
     } finally {
       _inFlight = false;
     }
+  }
+
+  /// Insert [plugHash] into [item]'s [socketIndex] socket — selecting the perk
+  /// or mod named [plugName] in-game. [item] must be the owned instance backing
+  /// the gear-detail modal; its owner is resolved from the current grid (the
+  /// insert needs a character, so an item in the vault cannot be edited).
+  ///
+  /// The modal's highlight moves optimistically via [gearModalPlugOverrideProvider]
+  /// the moment the click lands; the POST then runs, and on success the profile
+  /// is refetched so the roll's stats/sockets reconcile from real data — the
+  /// grid's fresh [DestinyItem] is re-selected so the modal's instance-detail
+  /// recomputes. On failure the optimistic override for that socket is rolled
+  /// back and the toast says what went wrong. Serialised with moves/equips via
+  /// [_inFlight] so a rapid series of clicks never fires concurrent POSTs.
+  Future<void> insertPlug(
+    DestinyItem item, {
+    required int socketIndex,
+    required int plugHash,
+    required String plugName,
+  }) async {
+    final instanceId = item.itemInstanceId;
+    if (instanceId == null) return;
+    // A click while another insert is in flight: acknowledge it visually (move
+    // the highlight now) and queue it to run when the current one settles, so
+    // the click is never silently dropped and POSTs stay serialised. A later
+    // click overwrites the pending one — only the last selection is applied.
+    if (_inFlight) {
+      ref
+          .read(gearModalPlugOverrideProvider.notifier)
+          .set(socketIndex, plugHash);
+      _pendingInsert = (
+        item: item,
+        socketIndex: socketIndex,
+        plugHash: plugHash,
+        plugName: plugName,
+      );
+      return;
+    }
+
+    final grid = ref.read(inventoryGridProvider).value;
+    final owner = grid == null ? null : _ownerOf(grid, instanceId);
+    if (owner == null) {
+      state = MoveOutcome.failure(
+          'Could not find "${item.name}" in your inventory.',
+          title: 'Selection failed');
+      return;
+    }
+    if (owner.isVault) {
+      state = MoveOutcome.failure(
+          'Move "${item.name}" to a character before changing its perks.',
+          title: 'Selection failed');
+      return;
+    }
+
+    _inFlight = true;
+    state = null;
+    final repo = ref.read(inventoryRepositoryProvider);
+    // Optimistic update, applied together the moment the click lands:
+    //  - the highlight moves to the picked plug (override), and
+    //  - the cached sockets/stats are patched so the stat bars shift too.
+    // Both are reverted as a unit if the insert fails. `oldPlugHash` is the plug
+    // the socket held (captured from the patch) so the rollback can restore it,
+    // which reverses the stat delta symmetrically.
+    ref.read(gearModalPlugOverrideProvider.notifier).set(socketIndex, plugHash);
+    final oldPlugHash = repo.patchSocketPlug(item, socketIndex, plugHash);
+    ref.read(gearModalRevisionProvider.notifier).bump();
+    try {
+      await ref.read(itemTransferRepositoryProvider).insertPlug(
+            item,
+            owner,
+            socketIndex: socketIndex,
+            plugHash: plugHash,
+          );
+      // The roll changed on the server; refetch so the instance's stats and
+      // sockets reconcile from real data. The refetch may be discarded if
+      // Bungie's edge cache serves a not-newer profile — the optimistic patch
+      // above still holds until a genuinely newer snapshot lands. Re-select the
+      // grid's (possibly refreshed) copy so the modal's instance detail
+      // recomputes, and bump the revision so it re-resolves even when that copy
+      // is the same object (a discarded refetch leaves the grid unchanged).
+      await ref.read(inventoryGridProvider.notifier).refresh();
+      final refreshed = ref.read(inventoryGridProvider).value;
+      final current =
+          refreshed == null ? null : _itemOf(refreshed, instanceId);
+      if (current != null) {
+        ref.read(gearModalInstanceProvider.notifier).select(current);
+      }
+      ref.read(gearModalRevisionProvider.notifier).bump();
+      state = MoveOutcome.success('Selected $plugName on ${item.name}.',
+          title: 'Perk selected');
+    } on Failure catch (e) {
+      // The insert did not take — roll back the optimistic update as a unit:
+      // restore the socket's prior plug (reversing the stat delta) and clear
+      // the highlight override, then re-resolve the detail.
+      if (oldPlugHash != null) {
+        repo.patchSocketPlug(item, socketIndex, oldPlugHash);
+      }
+      ref.read(gearModalPlugOverrideProvider.notifier).clearSocket(socketIndex);
+      ref.read(gearModalRevisionProvider.notifier).bump();
+      state = MoveOutcome.failure(e.message, title: 'Selection failed');
+    } finally {
+      _inFlight = false;
+    }
+
+    // Drain a pick queued while this insert ran (the latest wins). Cleared
+    // first so its own in-flight run doesn't see itself as pending; runs as a
+    // fresh insert, which patches the cache against the now-settled base.
+    final pending = _pendingInsert;
+    if (pending != null) {
+      _pendingInsert = null;
+      await insertPlug(
+        pending.item,
+        socketIndex: pending.socketIndex,
+        plugHash: pending.plugHash,
+        plugName: pending.plugName,
+      );
+    }
+  }
+
+  /// The item with instance id [instanceId] in [grid], or null if not found.
+  DestinyItem? _itemOf(InventoryGrid grid, String instanceId) {
+    for (final owner in grid.owners) {
+      for (final list in owner.itemsByBucket.values) {
+        for (final i in list) {
+          if (i.itemInstanceId == instanceId) return i;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// The owner (character or vault) holding the instance [instanceId] in the
+  /// current [grid], or null when it is not found.
+  InventoryOwner? _ownerOf(InventoryGrid grid, String instanceId) {
+    for (final owner in grid.owners) {
+      for (final list in owner.itemsByBucket.values) {
+        if (list.any((i) => i.itemInstanceId == instanceId)) return owner;
+      }
+    }
+    return null;
   }
 
   void _patchEquip(String instanceId, String ownerId) {
@@ -388,13 +542,74 @@ final gearModalInstanceProvider =
     NotifierProvider<GearModalInstanceNotifier, DestinyItem?>(
         GearModalInstanceNotifier.new);
 
+/// The modal's optimistic perk/mod selections while an in-game insert is in
+/// flight (and until a genuinely newer profile snapshot reconciles them): a map
+/// of socket index → the plug hash the user just picked. The rolled perk grid
+/// and mod chips render this on top of the resolved roll so the highlight moves
+/// the instant the click lands, before (and independent of) the refetch.
+///
+/// Cleared when the modal switches to a *different* item — but not when
+/// [MoveController.insertPlug] re-selects the same instance after its refetch,
+/// so a still-pending (or discarded-refetch) override survives the reconcile.
+class GearModalPlugOverrideNotifier extends Notifier<Map<int, int>> {
+  String? _instanceId;
+  // The map is held here (not only in [state]) so it survives a same-instance
+  // rebuild — [build] cannot read the prior [state].
+  Map<int, int> _overrides = const {};
+
+  @override
+  Map<int, int> build() {
+    // Reset when the open instance changes; keep the map when the same instance
+    // is re-selected (the post-insert reconcile re-selects the same id).
+    final id = ref.watch(
+        gearModalInstanceProvider.select((i) => i?.itemInstanceId));
+    if (id != _instanceId) {
+      _instanceId = id;
+      _overrides = const {};
+    }
+    return _overrides;
+  }
+
+  void set(int socketIndex, int plugHash) {
+    _overrides = {..._overrides, socketIndex: plugHash};
+    state = _overrides;
+  }
+
+  void clearSocket(int socketIndex) {
+    _overrides = {..._overrides}..remove(socketIndex);
+    state = _overrides;
+  }
+}
+
+final gearModalPlugOverrideProvider =
+    NotifierProvider<GearModalPlugOverrideNotifier, Map<int, int>>(
+        GearModalPlugOverrideNotifier.new);
+
+/// A counter bumped whenever an in-game socket insert patches the repository's
+/// cached components ([InventoryRepository.patchSocketPlug]). The modal's
+/// instance-detail watches it so it re-resolves from the patched cache — the
+/// re-selected [DestinyItem] can be the *same* object (a discarded refetch
+/// leaves the grid unchanged), so watching the item alone would not recompute.
+class GearModalRevisionNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+  void bump() => state = state + 1;
+}
+
+final gearModalRevisionProvider =
+    NotifierProvider<GearModalRevisionNotifier, int>(
+        GearModalRevisionNotifier.new);
+
 /// The resolved instance detail behind the gear-detail modal, or null when it
 /// was opened from the Database tab. Guarded so the inventory repository is
-/// only touched when an owned item is actually backing the modal.
+/// only touched when an owned item is actually backing the modal. Watches
+/// [gearModalRevisionProvider] so a socket insert's cache patch re-resolves the
+/// detail even when the re-selected item is the same object.
 final gearModalInstanceDetailProvider =
     Provider.autoDispose<ItemDetail?>((ref) {
   final item = ref.watch(gearModalInstanceProvider);
   if (item == null) return null;
+  ref.watch(gearModalRevisionProvider);
   return ref
       .watch(inventoryRepositoryProvider)
       .resolveDetail(item, withPerkColumns: true);

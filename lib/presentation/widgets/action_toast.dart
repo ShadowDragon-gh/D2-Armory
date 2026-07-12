@@ -3,33 +3,35 @@ import 'package:flutter/material.dart';
 import '../providers/inventory_provider.dart';
 import '../theme/armory_palette.dart';
 
-/// Shows a slide-in toast in the top-right corner reporting a move [outcome],
-/// styled to read success vs failure at a glance. Self-dismissing: it animates
-/// in, holds, animates out, and removes itself from the overlay.
+/// Shows a slide-in toast in the top-right corner reporting an action
+/// [outcome] (a move, equip, or perk/mod insert), styled to read success vs
+/// failure at a glance. Self-dismissing: it animates in, holds, animates out,
+/// and removes itself from the overlay. The header text comes from
+/// [MoveOutcome.title] so each caller names its own action.
 ///
 /// Uses an [OverlayEntry] rather than a SnackBar so it can sit at a fixed
 /// top-right screen position, above the grid and detail panel.
-void showMoveToast(BuildContext context, MoveOutcome outcome) {
+void showActionToast(BuildContext context, MoveOutcome outcome) {
   final overlay = Overlay.of(context);
   late OverlayEntry entry;
   entry = OverlayEntry(
     builder: (context) =>
-        _MoveToast(outcome: outcome, onDismissed: () => entry.remove()),
+        _ActionToast(outcome: outcome, onDismissed: () => entry.remove()),
   );
   overlay.insert(entry);
 }
 
-class _MoveToast extends StatefulWidget {
-  const _MoveToast({required this.outcome, required this.onDismissed});
+class _ActionToast extends StatefulWidget {
+  const _ActionToast({required this.outcome, required this.onDismissed});
 
   final MoveOutcome outcome;
   final VoidCallback onDismissed;
 
   @override
-  State<_MoveToast> createState() => _MoveToastState();
+  State<_ActionToast> createState() => _ActionToastState();
 }
 
-class _MoveToastState extends State<_MoveToast>
+class _ActionToastState extends State<_ActionToast>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
@@ -80,7 +82,7 @@ class _MoveToastState extends State<_MoveToast>
     final accent = ok ? ArmoryPalette.success : ArmoryPalette.danger;
     final bg = ok ? ArmoryPalette.successBg : ArmoryPalette.dangerBg;
     final icon = ok ? Icons.check_circle_rounded : Icons.error_rounded;
-    final label = ok ? 'Move complete' : 'Move failed';
+    final label = widget.outcome.title;
 
     // Sit just below the app bar, lined up with the inventory section-header
     // banners (the header row's 8px top padding), so the toast never covers the

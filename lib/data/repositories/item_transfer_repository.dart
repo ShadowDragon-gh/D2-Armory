@@ -110,6 +110,35 @@ class ItemTransferRepository {
     );
   }
 
+  /// Insert [plugHash] into [item]'s [socketIndex] socket, selecting that perk
+  /// or mod in-game. [item] must be instanced and on [owner] (a character —
+  /// sockets cannot be edited while the item is in the vault). Uses the free,
+  /// reversible socket action (only the `MoveEquipDestinyItems` scope). Throws a
+  /// [Failure] if Bungie rejects the insert (e.g. the plug is not valid for that
+  /// socket, or has an insertion material cost).
+  Future<void> insertPlug(
+    DestinyItem item,
+    InventoryOwner owner, {
+    required int socketIndex,
+    required int plugHash,
+  }) async {
+    final itemId = item.itemInstanceId;
+    if (itemId == null) {
+      throw const ApiFailure('Only instanced items can be modified.');
+    }
+    if (socketIndex < 0 || plugHash == 0) {
+      throw const ApiFailure('Unknown socket or plug for this selection.');
+    }
+    final membershipType = await _resolveMembershipType();
+    await _api.insertSocketPlugFree(
+      itemId: itemId,
+      characterId: _characterIdOf(owner),
+      membershipType: membershipType,
+      socketIndex: socketIndex,
+      plugItemHash: plugHash,
+    );
+  }
+
   Future<int> _resolveMembershipType() async {
     final membership = await _memberships.resolvePrimary();
     return membership.membershipType;

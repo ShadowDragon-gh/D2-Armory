@@ -73,7 +73,9 @@ class _Repo implements DatabaseRepository {
 /// definition pool), one mod, a masterwork plug, and a part-way catalyst.
 ItemDetail _rolledDetail(DestinyItem item) => ItemDetail(
       item: item,
-      stats: const [ItemStat(statHash: 7, name: 'Range', value: 74, bonus: 10)],
+      stats: const [
+        ItemStat(statHash: 7, name: 'Range', value: 74, masterworkBonus: 10)
+      ],
       plugs: const [
         ItemPlug(
           name: 'Opening Shot',
