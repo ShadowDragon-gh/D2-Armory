@@ -199,6 +199,16 @@ void main() {
         'itemType': 3,
         'collectibleHash': collectibleHash,
         'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
+        // Range 65 from the definition (no stat group → 1:1), so the searchable
+        // `stat:` facet resolves it from investment (the DIM model).
+        'stats': {
+          'stats': {
+            '$statHash': {'statHash': statHash},
+          }
+        },
+        'investmentStats': [
+          {'statTypeHash': statHash, 'value': 65},
+        ],
         'sockets': {
           'socketCategories': [
             {
@@ -279,15 +289,6 @@ void main() {
               'instances': {
                 'data': {
                   '111': {'primaryStat': {'value': 540}}
-                }
-              },
-              'stats': {
-                'data': {
-                  '111': {
-                    'stats': {
-                      '0': {'statHash': statHash, 'value': 65}
-                    }
-                  }
                 }
               },
               'sockets': {

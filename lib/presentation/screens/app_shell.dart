@@ -78,6 +78,15 @@ class _AppShellState extends ConsumerState<AppShell> {
                   ref.read(showCosmeticsProvider.notifier).toggle(),
             ),
             IconButton(
+              tooltip: ref.watch(showTierProvider)
+                  ? 'Hide gear tier'
+                  : 'Show gear tier',
+              icon: Icon(ref.watch(showTierProvider)
+                  ? Icons.diamond
+                  : Icons.diamond_outlined),
+              onPressed: () => ref.read(showTierProvider.notifier).toggle(),
+            ),
+            IconButton(
               tooltip: 'Refresh',
               icon: const Icon(Icons.refresh),
               onPressed: () => ref.invalidate(inventoryGridProvider),

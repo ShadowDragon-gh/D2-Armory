@@ -24,8 +24,9 @@ class InventoryRepository {
   final MembershipService _memberships;
 
   // Instance-keyed detail components from the last fetch, kept so the detail
-  // panel can resolve a selected item without another network call.
-  Map<String, dynamic> _stats = const {};
+  // panel can resolve a selected item without another network call. Stats are
+  // computed from the definition + socket investment (the DIM model), not the
+  // ItemStats (304) component, so only sockets/reusable-plugs are retained.
   Map<String, dynamic> _sockets = const {};
   // Instance-keyed rolled plug options per socket (component 310). A weapon's
   // trait sockets list all the perks that copy can roll to, so `perk1:`/`perk2:`
@@ -46,24 +47,21 @@ class InventoryRepository {
   /// not yet fetched / not provided. Used to detect a stale background refresh.
   DateTime? get lastMintedTimestamp => _lastMintedTimestamp;
 
-  /// Patch the cached ItemSockets (305) and ItemStats (304) components for
-  /// instance [instanceId] so [socketIndex] now reads [plugHash] — applied
-  /// optimistically the moment an in-game socket insert is dispatched so the
-  /// detail's stat bars and equipped plug update immediately, and after it
-  /// succeeds so a later [resolveDetail] still reflects the new plug even when
-  /// Bungie's edge cache serves the pre-insert profile (its
+  /// Patch the cached ItemSockets (305) component for instance [item] so
+  /// [socketIndex] now reads [plugHash] — applied optimistically the moment an
+  /// in-game socket insert is dispatched so the detail updates immediately, and
+  /// after it succeeds so a later [resolveDetail] still reflects the new plug
+  /// even when Bungie's edge cache serves the pre-insert profile (its
   /// `responseMintedTimestamp` can lag a write, so the refetch is discarded and
   /// this cache would otherwise stay stale until a genuinely newer snapshot).
-  /// The cached stats (which Bungie computes with the old plug baked in) are
-  /// adjusted by the old→new plug's *applied* stat delta — the raw investment
-  /// change run through [item]'s stat interpolation, so an inverted/scaled stat
-  /// (Heat Generated: +10 raw → -2 applied) shifts by the real in-game amount,
-  /// not the raw. The next fresh [fetchInventory] overwrites both components, so
-  /// this is a stop-gap a real refresh supersedes.
+  /// Stats derive from the socket plugs' investment, so swapping the plug hash
+  /// alone shifts the recomputed stat bars — no separate stat patch is needed.
+  /// The next fresh [fetchInventory] overwrites the component, so this is a
+  /// stop-gap a real refresh supersedes.
   ///
   /// Returns the plug hash previously in the socket, so a failed insert can be
-  /// rolled back by patching it back (which reverses the stat delta); null when
-  /// the instance or socket is not cached (a no-op).
+  /// rolled back by patching it back; null when the instance or socket is not
+  /// cached (a no-op).
   int? patchSocketPlug(
       DestinyItem item, int socketIndex, int plugHash) {
     final instanceId = item.itemInstanceId;
@@ -77,61 +75,7 @@ class InventoryRepository {
     if (socket is! Map<String, dynamic>) return null;
     final oldHash = (socket['plugHash'] as num?)?.toInt();
     socket['plugHash'] = plugHash;
-    if (oldHash != plugHash) {
-      _applyStatDelta(item, fromPlug: oldHash, toPlug: plugHash);
-    }
     return oldHash;
-  }
-
-  /// Shift the cached ItemStats (304) for [item] by the *applied* difference
-  /// between [fromPlug] and [toPlug]: the net raw investment change per stat,
-  /// run through [item]'s stat interpolation so the cached displayed value moves
-  /// by the real in-game amount (an inverted stat like Heat Generated shifts by
-  /// its interpolated delta, not the raw investment). No-op when the instance
-  /// has no cached stats.
-  void _applyStatDelta(DestinyItem item,
-      {int? fromPlug, required int toPlug}) {
-    final instanceId = item.itemInstanceId;
-    final statsData =
-        instanceId == null ? null : _stats[instanceId] as Map<String, dynamic>?;
-    final statsMap = statsData?['stats'];
-    if (statsMap is! Map) return;
-
-    // The net raw investment change per stat (new plug adds, old plug removes).
-    final rawDelta = <int, int>{};
-    void accumulate(int? plugHash, int sign) {
-      if (plugHash == null || plugHash == 0) return;
-      final invStats = _manifest.getInventoryItem(plugHash)?['investmentStats'];
-      if (invStats is! List) return;
-      for (final s in invStats) {
-        final st = s as Map<String, dynamic>;
-        if (st['isConditionallyActive'] == true) continue;
-        final statHash = (st['statTypeHash'] as num?)?.toInt();
-        final value = (st['value'] as num?)?.toInt() ?? 0;
-        if (statHash == null || value == 0) continue;
-        rawDelta[statHash] = (rawDelta[statHash] ?? 0) + sign * value;
-      }
-    }
-
-    accumulate(toPlug, 1);
-    accumulate(fromPlug, -1);
-
-    // Convert each raw investment change to its applied (interpolated) change
-    // against the current displayed base, matching what a real refetch yields.
-    final interpolator = _statInterpolatorFor(item, statsData);
-    final delta = <int, int>{
-      for (final e in rawDelta.entries)
-        e.key: interpolator.appliedFromRaw(e.key, e.value),
-    };
-
-    delta.forEach((statHash, d) {
-      if (d == 0) return;
-      final entry = statsMap['$statHash'];
-      if (entry is Map<String, dynamic>) {
-        final current = (entry['value'] as num?)?.toInt() ?? 0;
-        entry['value'] = current + d;
-      }
-    });
   }
 
   // Search facets per item instance id, resolved lazily by [inventoryFacetsFor]
@@ -195,7 +139,6 @@ class InventoryRepository {
 
     final itemComponents = profile['itemComponents'];
     final instances = _dataMap(itemComponents?['instances']);
-    _stats = _dataMap(itemComponents?['stats']);
     _sockets = _dataMap(itemComponents?['sockets']);
     _reusablePlugs = _dataMap(itemComponents?['reusablePlugs']);
     _plugObjectives = _dataMap(itemComponents?['plugObjectives']);
@@ -271,15 +214,13 @@ class InventoryRepository {
   /// socket walk is wasted work for the facet warm and the detail panel.
   ItemDetail resolveDetail(DestinyItem item, {bool withPerkColumns = false}) {
     final id = item.itemInstanceId;
-    final statsData =
-        id == null ? null : _stats[id] as Map<String, dynamic>?;
     final socketsData =
         id == null ? null : _sockets[id] as Map<String, dynamic>?;
     final objectivesData =
         id == null ? null : _plugObjectives[id] as Map<String, dynamic>?;
 
     final catalyst = _resolveCatalyst(item);
-    final interpolator = _statInterpolatorFor(item, statsData);
+    final interpolator = _statInterpolatorFor(item, socketsData);
     var plugs = _resolvePlugs(socketsData);
     // Craftable exotics hide the empty catalyst socket on live instances;
     // stand in with the definition's shell plug so the Masterwork section
@@ -292,8 +233,7 @@ class InventoryRepository {
 
     return ItemDetail(
       item: item,
-      stats: _resolveStats(statsData,
-          _resolveStatModifiers(socketsData, interpolator), interpolator),
+      stats: _resolveStats(item, socketsData, interpolator),
       plugs: plugs,
       perkColumns: withPerkColumns
           ? _resolveInstancePerkColumns(item, socketsData, interpolator)
@@ -1097,6 +1037,11 @@ class InventoryRepository {
     return null;
   }
 
+  // The weapon power-level stats ("Attack"/"Power"): they come from the
+  // instance, are always 0 in investment, and duplicate each other — dropped
+  // from the displayed stat list (matching the definition resolver).
+  static const _powerLevelStatHashes = {1480404414, 1935470627};
+
   // Stats shown as an absolute number rather than a 0-100 bar (their values are
   // not on a 0-100 scale). Matched by name, case-insensitively.
   static const _numericStatNames = {
@@ -1106,7 +1051,6 @@ class InventoryRepository {
     'charge time',
     'magazine',
     'rounds per magazine',
-    'zoom',
     'swing speed',
     'ammo capacity',
     'guard efficiency',
@@ -1117,23 +1061,14 @@ class InventoryRepository {
     'cooling efficiency',
   };
 
-  /// Build the stat interpolator for [item] from its weapon stat group and the
-  /// live [statsData] (304) base values. The group's
-  /// `scaledStats[].displayInterpolation` maps a stat's raw investment to the
-  /// displayed value; a plug's *applied* effect is the change in that displayed
-  /// value it causes — what the bars must show, not the raw investment (which
-  /// the game scales/inverts). Empty (identity) when the item has no stat group.
+  /// Build the stat interpolator for [item] from its weapon stat group's
+  /// `scaledStats[].displayInterpolation` — the piecewise curve mapping a stat's
+  /// summed *investment* value to its displayed value. Also captures the item's
+  /// current total investment per stat (def base + every enabled plug) as the
+  /// baseline a mod option's applied-effect tooltip measures against. Empty
+  /// (identity) when the item has no stat group.
   _StatInterpolator _statInterpolatorFor(
-      DestinyItem item, Map<String, dynamic>? statsData) {
-    final bases = <int, int>{};
-    final map = statsData?['stats'];
-    if (map is Map) {
-      for (final entry in map.values) {
-        final h = ((entry as Map)['statHash'] as num?)?.toInt();
-        final v = (entry['value'] as num?)?.toInt();
-        if (h != null && v != null) bases[h] = v;
-      }
-    }
+      DestinyItem item, Map<String, dynamic>? socketsData) {
     final def = _manifest.getInventoryItem(item.itemHash);
     final groupHash = (def?['stats']?['statGroupHash'] as num?)?.toInt();
     final scaled =
@@ -1156,25 +1091,140 @@ class InventoryRepository {
         if (knots.isNotEmpty) curves[statHash] = knots;
       }
     }
-    return _StatInterpolator(curves, bases);
+
+    // Baseline investment per stat: the item's current total (def + all enabled
+    // plugs' unconditional investment). Used only for tooltip applied-deltas.
+    final base = <int, int>{};
+    void fold(dynamic invStats) {
+      if (invStats is! List) return;
+      for (final s in invStats) {
+        final st = s as Map;
+        if (st['isConditionallyActive'] == true) continue;
+        final h = (st['statTypeHash'] as num?)?.toInt();
+        final v = (st['value'] as num?)?.toInt() ?? 0;
+        if (h != null) base[h] = (base[h] ?? 0) + v;
+      }
+    }
+
+    fold(def?['investmentStats']);
+    final sockets = socketsData?['sockets'];
+    if (sockets is List) {
+      for (final socket in sockets) {
+        final s = socket as Map<String, dynamic>;
+        if (s['isEnabled'] == false) continue;
+        final ph = (s['plugHash'] as num?)?.toInt();
+        if (ph != null) fold(_manifest.getInventoryItem(ph)?['investmentStats']);
+      }
+    }
+
+    return _StatInterpolator(curves, base);
   }
 
+  /// A stat's total investment for [item], summed by source — the DIM stat
+  /// model: the definition's base investment plus every enabled socket plug's
+  /// investment, split so the bar can colour the mod/masterwork contributions.
+  /// The displayed value is `interpolate(total)`, computed once (never per
+  /// plug), so scaled/inverted stats (Magazine, Heat) read correctly.
+  ///
+  /// A tiered weapon's masterwork adds `+gearTier` to each stat its masterwork
+  /// plug marks *conditionally active* — the `tieredWeaponMW` bonus, folded into
+  /// the masterwork investment. Conditional stats otherwise stay inert.
+  ///
+  /// `plain` is the base roll (definition + perks/barrels/etc.), `mod`/`mw` are
+  /// the weapon-mod and masterwork/tier contributions (positive = the coloured
+  /// gain segments), and `loss` is the summed negative contribution.
+  ({int plain, int mod, int mw, int loss}) _statInvestment(
+    DestinyItem item,
+    int statHash,
+    Map<String, dynamic>? socketsData,
+  ) {
+    var plain = 0, mod = 0, mw = 0, loss = 0;
+
+    // Fold one investment value into the right bucket by plug category and sign.
+    void add(int value, PlugCategory category) {
+      if (value == 0) return;
+      if (value < 0) {
+        loss -= value; // stored positive
+        return;
+      }
+      switch (category) {
+        case PlugCategory.mod:
+          mod += value;
+        case PlugCategory.masterwork:
+          mw += value;
+        default:
+          plain += value; // base roll: perks, barrels, magazines, frame…
+      }
+    }
+
+    // Definition base investment (unconditional entries for this stat).
+    final wdef = _manifest.getInventoryItem(item.itemHash);
+    final baseInv = wdef?['investmentStats'];
+    if (baseInv is List) {
+      for (final s in baseInv) {
+        final st = s as Map;
+        if (st['isConditionallyActive'] == true) continue;
+        if ((st['statTypeHash'] as num?)?.toInt() != statHash) continue;
+        add((st['value'] as num?)?.toInt() ?? 0, PlugCategory.other);
+      }
+    }
+
+    // Each enabled socket plug's contribution to this stat.
+    final sockets = socketsData?['sockets'];
+    if (sockets is List) {
+      for (final socket in sockets) {
+        final s = socket as Map<String, dynamic>;
+        if (s['isEnabled'] == false) continue;
+        final plugHash = (s['plugHash'] as num?)?.toInt();
+        if (plugHash == null) continue;
+        final pdef = _manifest.getInventoryItem(plugHash);
+        final category =
+            classifyPlug(pdef?['plug']?['plugCategoryIdentifier'] as String?);
+        final invStats = pdef?['investmentStats'];
+        if (invStats is! List) continue;
+        for (final stat in invStats) {
+          final st = stat as Map<String, dynamic>;
+          if ((st['statTypeHash'] as num?)?.toInt() != statHash) continue;
+          final conditional = st['isConditionallyActive'] == true;
+          final raw = (st['value'] as num?)?.toInt() ?? 0;
+          if (conditional) {
+            // Tiered-weapon masterwork: a conditional stat on the masterwork
+            // plug gains +gearTier (the tieredWeaponMW rule). Other conditional
+            // stats stay inert.
+            if (category == PlugCategory.masterwork && item.gearTier > 0) {
+              add(item.gearTier, PlugCategory.masterwork);
+            }
+          } else {
+            add(raw, category);
+          }
+        }
+      }
+    }
+
+    return (plain: plain, mod: mod, mw: mw, loss: loss);
+  }
+
+  /// The weapon's displayed stats, computed the DIM way: for each stat the
+  /// definition declares, sum its investment by source ([_statInvestment]) and
+  /// interpolate the total *once*. The bar's segments are the marginal
+  /// interpolation deltas of each source (so blue mod / gold masterwork / red
+  /// loss still read within the value). Ordered bar → recoil → numeric.
   List<ItemStat> _resolveStats(
-    Map<String, dynamic>? statsData,
-    ({Map<int, int> modGains, Map<int, int> masterworkGains, Map<int, int> losses})
-        modifiers,
+    DestinyItem item,
+    Map<String, dynamic>? socketsData,
     _StatInterpolator interpolator,
   ) {
-    final map = statsData?['stats'];
-    if (map is! Map) return const [];
+    // The stats a weapon shows are its definition's declared stats.
+    final statMap = _manifest.getInventoryItem(item.itemHash)?['stats']?['stats'];
+    if (statMap is! Map) return const [];
+
     final result = <ItemStat>[];
-    for (final entry in map.values) {
-      final e = entry as Map<String, dynamic>;
-      final statHash = (e['statHash'] as num?)?.toInt();
-      final value = (e['value'] as num?)?.toInt();
-      if (statHash == null || value == null) continue;
-      final def = _manifest.getStat(statHash);
-      final name = (def?['displayProperties']?['name'] as String?) ?? '';
+    for (final key in statMap.keys) {
+      final statHash = int.tryParse(key as String);
+      if (statHash == null) continue;
+      if (_powerLevelStatHashes.contains(statHash)) continue;
+      final sdef = _manifest.getStat(statHash);
+      final name = (sdef?['displayProperties']?['name'] as String?) ?? '';
       if (name.isEmpty) continue;
       final lower = name.toLowerCase();
       final display = lower == 'recoil direction'
@@ -1182,94 +1232,45 @@ class InventoryRepository {
           : _numericStatNames.contains(lower)
               ? StatDisplay.numeric
               : StatDisplay.bar;
-      // Clamp the two gains so their combined segment never exceeds the value
-      // (stat values can go negative — armor tuning — so a non-positive value
-      // shows no gain segment). The mod segment takes precedence in the clamp
-      // budget; the masterwork segment fills what remains.
-      final headroom = value > 0 ? value : 0;
-      final mod = (modifiers.modGains[statHash] ?? 0).clamp(0, headroom);
-      final mw = (modifiers.masterworkGains[statHash] ?? 0)
-          .clamp(0, headroom - mod);
+
+      final inv = _statInvestment(item, statHash, socketsData);
+      // Interpolate the running totals so each source's displayed contribution
+      // is the marginal delta, and the final value = interpolate(all
+      // investment) once.
+      final plainD = interpolator.display(statHash, inv.plain);
+      final withModD = interpolator.display(statHash, inv.plain + inv.mod);
+      final withMwD =
+          interpolator.display(statHash, inv.plain + inv.mod + inv.mw);
+      final totalD = interpolator.display(
+          statHash, inv.plain + inv.mod + inv.mw - inv.loss);
+
+      // Signed displayed deltas per source. On an inverted stat (Heat), a mod's
+      // positive investment *lowers* the displayed value, so its delta is
+      // negative — a beneficial reduction, not a gain segment.
+      final modSeg = withModD - plainD;
+      final mwSeg = withMwD - withModD;
+      final lossSeg = totalD - withMwD; // ≤ 0 (the negative-investment drop)
+
+      // Positive displayed movement colours as the mod/masterwork gain segment;
+      // any negative displayed movement (a real loss, or a beneficial reduction
+      // to an inverted stat) accumulates into the red-deficit magnitude.
+      var reduction = 0;
+      if (lossSeg < 0) reduction -= lossSeg;
+      if (modSeg < 0) reduction -= modSeg;
+      if (mwSeg < 0) reduction -= mwSeg;
+
       result.add(ItemStat(
+        statHash: statHash,
         name: name,
-        value: value,
+        value: totalD,
         display: display,
-        modBonus: mod,
-        masterworkBonus: mw,
-        reduction: modifiers.losses[statHash] ?? 0,
+        modBonus: modSeg > 0 ? modSeg : 0,
+        masterworkBonus: mwSeg > 0 ? mwSeg : 0,
+        reduction: reduction,
         inverted: interpolator.isInverted(statHash),
       ));
     }
     return sortStatsForDisplay(result);
-  }
-
-  /// Per-stat *applied* contributions of the equipped plugs (their investment
-  /// stats run through the weapon's [interpolator]), keyed by stat hash, split
-  /// by source: [modGains] is what weapon *mods* add (the blue bar segment) and
-  /// [masterworkGains] is what the masterwork / catalyst adds (the gold segment);
-  /// [losses] is what plugs of any kind subtract (the red deficit segment).
-  /// Positive perk contributions count as part of the base roll.
-  ///
-  /// The applied value — not the raw investment — is used, so an inverted or
-  /// scaled stat (e.g. Heat Generated, where +10 raw investment applies as -1)
-  /// shows the real in-game effect. Routing is by the sign of that *applied*
-  /// delta: a mod whose raw value is positive but applies negatively lands in
-  /// [losses]. [displayedBase] per stat comes from ItemStats (304), already
-  /// interpolated by the game, so the plug's applied delta is measured against
-  /// it.
-  ({Map<int, int> modGains, Map<int, int> masterworkGains, Map<int, int> losses})
-      _resolveStatModifiers(
-    Map<String, dynamic>? socketsData,
-    _StatInterpolator interpolator,
-  ) {
-    final modGains = <int, int>{};
-    final masterworkGains = <int, int>{};
-    final losses = <int, int>{};
-    final sockets = socketsData?['sockets'];
-    if (sockets is! List) {
-      return (
-        modGains: modGains,
-        masterworkGains: masterworkGains,
-        losses: losses
-      );
-    }
-    for (final socket in sockets) {
-      final s = socket as Map<String, dynamic>;
-      if (s['isEnabled'] == false) continue;
-      final plugHash = (s['plugHash'] as num?)?.toInt();
-      if (plugHash == null) continue;
-      final def = _manifest.getInventoryItem(plugHash);
-      final plugCategory =
-          def?['plug']?['plugCategoryIdentifier'] as String?;
-      final category = classifyPlug(plugCategory);
-      // A mod's applied gain shows blue; the masterwork/catalyst's shows gold.
-      final gainsForCategory = category == PlugCategory.masterwork
-          ? masterworkGains
-          : category == PlugCategory.mod
-              ? modGains
-              : null;
-      final invStats = def?['investmentStats'];
-      if (invStats is! List) continue;
-      for (final stat in invStats) {
-        final st = stat as Map<String, dynamic>;
-        if (st['isConditionallyActive'] == true) continue;
-        final statHash = (st['statTypeHash'] as num?)?.toInt();
-        final raw = (st['value'] as num?)?.toInt() ?? 0;
-        if (statHash == null || raw == 0) continue;
-        final applied = interpolator.appliedFromRaw(statHash, raw);
-        if (applied == 0) continue;
-        if (applied < 0) {
-          losses[statHash] = (losses[statHash] ?? 0) - applied;
-        } else if (gainsForCategory != null) {
-          gainsForCategory[statHash] = (gainsForCategory[statHash] ?? 0) + applied;
-        }
-      }
-    }
-    return (
-      modGains: modGains,
-      masterworkGains: masterworkGains,
-      losses: losses
-    );
   }
 
   List<ItemPlug> _resolvePlugs(Map<String, dynamic>? socketsData) {
@@ -1450,6 +1451,7 @@ class InventoryRepository {
         // ItemState bit flags: Locked=1, Masterwork=4.
         isLocked: state & 1 != 0,
         isMasterwork: state & 4 != 0,
+        gearTier: (instance?['gearTier'] as num?)?.toInt() ?? 0,
       );
       result.add(decoded);
       // Cache the fresh decode + its signature so a later refresh can reuse it.
@@ -1475,6 +1477,7 @@ class InventoryRepository {
     final power = (instance?['primaryStat']?['value'] as num?)?.toInt();
     final damageType = (instance?['damageType'] as num?)?.toInt();
     final damageTypeHash = (instance?['damageTypeHash'] as num?)?.toInt();
+    final gearTier = (instance?['gearTier'] as num?)?.toInt();
 
     final instanceId = item['itemInstanceId']?.toString();
     final socketsData =
@@ -1491,7 +1494,7 @@ class InventoryRepository {
       }
     }
     return '$itemHash|$bucketHash|$state|$equipped|$power|$damageType|'
-        '$damageTypeHash|$plugs';
+        '$damageTypeHash|$gearTier|$plugs';
   }
 
   /// The applied ornament's plug definition for an instance, or null when none
@@ -1597,20 +1600,24 @@ class InventoryRepository {
 /// game scales and can invert (Zealous Ideal's Heat Generated: +10 raw
 /// investment on a base of 18 applies as −2). Stats with no curve map 1:1.
 class _StatInterpolator {
-  const _StatInterpolator(this._curves, this._bases);
+  const _StatInterpolator(this._curves, [this._baseInvestment = const {}]);
 
   /// Per stat, the interpolation knots as `(input: investment, output:
   /// displayed)`, sorted by input ascending.
   final Map<int, List<({double input, double output})>> _curves;
 
-  /// The base investment value per stat (ItemStats 304), the point a plug's
-  /// applied delta is measured from.
-  final Map<int, int> _bases;
+  /// The item's summed investment per stat, the baseline a mod option's applied
+  /// tooltip delta is measured from ([appliedFromRaw]). Empty for a bare
+  /// interpolator (the stat resolver, which sums investment itself).
+  final Map<int, int> _baseInvestment;
 
   /// The displayed value for an [investment] of [statHash], via linear
   /// interpolation between the curve's knots (clamped to the endpoints).
   /// Returns [investment] unchanged when the stat has no curve (a 1:1 stat).
-  double _display(int statHash, double investment) {
+  int display(int statHash, int investment) =>
+      _displayD(statHash, investment.toDouble()).round();
+
+  double _displayD(int statHash, double investment) {
     final knots = _curves[statHash];
     if (knots == null || knots.isEmpty) return investment;
     if (investment <= knots.first.input) return knots.first.output;
@@ -1628,16 +1635,15 @@ class _StatInterpolator {
   }
 
   /// The applied (displayed) effect on [statHash] of a plug contributing
-  /// [rawValue] raw investment: the displayed value with this plug's investment
-  /// added minus the displayed value at the base — `interp(base + raw) −
-  /// interp(base)`. Rounded to the nearest integer, matching the game. For a 1:1
-  /// stat — or one with no known base — this equals [rawValue].
+  /// [rawValue] raw investment, measured from the item's baseline investment:
+  /// `interp(base + raw) − interp(base)`. Rounded to the nearest integer,
+  /// matching the game. For a 1:1 stat this equals [rawValue].
   int appliedFromRaw(int statHash, int rawValue) {
     if (rawValue == 0) return 0;
-    final base = _bases[statHash];
-    if (base == null || !_curves.containsKey(statHash)) return rawValue;
-    final withPlug = _display(statHash, (base + rawValue).toDouble());
-    final without = _display(statHash, base.toDouble());
+    if (!_curves.containsKey(statHash)) return rawValue;
+    final base = _baseInvestment[statHash] ?? 0;
+    final withPlug = _displayD(statHash, (base + rawValue).toDouble());
+    final without = _displayD(statHash, base.toDouble());
     return (withPlug - without).round();
   }
 

@@ -164,7 +164,9 @@ CompiledQuery compileQuery(
 /// treated as instance-only; a prefix like `is:e` also matches definition
 /// facets (energy), so it is left to the normal predicate path.
 bool _needsInstanceData(SearchTerm term) {
-  if (term.key == 'power' || term.key == 'light') return true;
+  if (term.key == 'power' || term.key == 'light' || term.key == 'tier') {
+    return true;
+  }
   if (term.key == 'is') {
     const instanceIsKeywords = {'equipped', 'masterwork', 'locked'};
     return instanceIsKeywords.contains(term.value.toLowerCase());
@@ -198,6 +200,12 @@ ItemPredicate? _predicateFor(
       final cmp = parseNumericCompare(term.value);
       if (cmp == null) return null;
       return (i) => i.power != null && cmp(i.power!);
+
+    case 'tier':
+      // Gear tier (0-5) from the instance; `tier:4`, `tier:>2`, `tier:>=3`, …
+      final cmp = parseNumericCompare(term.value);
+      if (cmp == null) return null;
+      return (i) => cmp(i.gearTier);
 
     case 'is':
       return _isPredicate(value);
@@ -499,6 +507,7 @@ List<String> filterSuggestionCatalog({bool instanceData = true}) => [
       if (instanceData) ...[
         'power:',
         'light:',
+        'tier:',
         'count:',
         // Bare `catalyst:` (any item that has a catalyst) plus each state.
         'catalyst:',

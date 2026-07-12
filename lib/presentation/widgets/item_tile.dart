@@ -56,6 +56,7 @@ class ItemTile extends ConsumerWidget {
     final justMoved = item.itemInstanceId != null &&
         ref.watch(recentlyMovedProvider) == item.itemInstanceId;
     final showCosmetics = ref.watch(showCosmeticsProvider);
+    final showTier = ref.watch(showTierProvider);
     // An applied ornament's flat icon carries the ornament's own (legendary)
     // background. When the item ships a rarity plate + transparent ornament
     // foreground (exotics), composite those so the exotic background is kept;
@@ -99,6 +100,7 @@ class ItemTile extends ConsumerWidget {
                   justMoved: justMoved,
                   plateUrl: plateUrl,
                   foregroundUrl: foregroundUrl,
+                  showTier: showTier,
                 ),
                 if (item.power != null ||
                     elementColor != null ||
@@ -145,6 +147,7 @@ class ItemTile extends ConsumerWidget {
     bool justMoved = false,
     String? plateUrl,
     String? foregroundUrl,
+    bool showTier = false,
   }) {
     // The just-moved green flash takes precedence over the selection and
     // masterwork borders while it is active.
@@ -216,6 +219,14 @@ class ItemTile extends ConsumerWidget {
                 ),
               ),
             ),
+          // Gear-tier diamonds down the top-left (count = tier, tier-coloured),
+          // matching the in-game / DIM display.
+          if (showTier && item.gearTier > 0)
+            Positioned(
+              top: 2,
+              left: 2,
+              child: _TierDiamonds(tier: item.gearTier),
+            ),
         ],
       ),
     );
@@ -273,6 +284,44 @@ class ItemTile extends ConsumerWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// The gear-tier indicator on an item tile: a vertical column of [tier] small
+/// diamonds at the icon's top-left, coloured by tier (grey ≤3, purple 4, gold
+/// 5) — matching the in-game / DIM display. A dark outline keeps the diamonds
+/// legible over any icon art.
+class _TierDiamonds extends StatelessWidget {
+  const _TierDiamonds({required this.tier});
+
+  final int tier;
+
+  static const double _size = 5;
+  static const double _gap = 2;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = ArmoryPalette.tierDiamond(tier);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < tier; i++)
+          Padding(
+            padding: EdgeInsets.only(bottom: i == tier - 1 ? 0 : _gap),
+            child: Transform.rotate(
+              angle: 0.785398, // 45° — a square rendered as a diamond
+              child: Container(
+                width: _size,
+                height: _size,
+                decoration: BoxDecoration(
+                  color: color,
+                  border: Border.all(color: ArmoryPalette.scrim87, width: 0.5),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

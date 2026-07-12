@@ -11,3 +11,14 @@ class ShowCosmeticsNotifier extends Notifier<bool> {
 
   void toggle() => state = !state;
 }
+
+/// Whether item tiles show the gear-tier diamonds (top-left of the icon).
+final showTierProvider =
+    NotifierProvider<ShowTierNotifier, bool>(ShowTierNotifier.new);
+
+class ShowTierNotifier extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void toggle() => state = !state;
+}

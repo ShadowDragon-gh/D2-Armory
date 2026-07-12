@@ -52,6 +52,21 @@ void main() {
       'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
       'equippingBlock': {'ammoType': 1},
       'breakerTypeHash': breakerHash, // intrinsic champion breaker
+      // Stats are computed from the definition (DIM model): `stats.stats`
+      // declares which stats the item shows, `investmentStats` the base roll.
+      // No stat group → 1:1 (identity) interpolation.
+      'stats': {
+        'stats': {
+          '$rangeStatHash': {'statHash': rangeStatHash},
+          '$handlingStatHash': {'statHash': handlingStatHash},
+          '4043523819': {'statHash': 4043523819},
+        }
+      },
+      'investmentStats': [
+        {'statTypeHash': rangeStatHash, 'value': 51},
+        {'statTypeHash': handlingStatHash, 'value': 46},
+        {'statTypeHash': 4043523819, 'value': -5},
+      ],
     });
 
     // Plug definitions, categorised by plugCategoryIdentifier.
@@ -186,25 +201,6 @@ void main() {
             'instances': {
               'data': {
                 '999': {'damageType': 3, 'primaryStat': {'value': 540}}
-              }
-            },
-            'stats': {
-              'data': {
-                '999': {
-                  'stats': {
-                    '$rangeStatHash': {
-                      'statHash': rangeStatHash,
-                      'value': 73
-                    },
-                    '$handlingStatHash': {
-                      'statHash': handlingStatHash,
-                      'value': 30
-                    },
-                    // Negative values occur (armor tuning) and must not
-                    // invert the bonus clamp range.
-                    '4043523819': {'statHash': 4043523819, 'value': -5}
-                  }
-                }
               }
             },
             'sockets': {
@@ -1171,12 +1167,38 @@ void main() {
     const altMod = 8102; // Appended Mag (picked)
     const modsCategory = 2685412949;
 
+    const magStatHash = 3871231066;
+    const magGroupHash = 8200;
+    // The real Chain-of-Command Magazine curve: a step interpolation where
+    // investment 0-9 → 30, 10-19 → 35. Magazine is a numeric stat computed from
+    // summed investment (the model that fixes the "app 62 vs in-game 66" bug).
+    when(() => manifest.getStatGroup(magGroupHash)).thenReturn({
+      'scaledStats': [
+        {
+          'statHash': magStatHash,
+          'displayInterpolation': [
+            {'value': 0, 'weight': 30},
+            {'value': 9, 'weight': 30},
+            {'value': 10, 'weight': 35},
+            {'value': 19, 'weight': 35},
+            {'value': 20, 'weight': 39},
+          ],
+        }
+      ],
+    });
     when(() => manifest.getInventoryItem(modWeaponHash)).thenReturn({
       'displayProperties': {'name': 'Patch HC', 'icon': '/i/hc.jpg'},
       'itemType': 3,
       'itemSubType': 9,
       'itemTypeDisplayName': 'Hand Cannon',
       'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
+      // No base magazine investment; the equipped mod supplies it all.
+      'stats': {
+        'statGroupHash': magGroupHash,
+        'stats': {
+          '$magStatHash': {'statHash': magStatHash},
+        }
+      },
       'sockets': {
         'socketCategories': [
           {
@@ -1190,9 +1212,8 @@ void main() {
         ],
       },
     });
-    // The two mods add different magazine stats, so switching between them must
-    // shift the cached base stat value by the delta (+5 → +12 = +7).
-    const magStatHash = 3871231066;
+    // Backup Mag +5 investment → total 5 → interp 30. Appended Mag +12 → total
+    // 12 → interp 35 (the step curve, not a linear +7).
     when(() => manifest.getInventoryItem(equippedMod)).thenReturn({
       'displayProperties': {'name': 'Backup Mag', 'icon': '/i/bm.jpg'},
       'plug': {'plugCategoryIdentifier': 'v400.plugs.weapons.mods'},
@@ -1250,16 +1271,6 @@ void main() {
                 '888': {'damageType': 1, 'primaryStat': {'value': 540}}
               }
             },
-            // Bungie's stored value bakes in the equipped Backup Mag (+5).
-            'stats': {
-              'data': {
-                '888': {
-                  'stats': {
-                    '$magStatHash': {'statHash': magStatHash, 'value': 30}
-                  }
-                }
-              }
-            },
             'sockets': {
               'data': {
                 '888': {
@@ -1294,7 +1305,7 @@ void main() {
         .itemsFor(EquipmentBucket.kineticWeapons.hash)
         .single;
 
-    // Before: the equipped mod is Backup Mag, magazine reads Bungie's 30.
+    // Before: Backup Mag equipped → magazine investment 5 → interpolated 30.
     final before = repo.resolveDetail(weapon, withPerkColumns: true);
     final beforeCol = before.modColumns.single;
     expect(beforeCol.plugs[beforeCol.activeIndex!].name, 'Backup Mag');
@@ -1312,11 +1323,10 @@ void main() {
     expect(afterCol.plugs[afterCol.activeIndex!].name, 'Appended Mag');
     // And the equipped-plug list (the Mods chips) now shows the new mod.
     expect(after.plugsOf(PlugCategory.mod).single.name, 'Appended Mag');
-    // The stat bar reconciles by the +5 → +12 delta: 30 + 7 = 37.
-    expect(after.stats.firstWhere((s) => s.name == 'Magazine').value, 37);
+    // Investment 12 → interpolated 35 (the step curve, NOT a linear +7).
+    expect(after.stats.firstWhere((s) => s.name == 'Magazine').value, 35);
 
-    // Rollback (a failed insert): patching back to the old plug restores the
-    // socket and reverses the stat delta — 37 - 7 = 30.
+    // Rollback (a failed insert): patching back restores investment 5 → 30.
     repo.patchSocketPlug(weapon, 1, oldHash!);
     final rolledBack = repo.resolveDetail(weapon, withPerkColumns: true);
     final rbCol = rolledBack.modColumns.single;
@@ -1358,7 +1368,17 @@ void main() {
       'itemSubType': 9,
       'itemTypeDisplayName': 'Hand Cannon',
       'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
-      'stats': {'statGroupHash': statGroupHash},
+      // Def base Heat investment 60 (curve slope -0.2 → shown 20). With the
+      // equipped +10 mod the total is 70 → shown 18 (the in-game value).
+      'stats': {
+        'statGroupHash': statGroupHash,
+        'stats': {
+          '$heatStatHash': {'statHash': heatStatHash},
+        }
+      },
+      'investmentStats': [
+        {'statTypeHash': heatStatHash, 'value': 60},
+      ],
       'sockets': {
         'socketCategories': [
           {'socketCategoryHash': 2685412949, 'socketIndexes': [1]}
@@ -1421,16 +1441,6 @@ void main() {
             'instances': {
               'data': {
                 '999': {'damageType': 1, 'primaryStat': {'value': 540}}
-              }
-            },
-            // Base Heat Generated investment = 18 (as shown on Zealous Ideal).
-            'stats': {
-              'data': {
-                '999': {
-                  'stats': {
-                    '$heatStatHash': {'statHash': heatStatHash, 'value': 18}
-                  }
-                }
               }
             },
             'sockets': {
@@ -1502,5 +1512,140 @@ void main() {
     expect(
         reapplied.stats.firstWhere((s) => s.name == 'Heat Generated').value,
         18);
+  });
+
+  test('a tiered weapon (gearTier 5) adds +tier to the stats its masterwork '
+      'marks conditionally active — bar +5, interpolated numeric +1', () async {
+    const tierWeaponHash = 10001;
+    const mwPlug = 10101; // Masterworked plug
+    const rangeStat = 1240592695; // bar, ~1:1
+    const coolingStat = 4006394725; // numeric, inverted-ish curve
+    const statGroupHash = 10200;
+
+    // Cooling curve: slope 0.2 (investment→display), so a +5 investment tier
+    // bonus scales to +1 displayed. Wide input range so the operating point
+    // (investment 110-115) stays on the curve, not clamped. Range has no curve
+    // (1:1). Range is a plain 1:1 bar stat.
+    when(() => manifest.getStatGroup(statGroupHash)).thenReturn({
+      'scaledStats': [
+        {
+          'statHash': coolingStat,
+          'displayInterpolation': [
+            {'value': 0, 'weight': 0},
+            {'value': 500, 'weight': 100},
+          ],
+        }
+      ],
+    });
+    when(() => manifest.getStat(rangeStat)).thenReturn({
+      'displayProperties': {'name': 'Range'},
+    });
+    when(() => manifest.getStat(coolingStat)).thenReturn({
+      'displayProperties': {'name': 'Cooling Efficiency'},
+    });
+
+    when(() => manifest.getInventoryItem(tierWeaponHash)).thenReturn({
+      'displayProperties': {'name': 'Tier Gun', 'icon': '/i/tg.jpg'},
+      'itemType': 3,
+      'itemSubType': 6,
+      'itemTypeDisplayName': 'Auto Rifle',
+      'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
+      'stats': {
+        'statGroupHash': statGroupHash,
+        'stats': {
+          '$rangeStat': {'statHash': rangeStat},
+          '$coolingStat': {'statHash': coolingStat},
+        }
+      },
+      // Base investment: Range 76 (1:1 → shown 76), Cooling 110 (curve slope
+      // 0.2 → shown 22). The +tier bonus lifts each via the masterwork markers.
+      'investmentStats': [
+        {'statTypeHash': rangeStat, 'value': 76},
+        {'statTypeHash': coolingStat, 'value': 110},
+      ],
+    });
+    // The masterwork plug marks Range + Cooling conditionally active — the stats
+    // the tiered-weapon +gearTier bonus applies to.
+    when(() => manifest.getInventoryItem(mwPlug)).thenReturn({
+      'displayProperties': {'name': 'Masterworked: Cooling', 'icon': '/i/mw.jpg'},
+      'plug': {
+        'plugCategoryIdentifier': 'v400.plugs.weapons.masterworks.stat.heat'
+      },
+      'investmentStats': [
+        {'statTypeHash': rangeStat, 'value': 0, 'isConditionallyActive': true},
+        {'statTypeHash': coolingStat, 'value': 0, 'isConditionallyActive': true},
+      ],
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': tierWeaponHash,
+                    'itemInstanceId': '1000',
+                    'bucketHash': EquipmentBucket.kineticWeapons.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            // gearTier 5 on the instance component drives the +tier bonus.
+            'instances': {
+              'data': {
+                '1000': {
+                  'damageType': 1,
+                  'primaryStat': {'value': 540},
+                  'gearTier': 5,
+                }
+              }
+            },
+            'sockets': {
+              'data': {
+                '1000': {
+                  'sockets': [
+                    {'plugHash': mwPlug, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final weapon = grid.owners.first
+        .itemsFor(EquipmentBucket.kineticWeapons.hash)
+        .single;
+    expect(weapon.gearTier, 5);
+    final detail = repo.resolveDetail(weapon);
+
+    // Range (1:1): base investment 76 + tier 5 = 81.
+    expect(detail.stats.firstWhere((s) => s.name == 'Range').value, 81);
+    // Cooling (curve slope 0.2): investment 110 + tier 5 = 115 → interp 23
+    // (was 22 at 110). The +5 investment scales to +1 displayed.
+    expect(
+        detail.stats.firstWhere((s) => s.name == 'Cooling Efficiency').value,
+        23);
   });
 }

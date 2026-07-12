@@ -88,7 +88,6 @@ class DatabaseRepository {
     'charge time',
     'magazine',
     'rounds per magazine',
-    'zoom',
     'swing speed',
     'ammo capacity',
     'guard efficiency',

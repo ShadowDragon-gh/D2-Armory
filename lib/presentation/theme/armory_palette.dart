@@ -66,6 +66,20 @@ abstract final class ArmoryPalette {
   /// Gradient stops for the translucent gold wash on masterworked item tiles.
   static const masterworkGlow = Color(0x42E5C15B);
   static const masterworkGlowEnd = Color(0x00E5C15B);
+
+  // Gear-tier diamond colours (the tile overlay): grey for tiers 1-3, purple at
+  // tier 4, gold at tier 5 — matching the in-game / DIM display.
+  static const tierDiamondGrey = Color(0xFFB9C0C9);
+  static const tierDiamondPurple = Color(0xFF9C64E0);
+  static const tierDiamondGold = Color(0xFFE5C15B);
+
+  /// The diamond colour for a gear [tier] (1-5): grey up to 3, purple at 4,
+  /// gold at 5.
+  static Color tierDiamond(int tier) => tier >= 5
+      ? tierDiamondGold
+      : tier == 4
+          ? tierDiamondPurple
+          : tierDiamondGrey;
 }
 
 /// Font families bundled under assets/fonts/ (see pubspec.yaml).

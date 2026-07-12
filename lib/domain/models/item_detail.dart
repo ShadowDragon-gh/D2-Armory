@@ -5,17 +5,59 @@ import 'destiny_item.dart';
 /// How a stat renders in the detail panel.
 enum StatDisplay { bar, numeric, recoil }
 
+/// The canonical in-game weapon-stat order by stat hash. Matches how Destiny
+/// lists stats on the weapon inspect screen, so the detail panel reads the same
+/// (e.g. Zoom sits third from the bottom of the bars, before Airborne
+/// Effectiveness and Ammo Generation). Stats not listed here sort to the end of
+/// their display group in manifest order.
+const List<int> _weaponStatOrder = [
+  4043523819, // Impact
+  1240592695, // Range
+  155624089, // Stability
+  943549884, // Handling
+  4188031367, // Reload Speed
+  1345609583, // Aim Assistance
+  3555269338, // Zoom
+  2714457168, // Airborne Effectiveness
+  1931675084, // Ammo Generation
+  2715839340, // Recoil Direction
+  4284893193, // Rounds Per Minute
+  3871231066, // Magazine
+  3481294762, // Heat Generated
+  4006394725, // Cooling Efficiency
+];
+
 /// [stats] reordered for the detail panel: bar stats first, then the recoil
-/// gauge, then numeric stats — original (manifest) order kept within each group.
-/// Shared by the definition and instance resolvers so both views match.
-List<ItemStat> sortStatsForDisplay(List<ItemStat> stats) => [
-      for (final group in const [
-        StatDisplay.bar,
-        StatDisplay.recoil,
-        StatDisplay.numeric
-      ])
-        ...stats.where((s) => s.display == group),
-    ];
+/// gauge, then numeric stats, and within each group by the canonical in-game
+/// [_weaponStatOrder] (unlisted stats keep their relative order, after the
+/// listed ones). Shared by the definition and instance resolvers so both views
+/// match the in-game inspect screen.
+List<ItemStat> sortStatsForDisplay(List<ItemStat> stats) {
+  int rank(ItemStat s) {
+    final i = _weaponStatOrder.indexOf(s.statHash);
+    return i == -1 ? _weaponStatOrder.length : i;
+  }
+
+  return [
+    for (final group in const [
+      StatDisplay.bar,
+      StatDisplay.recoil,
+      StatDisplay.numeric
+    ])
+      ...(() {
+        // Decorate with the input index so equal-rank (unlisted) stats keep
+        // their original order — List.sort is not guaranteed stable.
+        final group_ = [
+          for (var i = 0; i < stats.length; i++)
+            if (stats[i].display == group) (i: i, stat: stats[i]),
+        ]..sort((a, b) {
+            final r = rank(a.stat).compareTo(rank(b.stat));
+            return r != 0 ? r : a.i.compareTo(b.i);
+          });
+        return group_.map((e) => e.stat);
+      })(),
+  ];
+}
 
 /// A resolved stat line for the detail panel. [display] controls rendering:
 /// a 0-100 bar, a bare number (e.g. RPM, Magazine, Zoom), or the recoil

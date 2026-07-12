@@ -18,6 +18,7 @@ DestinyItem item({
   bool isMasterwork = false,
   bool isLocked = false,
   bool isEquipped = false,
+  int gearTier = 0,
 }) =>
     DestinyItem(
       itemHash: 1,
@@ -34,6 +35,7 @@ DestinyItem item({
       isMasterwork: isMasterwork,
       isLocked: isLocked,
       isEquipped: isEquipped,
+      gearTier: gearTier,
     );
 
 void main() {
@@ -94,6 +96,23 @@ void main() {
       expect(compileQuery('light:<=500').matches(item(power: 500)), isTrue);
       // No power → cannot match a power comparison.
       expect(compileQuery('power:>1').matches(item(power: null)), isFalse);
+    });
+
+    test('tier: exact and comparison', () {
+      expect(compileQuery('tier:4').matches(item(gearTier: 4)), isTrue);
+      expect(compileQuery('tier:4').matches(item(gearTier: 5)), isFalse);
+      expect(compileQuery('tier:>2').matches(item(gearTier: 3)), isTrue);
+      expect(compileQuery('tier:>2').matches(item(gearTier: 2)), isFalse);
+      expect(compileQuery('tier:>=5').matches(item(gearTier: 5)), isTrue);
+      // Untiered gear (gearTier 0) fails any positive comparison.
+      expect(compileQuery('tier:>0').matches(item(gearTier: 0)), isFalse);
+      // Malformed comparison → unsupported.
+      expect(compileQuery('tier:abc').unsupported, ['tier:abc']);
+    });
+
+    test('tier: is instance-only (unsupported on the Database tab)', () {
+      final q = compileQuery('tier:4', instanceDataAvailable: false);
+      expect(q.unsupported, ['tier:4']);
     });
 
     test('ammo: matches the ammunition type (no facets needed)', () {
@@ -391,8 +410,9 @@ void main() {
     });
 
     test('removed DIM filter keys are treated as unsupported', () {
+      // Note: `tier:` is NOT here — it is a supported gear-tier filter now.
       final q = compileQuery('is:solar season:22 tag:favorite masterwork:range '
-          'kills:100 foundry:hakke modslot:artifact year:7 tier:10 notes:pvp');
+          'kills:100 foundry:hakke modslot:artifact year:7 notes:pvp');
       expect(
           q.unsupported,
           containsAll(<String>[
@@ -403,7 +423,6 @@ void main() {
             'foundry:hakke',
             'modslot:artifact',
             'year:7',
-            'tier:10',
             'notes:pvp',
           ]));
       // The supported term still filters — the query is not empty.
@@ -494,6 +513,7 @@ void main() {
       'description:"kills with this"',
       'keyword:volatile',
       'power:>1800', 'light:<=1600',
+      'tier:5', 'tier:>2',
       'is:equipped', 'is:masterwork', 'is:locked',
       'count:>1',
       'catalyst:complete', 'catalyst:incomplete', 'catalyst:missing',

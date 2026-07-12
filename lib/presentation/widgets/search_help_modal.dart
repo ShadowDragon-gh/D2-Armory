@@ -63,6 +63,7 @@ const List<_Section> _sections = [
   ]),
   _Section('Live account data', [
     _Filter('power:>1800  light:<=1600', 'Instance power level.'),
+    _Filter('tier:5  tier:>2', 'Gear tier (0–5): exact, or a comparison.'),
     _Filter('is:equipped  is:masterwork  is:locked', 'Instance state.'),
     _Filter('count:>1', 'How many copies you own (duplicates).'),
     _Filter('catalyst:complete  catalyst:incomplete  catalyst:missing',

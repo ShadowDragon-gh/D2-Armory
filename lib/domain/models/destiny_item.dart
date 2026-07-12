@@ -26,6 +26,7 @@ class DestinyItem {
     this.isEquipped = false,
     this.isMasterwork = false,
     this.isLocked = false,
+    this.gearTier = 0,
   });
 
   final int itemHash;
@@ -78,6 +79,11 @@ class DestinyItem {
   final bool isEquipped;
   final bool isMasterwork;
   final bool isLocked;
+
+  /// The item's gear tier (0–5) from the instance component's `gearTier`, driving
+  /// the tile's tier diamonds and the masterwork +tier stat bonus. 0 for items
+  /// with no tier (uninstanced, or pre-tier-system gear).
+  final int gearTier;
 
   String? get iconUrl =>
       iconPath.isEmpty ? null : '${AppConfig.bungieBaseUrl}$iconPath';
@@ -134,5 +140,6 @@ class DestinyItem {
         isEquipped: equipped,
         isMasterwork: isMasterwork,
         isLocked: isLocked,
+        gearTier: gearTier,
       );
 }
