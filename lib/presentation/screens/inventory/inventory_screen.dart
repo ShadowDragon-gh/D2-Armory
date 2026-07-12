@@ -255,19 +255,26 @@ class _CharacterCell extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // The tile sizes its own height (icon + footer); the empty slot is a
-          // plain square, so give only it a fixed height.
-          equipped == null
-              ? const SizedBox(
-                  width: InventoryScreen.equippedTile,
-                  height: InventoryScreen.equippedTile,
-                  child: _EmptySlot(),
-                )
-              : ItemTile(
-                  item: equipped,
-                  size: InventoryScreen.equippedTile,
-                  ownerId: owner.id,
-                ),
+          // The equipped slot is its own drop target: dropping a copy already
+          // on this character here equips it (canEquip). Dropping a copy from
+          // elsewhere is rejected by canEquip and handled by the surrounding
+          // transfer cell instead, so the two targets never both accept.
+          _EquipTarget(
+            owner: owner,
+            // The tile sizes its own height (icon + footer); the empty slot is
+            // a plain square, so give only it a fixed height.
+            child: equipped == null
+                ? const SizedBox(
+                    width: InventoryScreen.equippedTile,
+                    height: InventoryScreen.equippedTile,
+                    child: _EmptySlot(),
+                  )
+                : ItemTile(
+                    item: equipped,
+                    size: InventoryScreen.equippedTile,
+                    ownerId: owner.id,
+                  ),
+          ),
           const SizedBox(width: InventoryScreen.gap),
           SizedBox(
             width: InventoryScreen._invGridWidth,
@@ -342,6 +349,46 @@ class _DropCell extends ConsumerWidget {
       builder: (context, candidate, rejected) {
         final Color? highlight = candidate.isNotEmpty
             ? ArmoryPalette.accent200 // valid target (green-ish accent)
+            : rejected.isNotEmpty
+                ? Theme.of(context).colorScheme.error
+                : null;
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            border: highlight == null
+                ? null
+                : Border.all(color: highlight, width: 2),
+            color: highlight?.withValues(alpha: 0.08),
+            borderRadius: ArmoryRadius.sm,
+          ),
+          child: child,
+        );
+      },
+    );
+  }
+}
+
+/// The equipped-slot drop target: dropping an item already on [owner] here
+/// equips it. [canEquip] gates the drop (an off-character copy is rejected, so
+/// the surrounding transfer cell handles it instead) and drives the same
+/// green/red hover tint as [_DropCell].
+class _EquipTarget extends ConsumerWidget {
+  const _EquipTarget({required this.owner, required this.child});
+
+  final InventoryOwner owner;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return DragTarget<ItemDrag>(
+      onWillAcceptWithDetails: (details) =>
+          canEquip(details.data.item, owner,
+                  currentOwnerId: details.data.fromOwnerId)
+              .allowed,
+      onAcceptWithDetails: (details) =>
+          ref.read(moveControllerProvider.notifier).equip(details.data, owner),
+      builder: (context, candidate, rejected) {
+        final Color? highlight = candidate.isNotEmpty
+            ? ArmoryPalette.accent200
             : rejected.isNotEmpty
                 ? Theme.of(context).colorScheme.error
                 : null;

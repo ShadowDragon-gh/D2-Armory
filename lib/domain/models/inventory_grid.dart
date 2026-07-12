@@ -1,6 +1,18 @@
 import 'destiny_character.dart';
 import 'destiny_item.dart';
 
+/// The canonical order of items within one equipment bucket: the equipped item
+/// first, then by power descending. Used both when building the grid from a
+/// profile and when patching it after a move, so a moved item lands in the same
+/// order a refetch would place it (rather than at the end of the list).
+List<DestinyItem> sortBucketItems(List<DestinyItem> items) {
+  final sorted = [...items]..sort((a, b) {
+      if (a.isEquipped != b.isEquipped) return a.isEquipped ? -1 : 1;
+      return (b.power ?? 0).compareTo(a.power ?? 0);
+    });
+  return sorted;
+}
+
 /// One column in the inventory grid: a character or the vault.
 class InventoryOwner {
   const InventoryOwner({
@@ -100,7 +112,10 @@ class InventoryGrid {
         .itemsFor(bucketHash)
         .where((i) => i.itemInstanceId != instanceId)
         .toList();
-    final toItems = [...to.itemsFor(bucketHash), moved.asUnequipped()];
+    // Insert in the bucket's canonical order (power-descending) so the item
+    // lands where a refetch would place it, not at the end of the list.
+    final toItems =
+        sortBucketItems([...to.itemsFor(bucketHash), moved.asUnequipped()]);
 
     final patchedFrom = from.withBucket(bucketHash, fromItems);
     final patchedTo = to.withBucket(bucketHash, toItems);
@@ -112,6 +127,51 @@ class InventoryGrid {
             : owner.id == toOwnerId
                 ? patchedTo
                 : owner,
+    ]);
+  }
+
+  /// A new grid reflecting [instanceId] becoming the equipped item in its bucket
+  /// on owner [ownerId] — the in-memory patch after a successful equip, so the
+  /// grid updates instantly without a refetch. The item is marked equipped and
+  /// whatever was equipped in that bucket is marked unequipped.
+  ///
+  /// A no-op (returns the same grid) when the owner or item is not found, or the
+  /// item is already equipped.
+  InventoryGrid withItemEquipped({
+    required String instanceId,
+    required String ownerId,
+  }) {
+    final owner = owners.where((o) => o.id == ownerId).firstOrNull;
+    if (owner == null) return this;
+
+    // Find the item's bucket on this owner.
+    int? bucketHash;
+    for (final entry in owner.itemsByBucket.entries) {
+      if (entry.value.any((i) => i.itemInstanceId == instanceId)) {
+        bucketHash = entry.key;
+        break;
+      }
+    }
+    if (bucketHash == null) return this;
+
+    final current = owner.itemsFor(bucketHash);
+    if (current.any((i) => i.itemInstanceId == instanceId && i.isEquipped)) {
+      return this; // already equipped — nothing to change
+    }
+
+    // Equip the target; unequip whatever was equipped in this bucket.
+    final patchedItems = [
+      for (final item in current)
+        item.itemInstanceId == instanceId
+            ? item.asEquipped()
+            : item.isEquipped
+                ? item.asUnequipped()
+                : item,
+    ];
+
+    final patchedOwner = owner.withBucket(bucketHash, patchedItems);
+    return InventoryGrid([
+      for (final o in owners) o.id == ownerId ? patchedOwner : o,
     ]);
   }
 }

@@ -34,19 +34,21 @@ DestinyItem _vaultRifle() => const DestinyItem(
       itemInstanceId: 'inst-1',
     );
 
-InventoryGrid _grid() {
-  final character = InventoryOwner(
-    id: 'charA',
-    title: 'Hunter',
-    isVault: false,
-    character: DestinyCharacter(
+DestinyCharacter _hunter() => DestinyCharacter(
       characterId: 'charA',
       classType: 1,
       light: 1900,
       emblemPath: '',
       emblemBackgroundPath: '',
       dateLastPlayed: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-    ),
+    );
+
+InventoryGrid _grid() {
+  final character = InventoryOwner(
+    id: 'charA',
+    title: 'Hunter',
+    isVault: false,
+    character: _hunter(),
     itemsByBucket: const {},
   );
   final vault = InventoryOwner(
@@ -60,6 +62,45 @@ InventoryGrid _grid() {
   return InventoryGrid([character, vault]);
 }
 
+/// A grid where the Hunter holds an equipped rifle plus an unequipped one in
+/// the same bucket, so an unequipped copy can be dragged onto the equipped slot.
+InventoryGrid _gridWithEquippable() {
+  const equipped = DestinyItem(
+    itemHash: 555,
+    bucketHash: 1498876634,
+    name: 'Equipped Rifle',
+    iconPath: '',
+    itemInstanceId: 'equipped-1',
+    classType: 1,
+    isEquipped: true,
+  );
+  const spare = DestinyItem(
+    itemHash: 556,
+    bucketHash: 1498876634,
+    name: 'Spare Rifle',
+    iconPath: '',
+    itemInstanceId: 'spare-1',
+    classType: 1,
+  );
+  return InventoryGrid([
+    InventoryOwner(
+      id: 'charA',
+      title: 'Hunter',
+      isVault: false,
+      character: _hunter(),
+      itemsByBucket: const {
+        1498876634: [equipped, spare],
+      },
+    ),
+    const InventoryOwner(
+      id: 'vault',
+      title: 'Vault',
+      isVault: true,
+      itemsByBucket: {},
+    ),
+  ]);
+}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(_FakeOwner());
@@ -71,6 +112,7 @@ void main() {
   setUp(() {
     transfer = _MockTransfer();
     when(() => transfer.moveItem(any(), any(), any())).thenAnswer((_) async {});
+    when(() => transfer.equip(any(), any())).thenAnswer((_) async {});
   });
 
   Widget harness() => ProviderScope(
@@ -176,6 +218,48 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
   });
 
+  testWidgets('dropping a spare copy on the equipped slot equips it (not move)',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        inventoryGridProvider
+            .overrideWith(() => _FixedGridNotifier(_gridWithEquippable())),
+        itemTransferRepositoryProvider.overrideWithValue(transfer),
+      ],
+      child: const MaterialApp(home: Scaffold(body: InventoryScreen())),
+    ));
+    await tester.pumpAndSettle();
+
+    // Only the unequipped spare is draggable (equipped items are not).
+    final spare = find.byType(Draggable<ItemDrag>);
+    expect(spare, findsOneWidget);
+
+    // The equipped slot is the 72px tile; drop the spare on it. The equipped
+    // tile renders the "Equipped Rifle" — target its position.
+    final from = tester.getCenter(spare);
+    // The equipped slot sits to the left of the spare in the same row.
+    final to = Offset(from.dx - 100, from.dy);
+
+    final gesture = await tester.startGesture(from);
+    await tester.pump(const Duration(milliseconds: 50));
+    await gesture.moveTo(Offset((from.dx + to.dx) / 2, from.dy));
+    await tester.pump(const Duration(milliseconds: 50));
+    await gesture.moveTo(to);
+    await tester.pump(const Duration(milliseconds: 50));
+    await gesture.up();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Equip dispatched for the spare on charA; no transfer move happened.
+    final captured =
+        verify(() => transfer.equip(captureAny(), captureAny())).captured;
+    expect((captured[0] as DestinyItem).itemInstanceId, 'spare-1');
+    expect((captured[1] as InventoryOwner).id, 'charA');
+    verifyNever(() => transfer.moveItem(any(), any(), any()));
+
+    await tester.pump(const Duration(seconds: 4)); // drain the success toast
+  });
+
   group('grid patch on move (no refetch)', () {
     late ProviderContainer container;
 
@@ -207,6 +291,22 @@ void main() {
       expect(patchedVault.itemsFor(_kinetic.hash), isEmpty);
       expect(patchedChar.itemsFor(_kinetic.hash).map((i) => i.itemInstanceId),
           ['inst-1']);
+    });
+
+    test('a successful move marks the item as recently moved (for the flash)',
+        () async {
+      final grid = await container.read(inventoryGridProvider.future);
+      final vault = grid.owners.firstWhere((o) => o.isVault);
+      final character = grid.owners.firstWhere((o) => !o.isVault);
+
+      expect(container.read(recentlyMovedProvider), isNull);
+      await container.read(moveControllerProvider.notifier).move(
+            ItemDrag(item: _vaultRifle(), fromOwnerId: vault.id),
+            character,
+          );
+
+      // The moved instance is flagged so its tile flashes the green border.
+      expect(container.read(recentlyMovedProvider), 'inst-1');
     });
 
     test('a stranded-in-vault failure patches the item into the vault',
@@ -258,6 +358,100 @@ void main() {
       expect(patchedVault.itemsFor(_kinetic.hash).map((i) => i.itemInstanceId),
           contains('inst-1'));
       expect(container.read(moveControllerProvider)!.ok, isFalse);
+    });
+
+    test('a successful equip patches the grid in place (no refetch)', () async {
+      final c = ProviderContainer(overrides: [
+        inventoryGridProvider
+            .overrideWith(() => _FixedGridNotifier(_gridWithEquippable())),
+        itemTransferRepositoryProvider.overrideWithValue(transfer),
+      ]);
+      addTearDown(c.dispose);
+
+      final grid = await c.read(inventoryGridProvider.future);
+      final character = grid.owners.firstWhere((o) => !o.isVault);
+      const spare = DestinyItem(
+        itemHash: 556,
+        bucketHash: 1498876634,
+        name: 'Spare Rifle',
+        iconPath: '',
+        itemInstanceId: 'spare-1',
+        classType: 1,
+      );
+
+      await c.read(moveControllerProvider.notifier).equip(
+            ItemDrag(item: spare, fromOwnerId: character.id),
+            character,
+          );
+
+      // The spare is now the equipped item; the old one is unequipped — from
+      // the in-memory patch, since the fixed notifier has no refetch path.
+      final bucket = c
+          .read(inventoryGridProvider)
+          .value!
+          .owners
+          .firstWhere((o) => !o.isVault)
+          .itemsFor(_kinetic.hash);
+      expect(bucket.firstWhere((i) => i.isEquipped).itemInstanceId, 'spare-1');
+      expect(bucket.where((i) => i.isEquipped).length, 1);
+      expect(c.read(moveControllerProvider)!.ok, isTrue);
+    });
+
+    test('equipping a vault item onto a character moves it there then equips',
+        () async {
+      // _grid(): vault holds the rifle (inst-1); charA is empty. Dropping it on
+      // charA's equip slot must move it in AND equip it.
+      final grid = await container.read(inventoryGridProvider.future);
+      final vault = grid.owners.firstWhere((o) => o.isVault);
+      final character = grid.owners.firstWhere((o) => !o.isVault);
+
+      await container.read(moveControllerProvider.notifier).equip(
+            ItemDrag(item: _vaultRifle(), fromOwnerId: vault.id),
+            character,
+          );
+
+      // Both the transfer and the equip were dispatched.
+      verify(() => transfer.moveItem(any(), any(), any())).called(1);
+      verify(() => transfer.equip(any(), any())).called(1);
+
+      // The grid shows the rifle equipped on the character, gone from the vault.
+      final patched = container.read(inventoryGridProvider).value!;
+      final charBucket = patched.owners
+          .firstWhere((o) => !o.isVault)
+          .itemsFor(_kinetic.hash);
+      expect(charBucket.single.itemInstanceId, 'inst-1');
+      expect(charBucket.single.isEquipped, isTrue);
+      expect(
+          patched.owners.firstWhere((o) => o.isVault).itemsFor(_kinetic.hash),
+          isEmpty);
+      expect(container.read(moveControllerProvider)!.ok, isTrue);
+    });
+
+    test('a cross-character equip whose equip step fails keeps the move', () async {
+      // Move succeeds, equip throws: the item stays on the character
+      // (unequipped) and the outcome is a failure that says so.
+      when(() => transfer.equip(any(), any()))
+          .thenThrow(const ApiFailure('Cannot equip right now.'));
+
+      final grid = await container.read(inventoryGridProvider.future);
+      final vault = grid.owners.firstWhere((o) => o.isVault);
+      final character = grid.owners.firstWhere((o) => !o.isVault);
+
+      await container.read(moveControllerProvider.notifier).equip(
+            ItemDrag(item: _vaultRifle(), fromOwnerId: vault.id),
+            character,
+          );
+
+      final patched = container.read(inventoryGridProvider).value!;
+      final charBucket = patched.owners
+          .firstWhere((o) => !o.isVault)
+          .itemsFor(_kinetic.hash);
+      // The move happened (item on the character) but it is NOT equipped.
+      expect(charBucket.single.itemInstanceId, 'inst-1');
+      expect(charBucket.single.isEquipped, isFalse);
+      final outcome = container.read(moveControllerProvider)!;
+      expect(outcome.ok, isFalse);
+      expect(outcome.message, contains('could not'));
     });
   });
 }

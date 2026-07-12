@@ -106,29 +106,33 @@ class DestinyItem {
   /// unequipped in its new owner, so the in-memory grid patch after a move uses
   /// this rather than refetching. Returns the same instance when already
   /// unequipped.
-  DestinyItem asUnequipped() {
-    if (!isEquipped) return this;
-    return DestinyItem(
-      itemHash: itemHash,
-      bucketHash: bucketHash,
-      name: name,
-      iconPath: iconPath,
-      ornamentIconPath: ornamentIconPath,
-      ornamentForegroundPath: ornamentForegroundPath,
-      rarityPlatePath: rarityPlatePath,
-      itemType: itemType,
-      itemSubType: itemSubType,
-      tierType: tierType,
-      classType: classType,
-      ammoType: ammoType,
-      itemTypeDisplayName: itemTypeDisplayName,
-      itemInstanceId: itemInstanceId,
-      power: power,
-      damageType: damageType,
-      elementIconPath: elementIconPath,
-      isEquipped: false,
-      isMasterwork: isMasterwork,
-      isLocked: isLocked,
-    );
-  }
+  DestinyItem asUnequipped() => isEquipped ? _withEquipped(false) : this;
+
+  /// A copy of this item marked equipped. The in-memory grid patch after an
+  /// equip uses this for the newly-equipped item. Returns the same instance
+  /// when already equipped.
+  DestinyItem asEquipped() => isEquipped ? this : _withEquipped(true);
+
+  DestinyItem _withEquipped(bool equipped) => DestinyItem(
+        itemHash: itemHash,
+        bucketHash: bucketHash,
+        name: name,
+        iconPath: iconPath,
+        ornamentIconPath: ornamentIconPath,
+        ornamentForegroundPath: ornamentForegroundPath,
+        rarityPlatePath: rarityPlatePath,
+        itemType: itemType,
+        itemSubType: itemSubType,
+        tierType: tierType,
+        classType: classType,
+        ammoType: ammoType,
+        itemTypeDisplayName: itemTypeDisplayName,
+        itemInstanceId: itemInstanceId,
+        power: power,
+        damageType: damageType,
+        elementIconPath: elementIconPath,
+        isEquipped: equipped,
+        isMasterwork: isMasterwork,
+        isLocked: isLocked,
+      );
 }

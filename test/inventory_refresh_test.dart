@@ -45,12 +45,17 @@ void main() {
   });
 
   /// Stub the next [fetchInventory] to return [_gridWith(ids)] and, when it
-  /// runs, stamp [mintedAt] as the last-fetched timestamp.
+  /// runs, stamp [mintedAt] as the last-fetched timestamp. Covers both the
+  /// no-arg initial build and the `reuseDecoded: true` refresh call.
   void stubFetch(List<String> ids, {DateTime? mintedAt}) {
-    when(() => repo.fetchInventory()).thenAnswer((_) async {
+    Future<InventoryGrid> answer(_) async {
       minted = mintedAt;
       return _gridWith(ids);
-    });
+    }
+
+    when(() => repo.fetchInventory()).thenAnswer(answer);
+    when(() => repo.fetchInventory(reuseDecoded: any(named: 'reuseDecoded')))
+        .thenAnswer(answer);
   }
 
   ProviderContainer container() {

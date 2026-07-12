@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors/failures.dart';
@@ -41,7 +44,9 @@ class InventoryGridNotifier extends AsyncNotifier<InventoryGrid> {
   Future<void> refresh() async {
     final repo = ref.read(inventoryRepositoryProvider);
     final before = repo.lastMintedTimestamp;
-    final grid = await repo.fetchInventory();
+    // Reuse the prior decode for items whose inputs are unchanged — a poll
+    // rebuilds hundreds of items and most are untouched between ticks.
+    final grid = await repo.fetchInventory(reuseDecoded: true);
     final after = repo.lastMintedTimestamp;
     // Discard a response that is not strictly newer than what we already show.
     if (before != null && after != null && !after.isAfter(before)) return;
@@ -142,13 +147,15 @@ class MoveController extends Notifier<MoveOutcome?> {
           .moveItem(drag.item, fromOwner, toOwner);
       // Patch the grid to show the item on its destination — no refetch.
       _patchMove(instanceId, drag.fromOwnerId, toOwner.id);
+      ref.read(recentlyMovedProvider.notifier).mark(instanceId);
       state =
           MoveOutcome.success('Moved ${drag.item.name} to ${toOwner.title}.');
     } on StrandedInVaultFailure catch (e) {
       // A cross-character move whose second hop failed: the item is in the
       // vault, not on the destination. Patch it to the vault so the grid shows
-      // where it actually is (never a false success).
+      // where it actually is (never a false success), and highlight it there.
       _patchMove(instanceId, drag.fromOwnerId, 'vault');
+      ref.read(recentlyMovedProvider.notifier).mark(instanceId);
       state = MoveOutcome.failure(e.message);
     } on Failure catch (e) {
       // The move did not happen; leave the grid unchanged.
@@ -158,22 +165,78 @@ class MoveController extends Notifier<MoveOutcome?> {
     }
   }
 
-  /// Equip [drag]'s item on [toOwner] (the item must already be on that
-  /// character). Equipping does not move the item between owners, so a
-  /// successful equip refetches to reflect the new equipped/unequipped state.
+  /// Equip [drag]'s item on [toOwner]. When the item is already on [toOwner] it
+  /// is simply equipped. When it is on another character or the vault, it is
+  /// first moved to [toOwner] and then equipped. Every success patches the grid
+  /// in memory (no refetch) so a rapid sequence stays instant and consistent.
+  ///
+  /// Partial failure of the move-then-equip is surfaced, never hidden: if the
+  /// move succeeds but the equip fails, the item stays on [toOwner] (unequipped)
+  /// and the toast says so.
   Future<void> equip(ItemDrag drag, InventoryOwner toOwner) async {
     if (_inFlight) return;
+    final instanceId = drag.item.itemInstanceId;
+    if (instanceId == null) return;
+
     _inFlight = true;
     state = null;
     try {
+      // Move first when the item is not already on the target character.
+      if (drag.fromOwnerId != toOwner.id) {
+        final grid = ref.read(inventoryGridProvider).value;
+        final fromOwner =
+            grid?.owners.where((o) => o.id == drag.fromOwnerId).firstOrNull;
+        if (grid == null || fromOwner == null) return;
+
+        try {
+          await ref
+              .read(itemTransferRepositoryProvider)
+              .moveItem(drag.item, fromOwner, toOwner);
+        } on StrandedInVaultFailure catch (e) {
+          _patchMove(instanceId, drag.fromOwnerId, 'vault');
+          ref.read(recentlyMovedProvider.notifier).mark(instanceId);
+          state = MoveOutcome.failure(e.message);
+          return;
+        }
+        _patchMove(instanceId, drag.fromOwnerId, toOwner.id);
+
+        // Move done; now equip. A failure here leaves the item on the target
+        // (unequipped) — report that rather than claiming success.
+        try {
+          await ref.read(itemTransferRepositoryProvider).equip(drag.item, toOwner);
+        } on Failure catch (e) {
+          // The item still moved — highlight where it landed.
+          ref.read(recentlyMovedProvider.notifier).mark(instanceId);
+          state = MoveOutcome.failure(
+              'Moved ${drag.item.name} to ${toOwner.title}, but could not '
+              'equip it: ${e.message}');
+          return;
+        }
+        _patchEquip(instanceId, toOwner.id);
+        ref.read(recentlyMovedProvider.notifier).mark(instanceId);
+        state = MoveOutcome.success(
+            'Moved ${drag.item.name} to ${toOwner.title} and equipped it.');
+        return;
+      }
+
+      // Same character: equip in place.
       await ref.read(itemTransferRepositoryProvider).equip(drag.item, toOwner);
+      _patchEquip(instanceId, toOwner.id);
+      ref.read(recentlyMovedProvider.notifier).mark(instanceId);
       state = MoveOutcome.success('Equipped ${drag.item.name}.');
-      ref.invalidate(inventoryGridProvider);
     } on Failure catch (e) {
       state = MoveOutcome.failure(e.message);
     } finally {
       _inFlight = false;
     }
+  }
+
+  void _patchEquip(String instanceId, String ownerId) {
+    final grid = ref.read(inventoryGridProvider).value;
+    if (grid == null) return;
+    ref.read(inventoryGridProvider.notifier).patch(
+          grid.withItemEquipped(instanceId: instanceId, ownerId: ownerId),
+        );
   }
 
   void _patchMove(String instanceId, String fromOwnerId, String toOwnerId) {
@@ -193,6 +256,37 @@ class MoveController extends Notifier<MoveOutcome?> {
 final moveControllerProvider =
     NotifierProvider<MoveController, MoveOutcome?>(MoveController.new);
 
+/// How long a just-moved item keeps its green "here's where it went" border —
+/// matched to the move toast's visible life (slide-in + hold + slide-out) so the
+/// two clear together.
+const Duration kRecentlyMovedDuration = Duration(milliseconds: 3700);
+
+/// The instance id of the item most recently moved or equipped, so its tile can
+/// flash a green border showing where it landed. Holds one id at a time (a new
+/// move replaces it and resets the timer); auto-clears after
+/// [kRecentlyMovedDuration]. Null when no highlight is active.
+class RecentlyMovedNotifier extends Notifier<String?> {
+  Timer? _timer;
+
+  @override
+  String? build() {
+    ref.onDispose(() => _timer?.cancel());
+    return null;
+  }
+
+  /// Highlight [instanceId] and (re)start the clear timer.
+  void mark(String instanceId) {
+    _timer?.cancel();
+    state = instanceId;
+    _timer = Timer(kRecentlyMovedDuration, () {
+      if (state == instanceId) state = null;
+    });
+  }
+}
+
+final recentlyMovedProvider =
+    NotifierProvider<RecentlyMovedNotifier, String?>(RecentlyMovedNotifier.new);
+
 /// Warms the inventory search facets (perk/stat/breaker/source/catalyst) for
 /// every owned item, so the first facet-backed search is instant instead of
 /// decoding on the first keystroke. Runs on the UI isolate (the decode needs
@@ -202,17 +296,41 @@ final moveControllerProvider =
 /// Deliberately deferred: it waits for the grid to load and then a beat longer,
 /// so the grid builds and paints first without the (heavy, UI-isolate) warm
 /// competing for the isolate at the handoff. [InventoryRepository.warmFacets]
-/// then trickles the work in over several seconds without dropping frames.
+/// then resolves one item per frame — each heavy decode lands after the current
+/// frame paints (via [SchedulerBinding.endOfFrame]) — so the warm never blocks a
+/// stretch of frames and the app stays responsive while it runs.
 final inventoryFacetsWarmProvider = FutureProvider<void>((ref) async {
   final grid = await ref.watch(inventoryGridProvider.future);
+  // When the grid changes this provider re-runs and the prior execution is
+  // disposed; that flips [cancelled], so the previous (now stale) warm loop
+  // stops instead of running concurrently with the new one.
+  var cancelled = false;
+  ref.onDispose(() => cancelled = true);
+
   // Let the grid build and paint before the warm starts taking the isolate.
   await Future<void>.delayed(const Duration(milliseconds: 500));
+  if (cancelled) return;
   final items = [
     for (final owner in grid.owners)
       for (final list in owner.itemsByBucket.values) ...list,
   ];
-  await ref.watch(inventoryRepositoryProvider).warmFacets(items);
+  await ref.watch(inventoryRepositoryProvider).warmFacets(
+        items,
+        onYield: _yieldToFrame,
+        isCancelled: () => cancelled,
+      );
 });
+
+/// Wait for the current frame to finish painting before the next heavy decode,
+/// so each one lands in the gap between frames. Falls back to a short delay if
+/// no frame is pending (an idle app draws no frames, so `endOfFrame` alone
+/// could stall the warm indefinitely).
+Future<void> _yieldToFrame() {
+  return Future.any([
+    SchedulerBinding.instance.endOfFrame,
+    Future<void>.delayed(const Duration(milliseconds: 16)),
+  ]);
+}
 
 /// Deduped, sorted item names from the loaded grid, for search autocomplete.
 /// Empty until the grid has loaded.

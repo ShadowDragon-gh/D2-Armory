@@ -51,6 +51,10 @@ class ItemTile extends ConsumerWidget {
     // Hash-keyed like the Database rows: highlighted while this item's
     // definition is open in the shared gear-detail modal.
     final selected = ref.watch(selectedDatabaseItemProvider) == item.itemHash;
+    // Flashes a green border for a few seconds after this exact copy was moved
+    // or equipped, so the user sees where it landed.
+    final justMoved = item.itemInstanceId != null &&
+        ref.watch(recentlyMovedProvider) == item.itemInstanceId;
     final showCosmetics = ref.watch(showCosmeticsProvider);
     // An applied ornament's flat icon carries the ornament's own (legendary)
     // background. When the item ships a rarity plate + transparent ornament
@@ -92,6 +96,7 @@ class ItemTile extends ConsumerWidget {
                 _iconSquare(
                   iconUrl: iconUrl,
                   selected: selected,
+                  justMoved: justMoved,
                   plateUrl: plateUrl,
                   foregroundUrl: foregroundUrl,
                 ),
@@ -137,23 +142,31 @@ class ItemTile extends ConsumerWidget {
   Widget _iconSquare({
     required String? iconUrl,
     bool selected = false,
+    bool justMoved = false,
     String? plateUrl,
     String? foregroundUrl,
   }) {
-    final borderColor = selected
-        ? ArmoryPalette.accent200 // selection highlight
-        : item.isMasterwork
-            ? ArmoryPalette.masterworkGold.withValues(alpha: 0.5)
-            : ArmoryPalette.borderStronger;
+    // The just-moved green flash takes precedence over the selection and
+    // masterwork borders while it is active.
+    final borderColor = justMoved
+        ? ArmoryPalette.success
+        : selected
+            ? ArmoryPalette.accent200 // selection highlight
+            : item.isMasterwork
+                ? ArmoryPalette.masterworkGold.withValues(alpha: 0.5)
+                : ArmoryPalette.borderStronger;
 
-    return Container(
+    return AnimatedContainer(
+      // Border color/width animate on change, so the green flash fades in when
+      // an item is moved and fades out when the highlight clears.
+      duration: const Duration(milliseconds: 300),
       width: size,
       height: size,
       decoration: BoxDecoration(
         borderRadius: ArmoryRadius.sm,
         border: Border.all(
           color: borderColor,
-          width: selected ? 2 : 1,
+          width: (selected || justMoved) ? 2 : 1,
         ),
       ),
       clipBehavior: Clip.antiAlias,

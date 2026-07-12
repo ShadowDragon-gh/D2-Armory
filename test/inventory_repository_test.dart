@@ -6,6 +6,8 @@ import 'package:destiny2_loadout_planner/core/search/item_filter.dart';
 import 'package:destiny2_loadout_planner/data/remote/bungie_api.dart';
 import 'package:destiny2_loadout_planner/data/repositories/inventory_repository.dart';
 import 'package:destiny2_loadout_planner/data/repositories/manifest_repository.dart';
+import 'package:destiny2_loadout_planner/domain/models/destiny_item.dart';
+import 'package:destiny2_loadout_planner/domain/models/inventory_grid.dart';
 
 class _MockApi extends Mock implements BungieApi {}
 
@@ -389,6 +391,47 @@ void main() {
       expect(facets.perks, contains('rampage')); // warmed correctly
       verifyNever(() => manifest.getInventoryItem(any()));
     });
+
+    test('warmFacets yields once per item (one heavy decode between frames)',
+        () async {
+      final grid = await repo.fetchInventory();
+      final items = [
+        for (final owner in grid.owners)
+          for (final list in owner.itemsByBucket.values) ...list,
+      ];
+      expect(items, isNotEmpty);
+
+      var yields = 0;
+      await repo.warmFacets(items, onYield: () async => yields++);
+
+      // One yield per item — the throttle resolves a single item then waits, so
+      // no stretch of heavy decodes runs back-to-back without a frame gap.
+      expect(yields, items.length);
+    });
+
+    test('warmFacets stops early when superseded (isCancelled true)', () async {
+      final grid = await repo.fetchInventory();
+      final items = [
+        for (final owner in grid.owners)
+          for (final list in owner.itemsByBucket.values) ...list,
+        // Pad with copies so there is more than one iteration to cancel across.
+        for (final owner in grid.owners)
+          for (final list in owner.itemsByBucket.values) ...list,
+      ];
+      expect(items.length, greaterThan(1));
+
+      var iterations = 0;
+      // Cancel after the first item is processed.
+      await repo.warmFacets(
+        items,
+        onYield: () async => iterations++,
+        isCancelled: () => iterations >= 1,
+      );
+
+      // It stopped at the first cancel check after one item, not the full list.
+      expect(iterations, 1);
+      expect(iterations, lessThan(items.length));
+    });
   });
 
   group('applied ornament composite', () {
@@ -506,6 +549,173 @@ void main() {
       expect(helm.ornamentForegroundUrl, isNull);
       expect(helm.rarityPlateUrl, isNull);
       expect(helm.ornamentIconUrl, 'https://www.bungie.net/orn.jpg');
+    });
+  });
+
+  group('refresh decode reuse (poll diffing)', () {
+    // A single vault helmet whose raw item map is mutated between fetches to
+    // simulate an in-game change. Object identity of the resulting DestinyItem
+    // proves reuse (same instance) vs. re-decode (new instance).
+    late Map<String, dynamic> rawHelm;
+
+    Map<String, dynamic> helmItem() => {
+          'itemHash': helmetHash,
+          'itemInstanceId': '333',
+          'bucketHash': EquipmentBucket.helmet.hash,
+          'state': 0,
+        };
+
+    setUp(() {
+      rawHelm = helmItem();
+      when(() => api.getProfile(
+            membershipType: any(named: 'membershipType'),
+            membershipId: any(named: 'membershipId'),
+            components: any(named: 'components'),
+          )).thenAnswer((_) async => {
+            'characters': {'data': {}},
+            'characterEquipment': {'data': {}},
+            'characterInventories': {'data': {}},
+            'profileInventory': {
+              'data': {
+                'items': [rawHelm]
+              }
+            },
+            'itemComponents': {'instances': {'data': {}}},
+          });
+    });
+
+    DestinyItem theHelm(InventoryGrid grid) =>
+        grid.owners.single.itemsFor(EquipmentBucket.helmet.hash).single;
+
+    test('an unchanged item is reused (same instance) on a reuse refresh',
+        () async {
+      final first = theHelm(await repo.fetchInventory());
+      final second = theHelm(await repo.fetchInventory(reuseDecoded: true));
+      expect(identical(first, second), isTrue);
+    });
+
+    test('the initial load never reuses (always decodes fresh)', () async {
+      final first = theHelm(await repo.fetchInventory());
+      // A second plain fetch (reuseDecoded defaults false) re-decodes.
+      final second = theHelm(await repo.fetchInventory());
+      expect(identical(first, second), isFalse);
+    });
+
+    test('a state change (e.g. newly locked) re-decodes rather than reusing',
+        () async {
+      final first = theHelm(await repo.fetchInventory());
+      // The item is now locked in game (ItemState bit 1).
+      rawHelm['state'] = 1;
+      final second = theHelm(await repo.fetchInventory(reuseDecoded: true));
+      expect(identical(first, second), isFalse);
+      expect(second.isLocked, isTrue); // the fresh decode reflects the change
+    });
+
+    test('a re-ornament (socket plug change) re-decodes rather than reusing',
+        () async {
+      // Give the helmet a socket with an ornament plug, then change it. The
+      // ornament icon is part of the decode, so the signature must catch it.
+      const ornamentA = 8001;
+      const ornamentB = 8002;
+      when(() => manifest.getInventoryItem(ornamentA)).thenReturn({
+        'displayProperties': {'name': 'Skin A', 'icon': '/a.jpg'},
+        'itemSubType': 21,
+        'plug': {'plugCategoryIdentifier': 'armor_skins'},
+      });
+      when(() => manifest.getInventoryItem(ornamentB)).thenReturn({
+        'displayProperties': {'name': 'Skin B', 'icon': '/b.jpg'},
+        'itemSubType': 21,
+        'plug': {'plugCategoryIdentifier': 'armor_skins'},
+      });
+      when(() => api.getProfile(
+            membershipType: any(named: 'membershipType'),
+            membershipId: any(named: 'membershipId'),
+            components: any(named: 'components'),
+          )).thenAnswer((_) async => {
+            'characters': {'data': {}},
+            'characterEquipment': {'data': {}},
+            'characterInventories': {'data': {}},
+            'profileInventory': {
+              'data': {
+                'items': [rawHelm]
+              }
+            },
+            'itemComponents': {
+              'instances': {'data': {}},
+              'sockets': {
+                'data': {
+                  '333': {
+                    'sockets': [
+                      {'plugHash': ornamentA, 'isEnabled': true}
+                    ]
+                  }
+                }
+              },
+            },
+          });
+
+      final first = theHelm(await repo.fetchInventory());
+      expect(first.ornamentIconUrl, 'https://www.bungie.net/a.jpg');
+
+      // Swap the socketed ornament plug to B.
+      when(() => api.getProfile(
+            membershipType: any(named: 'membershipType'),
+            membershipId: any(named: 'membershipId'),
+            components: any(named: 'components'),
+          )).thenAnswer((_) async => {
+            'characters': {'data': {}},
+            'characterEquipment': {'data': {}},
+            'characterInventories': {'data': {}},
+            'profileInventory': {
+              'data': {
+                'items': [rawHelm]
+              }
+            },
+            'itemComponents': {
+              'instances': {'data': {}},
+              'sockets': {
+                'data': {
+                  '333': {
+                    'sockets': [
+                      {'plugHash': ornamentB, 'isEnabled': true}
+                    ]
+                  }
+                }
+              },
+            },
+          });
+
+      final second = theHelm(await repo.fetchInventory(reuseDecoded: true));
+      expect(identical(first, second), isFalse);
+      expect(second.ornamentIconUrl, 'https://www.bungie.net/b.jpg');
+    });
+
+    test('an unchanged item keeps its warmed facets across a reuse-refresh',
+        () async {
+      final first = theHelm(await repo.fetchInventory());
+      // Warm this item's facets (populates the per-instance facet cache).
+      final facetsBefore = repo.inventoryFacetsFor(first);
+
+      // A reuse-refresh with the item unchanged must NOT drop its facets.
+      final refreshed = theHelm(await repo.fetchInventory(reuseDecoded: true));
+      // Looking the facets up again does no manifest work — they were kept.
+      clearInteractions(manifest);
+      final facetsAfter = repo.inventoryFacetsFor(refreshed);
+      expect(identical(facetsBefore, facetsAfter), isTrue,
+          reason: 'facets should survive the poll for an unchanged item');
+      verifyNever(() => manifest.getInventoryItem(any()));
+    });
+
+    test('a changed item drops its facets so they re-resolve', () async {
+      final first = theHelm(await repo.fetchInventory());
+      final facetsBefore = repo.inventoryFacetsFor(first);
+
+      // The item is newly locked → its decode (and thus facets) may change.
+      rawHelm['state'] = 1;
+      final refreshed = theHelm(await repo.fetchInventory(reuseDecoded: true));
+      final facetsAfter = repo.inventoryFacetsFor(refreshed);
+      expect(identical(facetsBefore, facetsAfter), isFalse,
+          reason: 'a re-decoded item must re-resolve its facets, not reuse');
     });
   });
 }

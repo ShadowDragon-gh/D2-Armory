@@ -7,13 +7,15 @@ import 'package:destiny2_loadout_planner/domain/models/inventory_grid.dart';
 const _kinetic = EquipmentBucket.kineticWeapons;
 final _kh = _kinetic.hash;
 
-DestinyItem _rifle(String id, {bool equipped = false}) => DestinyItem(
+DestinyItem _rifle(String id, {bool equipped = false, int? power}) =>
+    DestinyItem(
       itemHash: 555,
       bucketHash: _kh,
       name: 'Rifle $id',
       iconPath: '',
       itemInstanceId: id,
       isEquipped: equipped,
+      power: power,
     );
 
 InventoryOwner _character(String id, List<DestinyItem> kinetic) =>
@@ -96,6 +98,23 @@ void main() {
       expect(vault.itemsFor(_kh).map((i) => i.itemInstanceId), ['r1', 'r3']);
     });
 
+    test('inserts the moved item in power-descending order (not at the end)',
+        () {
+      // Vault holds two rifles at power 1800 and 1600; move a 1700-power rifle
+      // in from a character. It must land BETWEEN them, not appended last.
+      final grid = InventoryGrid([
+        _character('charA', [_rifle('mid', power: 1700)]),
+        _vault([_rifle('high', power: 1800), _rifle('low', power: 1600)]),
+      ]);
+
+      final next = grid.withItemMoved(
+          instanceId: 'mid', fromOwnerId: 'charA', toOwnerId: 'vault');
+
+      final vault = next.owners.firstWhere((o) => o.isVault);
+      expect(vault.itemsFor(_kh).map((i) => i.itemInstanceId),
+          ['high', 'mid', 'low']);
+    });
+
     test('returns the same grid when the item is not in the source owner', () {
       final grid = InventoryGrid([
         _character('charA', []),
@@ -136,6 +155,60 @@ void main() {
           isEmpty);
       expect(afterHop2.owners.firstWhere((o) => o.id == 'charA').itemsFor(_kh),
           isEmpty);
+    });
+  });
+
+  group('withItemEquipped', () {
+    test('equips the target and unequips the previously-equipped item', () {
+      final grid = InventoryGrid([
+        _character('charA', [
+          _rifle('equipped', equipped: true),
+          _rifle('spare'),
+        ]),
+      ]);
+
+      final next =
+          grid.withItemEquipped(instanceId: 'spare', ownerId: 'charA');
+      final bucket = next.owners.single.itemsFor(_kh);
+      final equipped = bucket.firstWhere((i) => i.isEquipped);
+      expect(equipped.itemInstanceId, 'spare');
+      // The old equipped item is now unequipped, and only one item is equipped.
+      expect(bucket.where((i) => i.isEquipped).length, 1);
+      expect(bucket.firstWhere((i) => i.itemInstanceId == 'equipped').isEquipped,
+          isFalse);
+    });
+
+    test('does not mutate the original grid', () {
+      final grid = InventoryGrid([
+        _character('charA', [
+          _rifle('equipped', equipped: true),
+          _rifle('spare'),
+        ]),
+      ]);
+
+      grid.withItemEquipped(instanceId: 'spare', ownerId: 'charA');
+      // Original unchanged: 'equipped' still equipped, 'spare' still not.
+      final bucket = grid.owners.single.itemsFor(_kh);
+      expect(bucket.firstWhere((i) => i.itemInstanceId == 'equipped').isEquipped,
+          isTrue);
+      expect(bucket.firstWhere((i) => i.itemInstanceId == 'spare').isEquipped,
+          isFalse);
+    });
+
+    test('returns the same grid when the item is already equipped', () {
+      final grid = InventoryGrid([
+        _character('charA', [_rifle('e', equipped: true)]),
+      ]);
+      final next = grid.withItemEquipped(instanceId: 'e', ownerId: 'charA');
+      expect(identical(next, grid), isTrue);
+    });
+
+    test('returns the same grid when the item is not on the owner', () {
+      final grid = InventoryGrid([
+        _character('charA', [_rifle('e', equipped: true)]),
+      ]);
+      final next = grid.withItemEquipped(instanceId: 'nope', ownerId: 'charA');
+      expect(identical(next, grid), isTrue);
     });
   });
 }

@@ -52,6 +52,15 @@ class InventoryRepository {
   // fetch so a refresh never serves facets from a stale instance.
   final Map<String, SearchFacets> _facetsByInstance = {};
 
+  // Per-instance decode cache: the fully-built [DestinyItem] from the last fetch
+  // plus a signature of every raw input its decode depended on. A background
+  // refresh reuses the cached item when the signature is unchanged, skipping the
+  // manifest definition lookup, ornament socket walk, and icon-layer resolution
+  // — the dominant per-item cost. NOT cleared on fetch (it persists so a poll
+  // can diff against the prior fetch); a changed signature re-decodes and
+  // replaces the entry. Only consulted when [fetchInventory] is asked to reuse.
+  final Map<String, ({String sig, DestinyItem item})> _decodeByInstance = {};
+
   static const _components = [
     100, // Profiles
     200, // Characters
@@ -84,7 +93,11 @@ class InventoryRepository {
     3854296178,
   };
 
-  Future<InventoryGrid> fetchInventory() async {
+  /// Fetch the profile and build the grid. [reuseDecoded] lets a background
+  /// refresh reuse the previous fetch's decoded items whose inputs are
+  /// unchanged (see [_decodeByInstance]); the initial load and manual retry
+  /// leave it false so they always decode fresh.
+  Future<InventoryGrid> fetchInventory({bool reuseDecoded = false}) async {
     final membership = await _memberships.resolvePrimary();
     final profile = await _api.getProfile(
       membershipType: membership.membershipType,
@@ -101,7 +114,15 @@ class InventoryRepository {
     _records = _mergeRecords(profile);
     _lastMintedTimestamp =
         DateTime.tryParse(profile['responseMintedTimestamp'] as String? ?? '');
-    _facetsByInstance.clear(); // stale after a refresh
+    // A full (non-reuse) fetch decodes everything fresh, so all cached facets
+    // are stale — clear them. A reuse-refresh keeps facets for items it reuses
+    // and evicts only those whose decode changes (in [_itemsOf]), then prunes
+    // departed instances below — so the perk/stat warm survives a poll intact.
+    if (!reuseDecoded) _facetsByInstance.clear();
+
+    // Instance ids seen this fetch, so a reuse-refresh can drop cache entries
+    // for items that left the account.
+    final seen = <String>{};
 
     // Characters, newest-played first — these become the leading columns.
     final characters = _dataMap(profile['characters'])
@@ -117,8 +138,9 @@ class InventoryRepository {
     for (final character in characters) {
       final items = <DestinyItem>[
         ...await _itemsOf(equipment[character.characterId], instances,
-            equipped: true),
-        ...await _itemsOf(charInventories[character.characterId], instances),
+            equipped: true, reuseDecoded: reuseDecoded, seen: seen),
+        ...await _itemsOf(charInventories[character.characterId], instances,
+            reuseDecoded: reuseDecoded, seen: seen),
       ];
       owners.add(InventoryOwner(
         id: character.characterId,
@@ -132,13 +154,22 @@ class InventoryRepository {
     // Vault (profile inventory). Equipment-slot items in the vault report the
     // General bucket, so they are re-grouped by their definition's bucket.
     final vaultItems = await _itemsOf(profile['profileInventory'], instances,
-        useDefBucket: true);
+        useDefBucket: true, reuseDecoded: reuseDecoded, seen: seen);
     owners.add(InventoryOwner(
       id: 'vault',
       title: 'Vault',
       isVault: true,
       itemsByBucket: _groupByBucket(vaultItems),
     ));
+
+    // Drop cache entries for instances no longer owned (a reuse-refresh keeps
+    // the caches across fetches, so departed items would otherwise linger).
+    if (reuseDecoded) {
+      _decodeByInstance.keys.toSet().difference(seen).forEach((id) {
+        _decodeByInstance.remove(id);
+        _facetsByInstance.remove(id);
+      });
+    }
 
     return InventoryGrid(owners);
   }
@@ -412,21 +443,27 @@ class InventoryRepository {
   /// [inventoryFacetsFor] resolves and caches any untouched item on demand, so
   /// search is correct with or without it.
   ///
-  /// The per-item socket/stat/catalyst decode is heavy (tens of ms each) and
-  /// must run on the UI isolate — it reads the live profile components in
-  /// memory, which a background isolate cannot see. So rather than run it in
-  /// tight batches (which back-to-back exceed a frame and stutter the UI right
-  /// as the grid appears), it resolves a small batch then waits a frame's worth
-  /// before the next, trickling the work into the background over several
-  /// seconds without dropping frames.
-  Future<void> warmFacets(Iterable<DestinyItem> items) async {
-    const batch = 4;
-    const breather = Duration(milliseconds: 16);
-    var i = 0;
+  /// Each item's socket/stat/catalyst decode is heavy (tens of ms) and must run
+  /// on the UI isolate — it reads the live profile components in memory, which a
+  /// background isolate cannot see. So the warm resolves exactly ONE item then
+  /// yields, keeping every decode inside its own gap between frames rather than
+  /// blocking a stretch of them. [onYield] is the yield: the presentation layer
+  /// passes a frame-scheduler wait (so a decode lands after the current frame
+  /// paints); without it the warm falls back to a microtask yield. Keeping the
+  /// yield injected leaves this data-layer class free of a Flutter dependency.
+  /// [isCancelled], when it returns true, stops the warm early — the caller
+  /// uses it to supersede a stale warm when the grid changes, so a rapid series
+  /// of grid updates never leaves several warm loops running concurrently.
+  Future<void> warmFacets(
+    Iterable<DestinyItem> items, {
+    Future<void> Function()? onYield,
+    bool Function()? isCancelled,
+  }) async {
     for (final item in items) {
+      if (isCancelled?.call() ?? false) return;
       // inventoryFacetsFor caches by instance id, so this fills the cache.
       inventoryFacetsFor(item);
-      if (++i % batch == 0) await Future<void>.delayed(breather);
+      await (onYield?.call() ?? Future<void>.delayed(Duration.zero));
     }
   }
 
@@ -943,6 +980,8 @@ class InventoryRepository {
     Map<String, dynamic> instances, {
     bool equipped = false,
     bool useDefBucket = false,
+    bool reuseDecoded = false,
+    Set<String>? seen,
   }) async {
     final map = component is Map<String, dynamic> ? component : null;
     final data = map?['data'];
@@ -958,6 +997,32 @@ class InventoryRepository {
       final itemHash = (item['itemHash'] as num?)?.toInt();
       if (itemHash == null) continue;
 
+      // Reuse the previously-decoded item when every input its decode reads is
+      // unchanged (background refresh only). The signature captures the raw
+      // item, its instance data, and its socket plugs — so a re-ornamented,
+      // re-rolled, moved, (un)locked, or masterworked item re-decodes.
+      final instanceId = item['itemInstanceId']?.toString();
+      final instance = instanceId == null
+          ? null
+          : instances[instanceId] as Map<String, dynamic>?;
+      final signature =
+          instanceId == null ? null : _decodeSignature(item, instance, equipped);
+      if (instanceId != null) seen?.add(instanceId);
+      if (reuseDecoded && instanceId != null && signature != null) {
+        final cached = _decodeByInstance[instanceId];
+        if (cached != null && cached.sig == signature) {
+          // Unchanged: reuse the decode AND keep its cached facets.
+          result.add(cached.item);
+          continue;
+        }
+      }
+      // Reaching here means this item is (re)decoding, so its cached facets may
+      // be stale — evict them on a reuse-refresh (a full fetch already cleared
+      // them). Unchanged items above skip this and keep their warm facets.
+      if (reuseDecoded && instanceId != null) {
+        _facetsByInstance.remove(instanceId);
+      }
+
       final def = _manifest.getInventoryItem(itemHash);
       if (def == null) continue;
 
@@ -971,12 +1036,6 @@ class InventoryRepository {
         continue; // only weapon/armor slots are shown
       }
 
-      // int64 ids (itemInstanceId) are serialized as JSON strings by Bungie;
-      // accept either form defensively.
-      final instanceId = item['itemInstanceId']?.toString();
-      final instance = instanceId == null
-          ? null
-          : instances[instanceId] as Map<String, dynamic>?;
       final display = def['displayProperties'] as Map<String, dynamic>?;
       final state = (item['state'] as num?)?.toInt() ?? 0;
       final tierType = (def['inventory']?['tierType'] as num?)?.toInt() ?? 0;
@@ -1011,7 +1070,7 @@ class InventoryRepository {
         }
       }
 
-      result.add(DestinyItem(
+      final decoded = DestinyItem(
         itemHash: itemHash,
         bucketHash: bucketHash,
         name: (display?['name'] as String?) ?? '',
@@ -1034,9 +1093,48 @@ class InventoryRepository {
         // ItemState bit flags: Locked=1, Masterwork=4.
         isLocked: state & 1 != 0,
         isMasterwork: state & 4 != 0,
-      ));
+      );
+      result.add(decoded);
+      // Cache the fresh decode + its signature so a later refresh can reuse it.
+      if (instanceId != null && signature != null) {
+        _decodeByInstance[instanceId] = (sig: signature, item: decoded);
+      }
     }
     return result;
+  }
+
+  /// A value signature of every raw input [_itemsOf]'s decode depends on for an
+  /// instanced item: the raw item component (hash/bucket/state), whether it is
+  /// equipped, its instance data (power/damage), and the enabled socket plug
+  /// hashes (which drive the applied-ornament icon). Two fetches producing the
+  /// same signature decode to an identical [DestinyItem], so the prior decode
+  /// can be reused. Cheap: field reads plus a plain plug-hash join, no manifest
+  /// lookups — the work the reuse avoids.
+  String _decodeSignature(
+      Map<String, dynamic> item, Map<String, dynamic>? instance, bool equipped) {
+    final itemHash = (item['itemHash'] as num?)?.toInt();
+    final bucketHash = (item['bucketHash'] as num?)?.toInt();
+    final state = (item['state'] as num?)?.toInt() ?? 0;
+    final power = (instance?['primaryStat']?['value'] as num?)?.toInt();
+    final damageType = (instance?['damageType'] as num?)?.toInt();
+    final damageTypeHash = (instance?['damageTypeHash'] as num?)?.toInt();
+
+    final instanceId = item['itemInstanceId']?.toString();
+    final socketsData =
+        instanceId == null ? null : _sockets[instanceId] as Map<String, dynamic>?;
+    final sockets = socketsData?['sockets'];
+    final plugs = StringBuffer();
+    if (sockets is List) {
+      for (final socket in sockets) {
+        final s = socket as Map<String, dynamic>;
+        if (s['isEnabled'] == false) continue;
+        plugs
+          ..write((s['plugHash'] as num?)?.toInt() ?? 0)
+          ..write(',');
+      }
+    }
+    return '$itemHash|$bucketHash|$state|$equipped|$power|$damageType|'
+        '$damageTypeHash|$plugs';
   }
 
   /// The applied ornament's plug definition for an instance, or null when none
@@ -1092,14 +1190,8 @@ class InventoryRepository {
     for (final item in items) {
       (grouped[item.bucketHash] ??= []).add(item);
     }
-    // Equipped first, then by power descending.
-    for (final list in grouped.values) {
-      list.sort((a, b) {
-        if (a.isEquipped != b.isEquipped) return a.isEquipped ? -1 : 1;
-        return (b.power ?? 0).compareTo(a.power ?? 0);
-      });
-    }
-    return grouped;
+    // Equipped first, then by power descending (the shared canonical order).
+    return grouped.map((k, v) => MapEntry(k, sortBucketItems(v)));
   }
 
   Map<String, dynamic> _dataMap(dynamic component) {

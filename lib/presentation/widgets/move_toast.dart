@@ -49,6 +49,11 @@ class _MoveToastState extends State<_MoveToast>
   /// How long the toast stays fully visible before sliding out.
   static const _hold = Duration(milliseconds: 3200);
 
+  /// The inventory header row's top padding (see `_HeaderRow` in
+  /// inventory_screen.dart) — added below the app bar so the toast's top edge
+  /// lines up with the section-header banners rather than the search bar.
+  static const _headerTopPadding = 8.0;
+
   @override
   void initState() {
     super.initState();
@@ -77,10 +82,17 @@ class _MoveToastState extends State<_MoveToast>
     final icon = ok ? Icons.check_circle_rounded : Icons.error_rounded;
     final label = ok ? 'Move complete' : 'Move failed';
 
+    // Sit just below the app bar, lined up with the inventory section-header
+    // banners (the header row's 8px top padding), so the toast never covers the
+    // search bar or the app-bar controls.
+    final top =
+        kToolbarHeight + MediaQuery.paddingOf(context).top + _headerTopPadding;
+
     return Positioned(
-      top: 16,
+      top: top,
       right: 16,
       child: SafeArea(
+        top: false,
         child: FadeTransition(
           opacity: _fade,
           child: SlideTransition(

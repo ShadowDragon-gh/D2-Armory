@@ -126,11 +126,17 @@ void main() {
       expect(v.allowed, isTrue);
     });
 
-    test('denies equipping an item that is on a different owner', () {
+    test('allows equipping an item from another owner (a move-then-equip)', () {
+      // From the vault onto charA: valid — the controller moves it first.
       final v = canEquip(_item(classType: 1), _character('charA', classType: 1),
           currentOwnerId: 'vault');
-      expect(v.allowed, isFalse);
-      expect(v.reason, contains('character'));
+      expect(v.allowed, isTrue);
+    });
+
+    test('allows equipping a copy from another character', () {
+      final v = canEquip(_item(classType: 1), _character('charA', classType: 1),
+          currentOwnerId: 'charB');
+      expect(v.allowed, isTrue);
     });
 
     test('denies equipping onto the vault', () {
@@ -159,6 +165,126 @@ void main() {
           currentOwnerId: 'charA');
       expect(v.allowed, isFalse);
       expect(v.reason, isNull);
+    });
+  });
+
+  group('canEquip exotic limit', () {
+    // itemType 2 = armor, 3 = weapon; tierType 6 = exotic.
+    DestinyItem gearIn(EquipmentBucket bucket,
+            {required String id, required int tier, bool equipped = false}) =>
+        DestinyItem(
+          itemHash: 1,
+          bucketHash: bucket.hash,
+          name: 'Gear $id',
+          iconPath: '',
+          itemInstanceId: id,
+          classType: 1,
+          tierType: tier,
+          itemType: bucket.isWeapon ? 3 : 2,
+          isEquipped: equipped,
+        );
+
+    DestinyItem exoticIn(EquipmentBucket bucket,
+            {required String id, bool equipped = false}) =>
+        gearIn(bucket, id: id, tier: 6, equipped: equipped);
+
+    DestinyItem legendaryIn(EquipmentBucket bucket,
+            {required String id, bool equipped = false}) =>
+        gearIn(bucket, id: id, tier: 5, equipped: equipped);
+
+    InventoryOwner ownerWith(List<DestinyItem> items) {
+      final byBucket = <int, List<DestinyItem>>{};
+      for (final i in items) {
+        (byBucket[i.bucketHash] ??= []).add(i);
+      }
+      return InventoryOwner(
+        id: 'charA',
+        title: 'charA',
+        isVault: false,
+        character: DestinyCharacter(
+          characterId: 'charA',
+          classType: 1,
+          light: 1900,
+          emblemPath: '',
+          emblemBackgroundPath: '',
+          dateLastPlayed: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        ),
+        itemsByBucket: byBucket,
+      );
+    }
+
+    test('denies a second exotic in the same category (exotic armor already on)',
+        () {
+      // Exotic helmet equipped; try to equip exotic gauntlets (both armor).
+      final owner = ownerWith([
+        exoticIn(EquipmentBucket.helmet, id: 'helm', equipped: true),
+        exoticIn(EquipmentBucket.gauntlets, id: 'gaunt'),
+      ]);
+      final v = canEquip(owner.itemsFor(EquipmentBucket.gauntlets.hash).single,
+          owner,
+          currentOwnerId: 'charA');
+      expect(v.allowed, isFalse);
+      expect(v.reason, contains('exotic'));
+    });
+
+    test('allows swapping an exotic into a slot that already holds an exotic',
+        () {
+      // Exotic helmet A equipped; equip exotic helmet B (same bucket) — a swap,
+      // still one exotic armor.
+      final owner = ownerWith([
+        exoticIn(EquipmentBucket.helmet, id: 'helmA', equipped: true),
+        exoticIn(EquipmentBucket.helmet, id: 'helmB'),
+      ]);
+      final helmB = owner
+          .itemsFor(EquipmentBucket.helmet.hash)
+          .firstWhere((i) => i.itemInstanceId == 'helmB');
+      final v = canEquip(helmB, owner, currentOwnerId: 'charA');
+      expect(v.allowed, isTrue);
+    });
+
+    test('exotic weapon does not block an exotic armor piece (separate limits)',
+        () {
+      // Exotic kinetic weapon equipped; equipping an exotic helmet is fine.
+      final owner = ownerWith([
+        exoticIn(EquipmentBucket.kineticWeapons, id: 'wpn', equipped: true),
+        exoticIn(EquipmentBucket.helmet, id: 'helm'),
+      ]);
+      final helm = owner.itemsFor(EquipmentBucket.helmet.hash).single;
+      final v = canEquip(helm, owner, currentOwnerId: 'charA');
+      expect(v.allowed, isTrue);
+    });
+
+    test('denies a second exotic weapon (exotic weapon already equipped)', () {
+      final owner = ownerWith([
+        exoticIn(EquipmentBucket.kineticWeapons, id: 'k', equipped: true),
+        exoticIn(EquipmentBucket.energyWeapons, id: 'e'),
+      ]);
+      final energy = owner.itemsFor(EquipmentBucket.energyWeapons.hash).single;
+      final v = canEquip(energy, owner, currentOwnerId: 'charA');
+      expect(v.allowed, isFalse);
+    });
+
+    test('allows an exotic when no other exotic is equipped in the category',
+        () {
+      // Only legendaries equipped elsewhere; equip an exotic helmet.
+      final owner = ownerWith([
+        legendaryIn(EquipmentBucket.gauntlets, id: 'g', equipped: true),
+        exoticIn(EquipmentBucket.helmet, id: 'helm'),
+      ]);
+      final helm = owner.itemsFor(EquipmentBucket.helmet.hash).single;
+      final v = canEquip(helm, owner, currentOwnerId: 'charA');
+      expect(v.allowed, isTrue);
+    });
+
+    test('a legendary item is never blocked by the exotic limit', () {
+      // Exotic helmet equipped; equipping a legendary chest is fine.
+      final owner = ownerWith([
+        exoticIn(EquipmentBucket.helmet, id: 'helm', equipped: true),
+        legendaryIn(EquipmentBucket.chestArmor, id: 'chest'),
+      ]);
+      final chest = owner.itemsFor(EquipmentBucket.chestArmor.hash).single;
+      final v = canEquip(chest, owner, currentOwnerId: 'charA');
+      expect(v.allowed, isTrue);
     });
   });
 }

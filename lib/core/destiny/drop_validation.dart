@@ -62,8 +62,10 @@ DropVerdict canDrop(
 }
 
 /// Whether [item] may be equipped on [targetOwner] by dropping it on the
-/// equipped slot. v1 requires the item already be on that character (equipping
-/// pulls nothing across), and the item must be usable by the character's class.
+/// equipped slot. The item may come from another character or the vault — the
+/// controller then moves it to [targetOwner] first and equips it. The item must
+/// be usable by the character's class and respect the one-exotic-per-category
+/// limit.
 DropVerdict canEquip(
   DestinyItem item,
   InventoryOwner targetOwner, {
@@ -75,16 +77,52 @@ DropVerdict canEquip(
   if (targetOwner.isVault) {
     return const DropVerdict.deny('Items in the vault cannot be equipped.');
   }
-  if (targetOwner.id != currentOwnerId) {
-    return const DropVerdict.deny('Move it to this character first.');
-  }
-  if (item.isEquipped) {
-    return const DropVerdict.noop(); // already equipped here
+  // Already equipped on this character → nothing to do (a silent no-op). This
+  // only applies when the item is on the target owner; a copy from elsewhere is
+  // a move-then-equip below.
+  if (item.isEquipped && targetOwner.id == currentOwnerId) {
+    return const DropVerdict.noop();
   }
   if (!_classAllows(item.classType, targetOwner.character?.classType)) {
     return const DropVerdict.deny('Wrong class for this item.');
   }
+  // Exotic limit: at most one exotic equipped per category (weapons and armor
+  // are counted separately). Equipping an exotic while a *different* exotic is
+  // already equipped in another slot of the same category is invalid.
+  if (_isExotic(item) &&
+      _hasConflictingExotic(item, targetOwner)) {
+    return DropVerdict.deny(
+        'Already using an exotic ${_categoryLabel(item)}.');
+  }
   return const DropVerdict.allow();
+}
+
+bool _isExotic(DestinyItem item) => item.tierType == 6;
+
+/// Whether [item]'s slot is a weapon slot (vs an armor slot). Falls back to the
+/// item type when the bucket is unknown.
+bool _isWeaponCategory(DestinyItem item) {
+  final bucket = EquipmentBucket.fromHash(item.bucketHash);
+  if (bucket != null) return bucket.isWeapon;
+  return item.itemType == 3; // DestinyItemType 3 = Weapon
+}
+
+String _categoryLabel(DestinyItem item) =>
+    _isWeaponCategory(item) ? 'weapon' : 'armor piece';
+
+/// True when [owner] already has an exotic equipped in a *different* bucket of
+/// [item]'s category (weapon vs armor). Swapping an exotic into a slot that
+/// already holds an exotic is fine — only a second exotic in the category is
+/// the conflict.
+bool _hasConflictingExotic(DestinyItem item, InventoryOwner owner) {
+  final wantWeapon = _isWeaponCategory(item);
+  for (final entry in owner.itemsByBucket.entries) {
+    if (entry.key == item.bucketHash) continue; // same slot → a swap, not a 2nd
+    final equipped = owner.equippedIn(entry.key);
+    if (equipped == null || !_isExotic(equipped)) continue;
+    if (_isWeaponCategory(equipped) == wantWeapon) return true;
+  }
+  return false;
 }
 
 /// True when an item of [itemClass] can be used by a character of
