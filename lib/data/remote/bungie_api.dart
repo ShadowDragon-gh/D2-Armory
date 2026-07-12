@@ -31,6 +31,41 @@ class BungieApi {
         query: {'components': components.join(',')},
       );
 
+  /// POST /Destiny2/Actions/Items/TransferItem/ — move an instanced item
+  /// between a character and the vault. [transferToVault] chooses direction;
+  /// [characterId] is always the character side of the move (source when
+  /// transferring to the vault, destination when transferring from it).
+  /// Requires the `MoveEquipDestinyItems` OAuth scope.
+  Future<void> transferItem({
+    required int itemReferenceHash,
+    required String itemId,
+    required bool transferToVault,
+    required String characterId,
+    required int membershipType,
+    int stackSize = 1,
+  }) =>
+      _postResponse('/Destiny2/Actions/Items/TransferItem/', {
+        'itemReferenceHash': itemReferenceHash,
+        'stackSize': stackSize,
+        'transferToVault': transferToVault,
+        'itemId': itemId,
+        'characterId': characterId,
+        'membershipType': membershipType,
+      });
+
+  /// POST /Destiny2/Actions/Items/EquipItem/ — equip an instanced item that is
+  /// already on [characterId]. Requires the `MoveEquipDestinyItems` OAuth scope.
+  Future<void> equipItem({
+    required String itemId,
+    required String characterId,
+    required int membershipType,
+  }) =>
+      _postResponse('/Destiny2/Actions/Items/EquipItem/', {
+        'itemId': itemId,
+        'characterId': characterId,
+        'membershipType': membershipType,
+      });
+
   /// Performs the GET and unwraps Bungie's platform envelope, which nests the
   /// payload under `Response` and signals errors via `ErrorCode` (1 = Success).
   Future<Map<String, dynamic>> _getResponse(
@@ -57,6 +92,30 @@ class BungieApi {
         throw const ApiFailure('Bungie response envelope had no Response.');
       }
       return response;
+    } on DioException catch (e) {
+      throw _mapDioError(e, path);
+    }
+  }
+
+  /// POSTs [body] as JSON and checks Bungie's platform envelope for success.
+  /// Action endpoints (transfer/equip) signal the outcome via `ErrorCode`
+  /// (1 = Success) and return a trivial `Response` (usually the int 0), so —
+  /// unlike [_getResponse] — the payload itself is not unwrapped or returned.
+  Future<void> _postResponse(String path, Map<String, dynamic> body) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(path, data: body);
+      final data = res.data;
+      if (data == null) {
+        throw const ApiFailure('Empty response from Bungie.');
+      }
+      final errorCode = (data['ErrorCode'] as num?)?.toInt();
+      if (errorCode != null && errorCode != 1) {
+        throw ApiFailure(
+          (data['Message'] as String?) ?? 'Bungie returned error $errorCode.',
+          statusCode: res.statusCode,
+          errorCode: errorCode,
+        );
+      }
     } on DioException catch (e) {
       throw _mapDioError(e, path);
     }

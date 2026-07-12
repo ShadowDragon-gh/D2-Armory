@@ -13,12 +13,19 @@ prerequisites" first — one of them (OAuth scope) blocks everything else.
 ## Hard prerequisites (blockers — resolve before any UI work)
 
 ### 1. OAuth scope — the app is currently read-only
-`AppConfig.oauthScope` is **`ReadDestinyInventoryAndVault`**. Every transfer/equip
-endpoint requires the **`MoveEquipDestinyItemsFromVault`** scope. Consequences:
+The app is registered for read-only access. Every transfer/equip endpoint requires
+the **`MoveEquipDestinyItems`** scope. Consequences:
 
-- The scope must be added to the authorize request, AND **every existing user must
-  re-authenticate** — a token minted under the old scope cannot perform writes. Plan
-  for a re-auth prompt ("New permissions needed to move items"), not a silent upgrade.
+- **Scopes are assigned at the bungie.net app registration, not per request.** The
+  authorize URL (`AuthRepository._buildAuthorizeUrl`) sends only `client_id`,
+  `response_type`, and `state` — no `scope` parameter, and Bungie ignores one if sent.
+  So enabling writes is a registration change on bungie.net, not a code change to the
+  authorize request. (`AppConfig.oauthScope` is a documentation-only constant; it is
+  read nowhere in `lib/`.)
+- **Every existing user must re-authenticate** — a token minted while the app was
+  read-only cannot perform writes, because tokens carry the app's scopes as of when
+  they were issued. Plan for a re-auth prompt ("New permissions needed to move
+  items"), not a silent upgrade.
 - This is a real, outward-facing capability change (moving a user's actual gear).
   Confirm the product intent before building (contract rule 1).
 
@@ -149,8 +156,10 @@ upgrade the hot path to **B** once the write path is proven. Don't build B blind
 
 ## Incremental delivery (checkpoints — rule 10)
 
-1. **Scope + auth**: add `MoveEquipDestinyItemsFromVault`, re-auth flow, verify a token
-   can be minted with the new scope. *No UI yet.* Gate: token has write scope.
+1. **Scope + auth**: enable `MoveEquipDestinyItems` on the bungie.net app registration
+   (not a code change to the authorize request), then re-auth so a fresh token is minted
+   under it. Add the re-auth prompt flow. *No UI yet.* Gate: a token carries the write
+   scope (a scripted single transfer is accepted, not rejected for scope).
 2. **API write layer**: `_postResponse` + `transferItem`/`equipItem`, unit-tested with a
    mocked dio (success + each error code). Gate: a scripted single transfer succeeds
    against the live account (manual, one item).
