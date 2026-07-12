@@ -101,4 +101,34 @@ class DestinyItem {
       (elementIconPath == null || elementIconPath!.isEmpty)
           ? null
           : '${AppConfig.bungieBaseUrl}$elementIconPath';
+
+  /// A copy of this item marked not-equipped. A transferred item always lands
+  /// unequipped in its new owner, so the in-memory grid patch after a move uses
+  /// this rather than refetching. Returns the same instance when already
+  /// unequipped.
+  DestinyItem asUnequipped() {
+    if (!isEquipped) return this;
+    return DestinyItem(
+      itemHash: itemHash,
+      bucketHash: bucketHash,
+      name: name,
+      iconPath: iconPath,
+      ornamentIconPath: ornamentIconPath,
+      ornamentForegroundPath: ornamentForegroundPath,
+      rarityPlatePath: rarityPlatePath,
+      itemType: itemType,
+      itemSubType: itemSubType,
+      tierType: tierType,
+      classType: classType,
+      ammoType: ammoType,
+      itemTypeDisplayName: itemTypeDisplayName,
+      itemInstanceId: itemInstanceId,
+      power: power,
+      damageType: damageType,
+      elementIconPath: elementIconPath,
+      isEquipped: false,
+      isMasterwork: isMasterwork,
+      isLocked: isLocked,
+    );
+  }
 }

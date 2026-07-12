@@ -16,15 +16,33 @@ import '../theme/armory_palette.dart';
 /// Equipped items get a gold outline; masterworked items get a subtle gold
 /// border and a translucent gold gradient rising from the bottom. Dimmed when
 /// an active search filter excludes it.
+///
+/// When [ownerId] is given and the item is a movable (instanced, unequipped)
+/// copy, the tile is a drag source: dragging it carries an [ItemDrag] to a
+/// [DragTarget] so it can be transferred. Equipped copies are not draggable —
+/// Bungie rejects transferring an equipped item.
 class ItemTile extends ConsumerWidget {
-  const ItemTile({super.key, required this.item, this.size = 52});
+  const ItemTile({
+    super.key,
+    required this.item,
+    this.size = 52,
+    this.ownerId,
+  });
 
   final DestinyItem item;
 
   /// Size of the icon square. The footer row adds a little height below it.
   final double size;
 
+  /// The id of the owner (character or vault) this tile sits in. Null in
+  /// contexts without a move affordance (e.g. the Database tab), which leaves
+  /// the tile tap-only.
+  final String? ownerId;
+
   static const double _footerHeight = 16;
+
+  bool get _draggable =>
+      ownerId != null && item.itemInstanceId != null && !item.isEquipped;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -48,7 +66,7 @@ class ItemTile extends ConsumerWidget {
     final elementColor =
         item.damageType == null ? null : DamageType.color(item.damageType!);
 
-    return AnimatedOpacity(
+    final tile = AnimatedOpacity(
       opacity: dimmed ? 0.2 : 1,
       duration: const Duration(milliseconds: 120),
       child: Tooltip(
@@ -86,6 +104,33 @@ class ItemTile extends ConsumerWidget {
           ),
         ),
       ),
+    );
+
+    if (!_draggable) return tile;
+
+    // A drag carries this item + its origin owner to a DragTarget. A plain
+    // click (no movement past the touch slop) still fires onTap above, so
+    // tap-to-open and drag-to-move coexist. The feedback is the icon square
+    // lifted with a shadow; the source dims to a placeholder while dragging.
+    return Draggable<ItemDrag>(
+      data: ItemDrag(item: item, fromOwnerId: ownerId!),
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      // Pause the background poll while a drag is active so a refetch never
+      // resets the grid mid-drag.
+      onDragStarted: () => ref.read(isDraggingProvider.notifier).start(),
+      onDragEnd: (_) => ref.read(isDraggingProvider.notifier).end(),
+      onDraggableCanceled: (_, _) =>
+          ref.read(isDraggingProvider.notifier).end(),
+      feedback: _DragFeedback(
+        size: size,
+        child: _iconSquare(
+          iconUrl: iconUrl,
+          plateUrl: plateUrl,
+          foregroundUrl: foregroundUrl,
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.3, child: tile),
+      child: tile,
     );
   }
 
@@ -214,6 +259,37 @@ class ItemTile extends ConsumerWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The floating icon shown under the cursor while dragging a tile: the item's
+/// icon square lifted with a drop shadow. Sized explicitly because drag
+/// feedback renders in an overlay, outside the grid's layout constraints.
+class _DragFeedback extends StatelessWidget {
+  const _DragFeedback({required this.size, required this.child});
+
+  final double size;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: ArmoryRadius.sm,
+          boxShadow: const [
+            BoxShadow(
+              color: ArmoryPalette.scrim87,
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: child,
       ),
     );
   }

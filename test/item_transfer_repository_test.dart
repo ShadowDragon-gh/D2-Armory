@@ -179,7 +179,7 @@ void main() {
 
       await expectLater(
         repo.moveItem(_item(), _character('charA'), _character('charB')),
-        throwsA(isA<ApiFailure>()
+        throwsA(isA<StrandedInVaultFailure>()
             .having((f) => f.message, 'message', contains('in your vault'))
             .having((f) => f.cause, 'cause', isA<ApiFailure>())),
       );

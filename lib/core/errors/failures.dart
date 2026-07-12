@@ -32,3 +32,11 @@ class ApiFailure extends Failure {
 class AuthFailure extends Failure {
   const AuthFailure(super.message, {super.cause});
 }
+
+/// A cross-character move whose first hop (source → vault) succeeded but whose
+/// second hop (vault → destination) failed: the item is now in the vault, not
+/// where it was dragged. A distinct type so the UI can both message this and
+/// patch the item to the vault, rather than reporting a false success.
+class StrandedInVaultFailure extends Failure {
+  const StrandedInVaultFailure(super.message, {super.cause});
+}

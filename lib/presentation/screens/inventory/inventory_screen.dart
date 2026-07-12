@@ -3,13 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/destiny/destiny_buckets.dart';
+import '../../../core/destiny/drop_validation.dart';
 import '../../../core/errors/failures.dart';
 import '../../../domain/models/inventory_grid.dart';
 import '../../providers/database_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../theme/armory_palette.dart';
 import '../../widgets/class_emblem.dart';
+import '../../widgets/inventory_poller.dart';
 import '../../widgets/item_tile.dart';
+import '../../widgets/move_toast.dart';
 import '../database/database_detail_modal.dart';
 import 'item_detail_panel.dart';
 
@@ -48,6 +51,15 @@ class InventoryScreen extends ConsumerWidget {
       if (next != null) showGearDetailModal(context, ref);
     });
 
+    // A completed (or failed) drag-to-move surfaces one top-right toast. A
+    // failure — including a two-hop move stranded in the vault — reads as a
+    // failure by colour and icon; never a silent success.
+    ref.listen(moveControllerProvider, (_, outcome) {
+      if (outcome == null) return;
+      showMoveToast(context, outcome);
+      ref.read(moveControllerProvider.notifier).clear();
+    });
+
     final grid = ref.watch(inventoryGridProvider);
 
     final body = grid.when(
@@ -61,17 +73,20 @@ class InventoryScreen extends ConsumerWidget {
     );
 
     // The detail panel overlays the grid on the right edge, so opening or
-    // closing it never resizes the grid (no reflow jank).
-    return Stack(
-      children: [
-        Positioned.fill(child: body),
-        const Positioned(
-          top: 0,
-          bottom: 0,
-          right: 0,
-          child: AnimatedItemDetailPanel(),
-        ),
-      ],
+    // closing it never resizes the grid (no reflow jank). Wrapped in the poller
+    // so the grid stays near-live while the inventory is on screen.
+    return InventoryPoller(
+      child: Stack(
+        children: [
+          Positioned.fill(child: body),
+          const Positioned(
+            top: 0,
+            bottom: 0,
+            right: 0,
+            child: AnimatedItemDetailPanel(),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -221,7 +236,8 @@ class _Cell extends StatelessWidget {
   }
 }
 
-/// Equipped item on the left, then up to a 3-wide grid of the rest.
+/// Equipped item on the left, then up to a 3-wide grid of the rest. The whole
+/// cell is a drop target for transferring an item into this character's slot.
 class _CharacterCell extends StatelessWidget {
   const _CharacterCell({required this.owner, required this.bucket});
 
@@ -233,35 +249,45 @@ class _CharacterCell extends StatelessWidget {
     final equipped = owner.equippedIn(bucket.hash);
     final rest = owner.unequippedIn(bucket.hash);
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // The tile sizes its own height (icon + footer); the empty slot is a
-        // plain square, so give only it a fixed height.
-        equipped == null
-            ? const SizedBox(
-                width: InventoryScreen.equippedTile,
-                height: InventoryScreen.equippedTile,
-                child: _EmptySlot(),
-              )
-            : ItemTile(item: equipped, size: InventoryScreen.equippedTile),
-        const SizedBox(width: InventoryScreen.gap),
-        SizedBox(
-          width: InventoryScreen._invGridWidth,
-          child: Wrap(
-            spacing: InventoryScreen.gap,
-            runSpacing: InventoryScreen.gap,
-            children: [
-              for (final item in rest) ItemTile(item: item),
-            ],
+    return _DropCell(
+      owner: owner,
+      bucket: bucket,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // The tile sizes its own height (icon + footer); the empty slot is a
+          // plain square, so give only it a fixed height.
+          equipped == null
+              ? const SizedBox(
+                  width: InventoryScreen.equippedTile,
+                  height: InventoryScreen.equippedTile,
+                  child: _EmptySlot(),
+                )
+              : ItemTile(
+                  item: equipped,
+                  size: InventoryScreen.equippedTile,
+                  ownerId: owner.id,
+                ),
+          const SizedBox(width: InventoryScreen.gap),
+          SizedBox(
+            width: InventoryScreen._invGridWidth,
+            child: Wrap(
+              spacing: InventoryScreen.gap,
+              runSpacing: InventoryScreen.gap,
+              children: [
+                for (final item in rest)
+                  ItemTile(item: item, ownerId: owner.id),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// Vault items wrap to fill the available width.
+/// Vault items wrap to fill the available width. The whole cell is a drop
+/// target for transferring an item into the vault.
 class _VaultCell extends StatelessWidget {
   const _VaultCell({required this.owner, required this.bucket});
 
@@ -271,11 +297,65 @@ class _VaultCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = owner.itemsFor(bucket.hash);
-    if (items.isEmpty) return const SizedBox(height: InventoryScreen.tile);
-    return Wrap(
-      spacing: InventoryScreen.gap,
-      runSpacing: InventoryScreen.gap,
-      children: [for (final item in items) ItemTile(item: item)],
+    return _DropCell(
+      owner: owner,
+      bucket: bucket,
+      child: items.isEmpty
+          ? const SizedBox(
+              width: double.infinity, height: InventoryScreen.tile)
+          : Wrap(
+              spacing: InventoryScreen.gap,
+              runSpacing: InventoryScreen.gap,
+              children: [
+                for (final item in items)
+                  ItemTile(item: item, ownerId: owner.id),
+              ],
+            ),
+    );
+  }
+}
+
+/// Wraps a cell's content in a [DragTarget] that accepts an [ItemDrag] into
+/// [owner]'s [bucket]. Validity is decided locally by [canDrop] so an invalid
+/// target rejects the drop up front (and tints red) rather than firing a POST
+/// that Bungie would bounce. A valid hovered target tints green.
+class _DropCell extends ConsumerWidget {
+  const _DropCell({
+    required this.owner,
+    required this.bucket,
+    required this.child,
+  });
+
+  final InventoryOwner owner;
+  final EquipmentBucket bucket;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return DragTarget<ItemDrag>(
+      onWillAcceptWithDetails: (details) =>
+          canDrop(details.data.item, owner, bucket,
+                  currentOwnerId: details.data.fromOwnerId)
+              .allowed,
+      onAcceptWithDetails: (details) =>
+          ref.read(moveControllerProvider.notifier).move(details.data, owner),
+      builder: (context, candidate, rejected) {
+        final Color? highlight = candidate.isNotEmpty
+            ? ArmoryPalette.accent200 // valid target (green-ish accent)
+            : rejected.isNotEmpty
+                ? Theme.of(context).colorScheme.error
+                : null;
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            border: highlight == null
+                ? null
+                : Border.all(color: highlight, width: 2),
+            color: highlight?.withValues(alpha: 0.08),
+            borderRadius: ArmoryRadius.sm,
+          ),
+          child: child,
+        );
+      },
     );
   }
 }

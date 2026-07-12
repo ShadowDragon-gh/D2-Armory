@@ -36,6 +36,16 @@ class InventoryRepository {
   // the profile- and character-scoped Records (900) components.
   Map<String, dynamic> _records = const {};
 
+  // Bungie's `responseMintedTimestamp` from the last fetch: when Bungie minted
+  // the profile snapshot. Bungie's edge cache can serve a profile older than
+  // one already held, so a background refresh compares this to skip rebuilding
+  // the grid from a staler response. Null before the first fetch.
+  DateTime? _lastMintedTimestamp;
+
+  /// When Bungie minted the profile from the last [fetchInventory], or null if
+  /// not yet fetched / not provided. Used to detect a stale background refresh.
+  DateTime? get lastMintedTimestamp => _lastMintedTimestamp;
+
   // Search facets per item instance id, resolved lazily by [inventoryFacetsFor]
   // (the socket/stat/catalyst decode is the same work the detail panel does, so
   // a search only pays for the items it tests) and cached. Cleared on each
@@ -89,6 +99,8 @@ class InventoryRepository {
     _reusablePlugs = _dataMap(itemComponents?['reusablePlugs']);
     _plugObjectives = _dataMap(itemComponents?['plugObjectives']);
     _records = _mergeRecords(profile);
+    _lastMintedTimestamp =
+        DateTime.tryParse(profile['responseMintedTimestamp'] as String? ?? '');
     _facetsByInstance.clear(); // stale after a refresh
 
     // Characters, newest-played first — these become the leading columns.

@@ -86,7 +86,7 @@ class ItemTransferRepository {
     } on Failure catch (e) {
       // Hop 1 succeeded, hop 2 did not: the item is in the vault, not on the
       // destination. Never report this as a completed move.
-      throw ApiFailure(
+      throw StrandedInVaultFailure(
         'Moved "${item.name}" to the vault, but could not reach '
         '${toOwner.title}. It is in your vault.',
         cause: e,
