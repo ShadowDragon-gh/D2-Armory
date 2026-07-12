@@ -29,6 +29,63 @@ If Bungie doesn't allow editing client type on an existing registration in
 place, register a second app for this purpose and use its key/client_id
 instead.
 
+**Gotcha hit in practice:** switching the OAuth Client Type in the portal
+requires actually clicking Save on that specific change — the form can let you
+toggle the field visually without persisting it. Symptom: the token endpoint
+returns `400 invalid_client — "Confidential client must authenticate with a
+client secret"` even though the app is sending the public-client request shape
+correctly. Fix is to re-open the app registration, confirm the type after a
+full page reload (not just right after saving), and re-save if it reverted.
+
+### Public vs Confidential — session-length tradeoff (open decision)
+
+This choice affects more than "does a secret exist" — it determines how often
+the user has to re-authenticate:
+
+- **Public client**: no refresh token is ever issued by Bungie
+  (`OAuthTokens.refreshToken` stays null — see
+  [oauth_tokens.dart](../lib/domain/models/oauth_tokens.dart)). The access
+  token's lifetime is whatever Bungie's `expires_in` says (their own docs show
+  ~3600s / 1 hour as an example, not a documented guarantee). Once it expires,
+  `canRefresh` is false, so the app signs the user out and they must click
+  "Sign in with Bungie.net" again — a real browser round-trip, roughly hourly.
+- **Confidential client**: Bungie does issue a refresh token, so the app can
+  silently renew access tokens via the `refresh_token` grant
+  (`_refresh()` / `_postToken()` with `Authorization: Basic` in
+  [auth_repository.dart](../lib/data/repositories/auth_repository.dart))
+  without the user ever seeing a browser prompt again, until the refresh
+  token itself expires (much longer-lived).
+
+**Why DIM never re-prompts for weeks:** DIM is registered as a Confidential
+client with Bungie (confirmed from its source, `src/app/bungie-api/oauth.ts`)
+and ships `client_secret` directly in its client-side JS bundle — visible to
+anyone who opens browser dev tools. Bungie's OAuth system doesn't verify that
+a "Confidential" client's secret is actually kept confidential; it only
+trusts whatever type the app registered as. DIM accepts that its secret is
+technically exposed in exchange for long-lived sessions via a real refresh
+token, on the reasoning that a JS-bundle secret was never going to be
+meaningfully protected anyway. A compiled native Windows exe (this app's
+case) is harder to extract a string from than open dev tools, though not
+impossible for a motivated reverse-engineer.
+
+**What leaking the secret would actually expose, if this app went
+Confidential:** the secret alone does not grant access to any user's
+account — Bungie's token endpoint only acts on a specific refresh token
+already presented to it, and the secret can't be used to fetch or enumerate
+other users' tokens. It only matters in combination with a *separately
+already-leaked* refresh token for a specific victim (e.g. exfiltrated from
+that user's local secure storage by some other compromise) — in that
+narrow combined case, the leaked secret removes the natural expiry that
+would otherwise limit how long the stolen token stays useful. For a private
+build shared with one trusted person, that compound risk is low; it would
+matter more if this were distributed broadly to strangers.
+
+**Decision:** not yet finalized — currently reverted back to Confidential
+for local dev (`env/dev.json` has `BUNGIE_CLIENT_SECRET` set) after
+initially trying Public. Revisit which one the release build should use
+before following the checklist in §8; §1-§2 as written below describe the
+Public-client path used when this doc was first drafted.
+
 ## 2. Release env file
 
 Create `env/release.json` (gitignored already, matches the `/env/*.json`
@@ -189,3 +246,69 @@ release download so the friend isn't surprised mid-flow.
 7. [ ] Test on a second machine (or clean VM) before sending — this is the
        only way to actually see the SmartScreen/cert prompts as the friend
        will see them, since your dev machine has likely already trusted both.
+
+## 9. Auto-updater (not yet started — design notes only)
+
+Goal explored: let the app check GitHub for a newer release and update itself,
+instead of the friend manually re-downloading and swapping the folder each
+time. No code has been written for this yet.
+
+### Off-the-shelf packages don't fit cleanly
+`desktop_updater` and `auto_updater` (leanflutter, Sparkle/WinSparkle-based)
+both expect updates to be served from **your own hosted manifest** (a
+`app-archive.json`/`release.json` pair, or a Sparkle "appcast" XML) on a
+server you control — neither consumes GitHub Releases directly out of the
+box. Using them would mean standing up extra static hosting (e.g. GitHub
+Pages) purely to satisfy their expected file format — more moving parts than
+this project's single-repo, GitHub-Releases-only setup needs.
+
+### DIY against the GitHub Releases API fits better
+`GET /repos/{owner}/{repo}/releases/latest` already returns the version tag
+and asset `browser_download_url` as JSON — no extra hosting needed. A
+lightweight in-app updater: call that endpoint (via `dio`, already a
+dependency), compare the tag to the running app's version, and act if newer.
+
+### Blocker: this repo is currently private
+The releases API requires authentication for a private repo — the app can't
+call it anonymously the way it could for a public repo. Shipping a personal
+GitHub token embedded in the app to work around this would be a worse
+credential-exposure problem than the OAuth client-secret question in §1,
+since a leaked personal token can reach every repo/resource that account can
+touch, not just this one project. Options surfaced, **decision not yet
+made**:
+- **Make the repo public** — source has no committed secrets (Bungie
+  credentials are dart-define'd in at build time, not committed), so this
+  removes the auth problem entirely and lets the updater use the
+  unauthenticated public API. Simplest option if there's no other reason to
+  keep the source private.
+  - Note: the commit-history anonymization work (author names and emails
+    scrubbed of the old account identity) should finish *before* going
+    public.
+- **Keep private, use a scoped fine-grained PAT** — read-only, scoped to just
+  this repo, embedded in the app. Still extractable from the binary like any
+  embedded secret, but a narrow scope limits blast radius if leaked (same
+  shape as the Confidential-client-secret tradeoff in §1).
+- **Keep private, publish releases to a separate public location** — e.g. a
+  public releases-only repo or GitHub Pages site the updater checks, while
+  the source repo stays private. Avoids embedding any token; more setup
+  work maintaining two publish targets.
+
+### Automation-level chosen: full self-update
+The user selected **full self-update** (download new release → exit →
+replace local files → relaunch) over the lighter "check + notify" or
+"check + download, manual install" options. This is the most convenient for
+the friend but the most complex to implement correctly on Windows:
+- A running `.exe` cannot overwrite its own file — needs a separate
+  helper process/script (spawned just before exit) to perform the
+  file swap once the main process has released its file locks, then
+  relaunch the app.
+- Needs real handling for partial-download/partial-extract failures,
+  files locked by antivirus scanning, and leaving the app in a working
+  state (not half-updated) if any step fails.
+- Should verify the downloaded asset (e.g. size and/or a checksum published
+  alongside the release) before replacing anything, so a corrupted or
+  interrupted download can't brick the install.
+
+**Status:** design-only — no implementation started. Needs the private-repo
+question resolved first, since that determines what the update-check request
+even looks like.
