@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/errors/failures.dart';
 import '../../../domain/models/inventory_grid.dart';
+import '../../providers/database_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../theme/armory_palette.dart';
 import '../../widgets/class_emblem.dart';
 import '../../widgets/item_tile.dart';
+import '../database/database_detail_modal.dart';
 import 'item_detail_panel.dart';
 
 /// DIM-style inventory grid: one column per character (by last-played) plus a
@@ -38,6 +40,14 @@ class InventoryScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Tapping a tile selects the item's definition, which opens the same
+    // gear-detail modal the Database tab uses. showGearDetailModal ignores
+    // the call when the modal is already up (the Database screen also listens
+    // to this selection from the shell's IndexedStack).
+    ref.listen(selectedDatabaseItemProvider, (_, next) {
+      if (next != null) showGearDetailModal(context, ref);
+    });
+
     final grid = ref.watch(inventoryGridProvider);
 
     final body = grid.when(

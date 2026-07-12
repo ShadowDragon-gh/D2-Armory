@@ -174,10 +174,14 @@ class KillTracker {
 /// names the column (e.g. "Barrel", "Magazine", "Trait"), derived from the
 /// socket's plug whitelist.
 class PerkColumn {
-  const PerkColumn({required this.plugs, this.label = ''});
+  const PerkColumn({required this.plugs, this.label = '', this.activeIndex});
 
   final List<ItemPlug> plugs;
   final String label;
+
+  /// Index in [plugs] of the plug currently active on the owning instance
+  /// (the roll's equipped perk in this column); null for definition columns.
+  final int? activeIndex;
 }
 
 /// The full, definition-sourced detail for the Database tab's modal: the
@@ -219,6 +223,7 @@ class ItemDetail {
     required this.item,
     required this.stats,
     required this.plugs,
+    this.perkColumns = const [],
     this.breaker,
     this.killTracker,
     this.catalyst,
@@ -227,6 +232,12 @@ class ItemDetail {
   final DestinyItem item;
   final List<ItemStat> stats;
   final List<ItemPlug> plugs;
+
+  /// This roll's perk options per weapon-perk socket, with the active plug
+  /// flagged ([PerkColumn.activeIndex]). Resolved only on request (see
+  /// `InventoryRepository.resolveDetail`); empty otherwise.
+  final List<PerkColumn> perkColumns;
+
   final BreakerType? breaker;
   final KillTracker? killTracker;
   final CatalystProgress? catalyst;

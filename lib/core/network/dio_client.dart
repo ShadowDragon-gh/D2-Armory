@@ -23,6 +23,10 @@ class DioClient {
   static Dio authenticated(TokenProvider tokens) {
     final dio = Dio(_baseOptions)..interceptors.add(ApiKeyInterceptor());
     dio.interceptors.add(AuthInterceptor(tokens, dio));
+    // The full profile fetch returns several MB of JSON; the default
+    // SyncTransformer would decode it on the UI isolate and freeze the frame
+    // at the end of the fetch. BackgroundTransformer decodes off-isolate.
+    dio.transformer = BackgroundTransformer();
     return dio;
   }
 }

@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/destiny/destiny_enums.dart';
+import '../../../core/destiny/plug_category.dart';
 import '../../../domain/models/item_detail.dart';
 import '../../providers/database_provider.dart';
+import '../../providers/inventory_provider.dart';
+import '../../providers/search_provider.dart';
 import '../../theme/armory_palette.dart';
 
 /// The Database tab's purpose-built detail view: a centered modal, rendered
@@ -43,15 +46,22 @@ class DatabaseDetailModal extends ConsumerWidget {
   }
 }
 
-/// Show the Database detail modal. Closing it (button, Esc, or tap-outside)
-/// clears the selection so the list is interactive again.
+/// Show the gear detail modal. Closing it (button, Esc, or tap-outside)
+/// clears the selection so the list is interactive again. No-ops when the
+/// modal is already up ([gearModalOpenProvider]) — the Database and Inventory
+/// screens both react to the shared selection, so the first open wins.
 Future<void> showGearDetailModal(BuildContext context, WidgetRef ref) {
+  if (ref.read(gearModalOpenProvider)) return Future<void>.value();
+  ref.read(gearModalOpenProvider.notifier).set(true);
   return showDialog<void>(
     context: context,
     barrierDismissible: true,
     builder: (_) => const DatabaseDetailModal(),
-  ).whenComplete(
-      () => ref.read(selectedDatabaseItemProvider.notifier).clear());
+  ).whenComplete(() {
+    ref.read(gearModalOpenProvider.notifier).set(false);
+    ref.read(selectedDatabaseItemProvider.notifier).clear();
+    ref.read(gearModalInstanceProvider.notifier).clear();
+  });
 }
 
 class _ModalBody extends ConsumerWidget {
@@ -61,6 +71,9 @@ class _ModalBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final rolled = _rolledFor(ref, detail);
+    final showRoll = rolled != null &&
+        ref.watch(gearModalViewProvider) == GearModalView.rolled;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -84,16 +97,37 @@ class _ModalBody extends ConsumerWidget {
                         _Intrinsic(frame: detail.frame!),
                         const SizedBox(height: 16),
                       ],
-                      if (detail.stats.isNotEmpty) _StatBlock(stats: detail.stats),
+                      _StatArea(detail: detail),
                     ],
                   ),
                 ),
                 const SizedBox(width: 24),
-                // Middle: intrinsic + the clickable perk grid.
-                Expanded(child: _PerkArea(detail: detail)),
+                // Middle: the roll's actual plugs, or the clickable
+                // all-possible-rolls perk grid (with the catalyst's effect
+                // whenever an owned exotic backs the modal).
+                Expanded(
+                  child: showRoll
+                      ? _RolledPlugArea(instance: rolled)
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _PerkArea(detail: detail),
+                            if (rolled?.catalyst != null) ...[
+                              const SizedBox(height: 16),
+                              _CatalystInfo(catalyst: rolled!.catalyst!),
+                            ],
+                          ],
+                        ),
+                ),
                 const SizedBox(width: 24),
-                // Right: the selected-perk effects list, in its own column.
-                const SizedBox(width: 260, child: _SelectedEffects()),
+                // Right: effects — the roll's perks, or the grid selection.
+                SizedBox(
+                  width: 260,
+                  child: showRoll
+                      ? _RolledEffects(
+                          perks: rolled.plugsOf(PlugCategory.perk).toList())
+                      : const _SelectedEffects(),
+                ),
               ],
             ),
           ),
@@ -106,6 +140,15 @@ class _ModalBody extends ConsumerWidget {
 /// An `is:<keyword>` search term for a facet keyword, or null when the keyword
 /// is null (the facet has no matching search keyword, so the chip is inert).
 String? _isTerm(String? keyword) => keyword == null ? null : 'is:$keyword';
+
+/// The owned instance backing the modal, but only while the open definition is
+/// that item (the modal can switch to another version of the item in place).
+ItemDetail? _rolledFor(WidgetRef ref, GearDetail detail) {
+  final instance = ref.watch(gearModalInstanceDetailProvider);
+  return instance != null && instance.item.itemHash == detail.item.itemHash
+      ? instance
+      : null;
+}
 
 class _Header extends ConsumerWidget {
   const _Header({required this.detail});
@@ -125,13 +168,20 @@ class _Header extends ConsumerWidget {
         ? GearKind.armor
         : GearKind.weapon;
 
-    // Every chip filters the list through the search bar (there are no facet
-    // dropdowns anymore): set the Weapons/Armor kind to match this item, put
-    // the chip's search term in the search box, and close the modal.
+    // Every chip filters the list through the search bar of the tab that opened
+    // the modal, then closes it. Opened from the Inventory tab (an owned
+    // instance backs the modal) the term goes to the inventory search; opened
+    // from the Database tab it sets the Weapons/Armor kind to match this item
+    // and goes to the Database search.
+    final fromInventory = ref.watch(gearModalInstanceProvider) != null;
     void applyTermAndClose(String? term) {
       if (term == null) return; // chip not filterable
-      ref.read(databaseFilterProvider.notifier).setKind(kind);
-      ref.read(databaseSearchProvider.notifier).set(term);
+      if (fromInventory) {
+        ref.read(searchQueryProvider.notifier).set(term);
+      } else {
+        ref.read(databaseFilterProvider.notifier).setKind(kind);
+        ref.read(databaseSearchProvider.notifier).set(term);
+      }
       Navigator.of(context).maybePop();
     }
 
@@ -248,6 +298,11 @@ class _Header extends ConsumerWidget {
               ],
             ),
           ),
+          if (_rolledFor(ref, detail) != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _ViewToggle(view: ref.watch(gearModalViewProvider)),
+            ),
           IconButton(
             tooltip: 'Close',
             icon: const Icon(Icons.close),
@@ -356,10 +411,355 @@ class _Screenshot extends StatelessWidget {
   }
 }
 
-/// The weapon's stat rows. Each bar shows the base value plus the net change
-/// from the selected perks — a gold segment for a gain, a red deficit for a
-/// penalty — and the displayed number reflects the modified total. The deltas
-/// come from [databaseSelectedStatDeltasProvider].
+/// The modal's stat area. In the roll view it shows the instance's actual
+/// stats; in the definition view (or when no owned item backs the modal) it
+/// shows the definition's base values with the interactive perk preview.
+class _StatArea extends ConsumerWidget {
+  const _StatArea({required this.detail});
+
+  final GearDetail detail;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rolled = _rolledFor(ref, detail);
+    if (detail.stats.isEmpty && (rolled == null || rolled.stats.isEmpty)) {
+      return const SizedBox.shrink();
+    }
+    final showRoll = rolled != null &&
+        ref.watch(gearModalViewProvider) == GearModalView.rolled;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('Stats'),
+        const SizedBox(height: 6),
+        if (showRoll)
+          _RolledStats(stats: rolled.stats)
+        else
+          _StatBlock(stats: detail.stats),
+      ],
+    );
+  }
+}
+
+/// The This Roll | Definition toggle in the modal header, shown when an owned
+/// item backs the modal. Switches the stats, perk area, and effects column
+/// between the instance's actual roll and the item definition.
+class _ViewToggle extends ConsumerWidget {
+  const _ViewToggle({required this.view});
+
+  final GearModalView view;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return SegmentedButton<GearModalView>(
+      style: const ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      segments: const [
+        ButtonSegment(value: GearModalView.rolled, label: Text('This Roll')),
+        ButtonSegment(
+            value: GearModalView.definition, label: Text('Definition')),
+      ],
+      selected: {view},
+      showSelectedIcon: false,
+      onSelectionChanged: (s) =>
+          ref.read(gearModalViewProvider.notifier).set(s.first),
+    );
+  }
+}
+
+/// The roll view's middle column: the roll's own perk options per socket with
+/// the active perks highlighted, its mods, the masterwork state with catalyst
+/// objective progress (the detail panel's Masterwork section), and the
+/// catalyst's granted effect.
+class _RolledPlugArea extends StatelessWidget {
+  const _RolledPlugArea({required this.instance});
+
+  final ItemDetail instance;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final perks = instance.plugsOf(PlugCategory.perk).toList();
+    final mods = instance.plugsOf(PlugCategory.mod).toList();
+    final masterwork = instance.plugsOf(PlugCategory.masterwork).toList();
+    final catalyst = instance.catalyst;
+    // Objectives show while the catalyst is acquired but not yet complete.
+    final objectives =
+        catalyst != null && catalyst.acquired && !catalyst.complete
+            ? catalyst.objectives
+            : const <CatalystObjective>[];
+
+    Widget chips(List<ItemPlug> plugs, {bool rolled = false}) => Wrap(
+          spacing: 4,
+          runSpacing: 2,
+          children: [
+            for (final plug in plugs)
+              Opacity(
+                opacity: plug.isEnabled ? 1 : 0.4,
+                child: _PerkChip(plug: plug, selected: rolled),
+              ),
+          ],
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (instance.perkColumns.isNotEmpty || perks.isNotEmpty) ...[
+          const _SectionLabel('Perks'),
+          if (instance.perkColumns.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text('Highlighted perks are active on this roll.',
+                style: TextStyle(
+                    fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 10),
+            _RolledPerkGrid(columns: instance.perkColumns),
+          ] else ...[
+            const SizedBox(height: 8),
+            chips(perks, rolled: true),
+          ],
+          const SizedBox(height: 16),
+        ],
+        if (mods.isNotEmpty) ...[
+          const _SectionLabel('Mods'),
+          const SizedBox(height: 8),
+          chips(mods),
+          const SizedBox(height: 16),
+        ],
+        if (masterwork.isNotEmpty || objectives.isNotEmpty) ...[
+          const _SectionLabel('Masterwork'),
+          const SizedBox(height: 8),
+          if (masterwork.isNotEmpty) chips(masterwork),
+          for (final o in objectives) ...[
+            const SizedBox(height: 6),
+            SizedBox(
+              width: 360,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(o.name, style: const TextStyle(fontSize: 12)),
+                  ),
+                  Text(
+                    '${o.progress} / ${o.completionValue}',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: o.complete
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 3),
+            SizedBox(
+              width: 360,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: o.completionValue > 0
+                      ? (o.progress / o.completionValue).clamp(0.0, 1.0)
+                      : (o.complete ? 1.0 : 0.0),
+                  minHeight: 5,
+                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+        ],
+        if (catalyst != null) _CatalystInfo(catalyst: catalyst),
+      ],
+    );
+  }
+}
+
+/// The roll view's perk grid: this instance's own per-socket options
+/// ([ItemDetail.perkColumns]) laid out like the definition grid, with each
+/// column's active perk ([PerkColumn.activeIndex]) highlighted. Read-only —
+/// perk preview belongs to the definition view.
+class _RolledPerkGrid extends StatelessWidget {
+  const _RolledPerkGrid({required this.columns});
+
+  final List<PerkColumn> columns;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final column in columns)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: _chipWidth,
+                    child: Text(
+                      column.label.isEmpty ? '—' : column.label,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  for (var i = 0; i < column.plugs.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Opacity(
+                        opacity: column.plugs[i].isEnabled ? 1 : 0.4,
+                        child: _PerkChip(
+                          plug: column.plugs[i],
+                          selected: i == column.activeIndex,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The catalyst's granted effect (perks + stat bonuses), resolved from the
+/// weapon definition so it shows regardless of unlock state — the detail
+/// panel's Catalyst section, shared by the roll and definition views.
+class _CatalystInfo extends StatelessWidget {
+  const _CatalystInfo({required this.catalyst});
+
+  final CatalystProgress catalyst;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('Catalyst'),
+        const SizedBox(height: 8),
+        Text(catalyst.name,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        for (final option in catalyst.options) ...[
+          const SizedBox(height: 6),
+          // With several selectable options (crafting-era catalysts) the
+          // option name is the heading; a lone option leads with its effect.
+          if (catalyst.options.length > 1)
+            Text(option.name,
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600)),
+          for (final effect in option.effects) ...[
+            if (catalyst.options.length == 1)
+              Text(effect.name,
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600)),
+            if (effect.description.isNotEmpty)
+              Text(
+                effect.description,
+                style: TextStyle(
+                    fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+              ),
+          ],
+          for (final bonus in option.statBonuses) ...[
+            const SizedBox(height: 4),
+            Text(
+              '+${bonus.value} ${bonus.name}',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary),
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+/// The roll view's right column: the rolled perks' stat changes and gameplay
+/// effects (what the Selected Perks list shows in the definition view).
+class _RolledEffects extends StatelessWidget {
+  const _RolledEffects({required this.perks});
+
+  final List<ItemPlug> perks;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('Perk Effects'),
+        const SizedBox(height: 8),
+        if (perks.isEmpty)
+          Text('No perks on this roll.',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant))
+        else
+          _EffectsColumn(plugs: perks),
+      ],
+    );
+  }
+}
+
+/// The owned instance's stat rows: the actual roll, with any masterwork/mod
+/// bonus as the gold bar segment and any penalty as the red deficit. Static —
+/// the perk-preview deltas apply to the definition view only.
+class _RolledStats extends StatelessWidget {
+  const _RolledStats({required this.stats});
+
+  final List<ItemStat> stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final stat in stats)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 130,
+                  child: Text(stat.name,
+                      style: const TextStyle(fontSize: 13),
+                      overflow: TextOverflow.ellipsis),
+                ),
+                SizedBox(
+                  width: 34,
+                  child: Text('${stat.value}',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: stat.display == StatDisplay.bar
+                      ? _StatBar(
+                          value: stat.value,
+                          bonus: stat.bonus,
+                          reduction: stat.reduction)
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// The definition's stat rows. Each bar shows the base value plus the net
+/// change from the selected perks — a gold segment for a gain, a red deficit
+/// for a penalty — and the displayed number reflects the modified total. The
+/// deltas come from [databaseSelectedStatDeltasProvider].
 class _StatBlock extends ConsumerWidget {
   const _StatBlock({required this.stats});
 
@@ -372,8 +772,6 @@ class _StatBlock extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel('Stats'),
-        const SizedBox(height: 6),
         for (final stat in stats)
           Builder(builder: (context) {
             final delta = deltas[stat.statHash] ?? 0;
@@ -404,7 +802,11 @@ class _StatBlock extends ConsumerWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: stat.display == StatDisplay.bar
-                        ? _StatBar(base: stat.value, delta: delta)
+                        ? _StatBar(
+                            value: stat.value + delta,
+                            bonus: delta > 0 ? delta : 0,
+                            reduction: delta < 0 ? -delta : 0,
+                          )
                         : const SizedBox.shrink(),
                   ),
                 ],
@@ -416,22 +818,27 @@ class _StatBlock extends ConsumerWidget {
   }
 }
 
-/// A 0-100 stat bar: the unchanged portion of the base value, then a gold
-/// segment for a perk gain or a red deficit for a perk loss, then the empty
-/// remainder — mirroring the inventory panel's segmented bar.
+/// A 0-100 stat bar: the plain portion in steel, a gold segment for the part
+/// granted by bonuses or perk gains, and a red deficit segment after the
+/// current value for a penalty — shared by the rolled and definition views.
 class _StatBar extends StatelessWidget {
-  const _StatBar({required this.base, required this.delta});
+  const _StatBar({
+    required this.value,
+    required this.bonus,
+    required this.reduction,
+  });
 
-  final int base;
-  final int delta;
+  final int value;
+  final int bonus;
+  final int reduction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final total = (base + delta).clamp(0, 100);
-    final gain = delta > 0 ? delta.clamp(0, total) : 0;
-    final loss = delta < 0 ? (-delta).clamp(0, 100 - total) : 0;
-    final solid = total - gain; // base portion that stays
+    final total = value.clamp(0, 100);
+    final gain = bonus.clamp(0, total);
+    final loss = reduction.clamp(0, 100 - total);
+    final solid = total - gain; // plain portion
     final rest = 100 - total - loss;
     return ClipRRect(
       borderRadius: BorderRadius.circular(2),
@@ -803,20 +1210,22 @@ class _PerkColumnView extends ConsumerWidget {
   }
 }
 
-/// A single perk in a column: its circular icon and name, clickable to select,
-/// wrapped in a rich hover tooltip. When [selected] it gets a highlight ring
-/// and tinted background. The tooltip carries the manifest description now; a
-/// Clarity community-research block can be added later (see [_PerkTooltip]).
+/// A single perk in a column: its circular icon and name, wrapped in a rich
+/// hover tooltip. With an [onTap] it is clickable to select; without one it is
+/// a plain display chip (the roll view's fixed perks). When [selected] it gets
+/// a highlight ring and tinted background. The tooltip carries the manifest
+/// description now; a Clarity community-research block can be added later
+/// (see [_PerkTooltip]).
 class _PerkChip extends StatelessWidget {
   const _PerkChip({
     required this.plug,
     required this.selected,
-    required this.onTap,
+    this.onTap,
   });
 
   final ItemPlug plug;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -824,7 +1233,9 @@ class _PerkChip extends StatelessWidget {
     return _PerkTooltip(
       plug: plug,
       child: MouseRegion(
-        cursor: SystemMouseCursors.click,
+        cursor: onTap == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
         child: GestureDetector(
           onTap: onTap,
           child: Container(

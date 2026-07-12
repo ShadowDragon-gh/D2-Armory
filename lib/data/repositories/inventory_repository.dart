@@ -60,6 +60,10 @@ class InventoryRepository {
   /// used as an icon fallback for era-specific shells that have none.
   static const _classicEmptyCatalystHash = 1498917124;
 
+  /// Items to resolve per chunk before yielding to the event loop, so the
+  /// synchronous manifest lookups never block a frame for the whole profile.
+  static const _resolveBatch = 40;
+
   /// The "Default Ornament" plugs (weapon, armor, and weapon-tiering
   /// variants) that restore an item's original appearance — socketed by
   /// default, never an icon override.
@@ -100,9 +104,9 @@ class InventoryRepository {
     final owners = <InventoryOwner>[];
     for (final character in characters) {
       final items = <DestinyItem>[
-        ..._itemsOf(equipment[character.characterId], instances,
+        ...await _itemsOf(equipment[character.characterId], instances,
             equipped: true),
-        ..._itemsOf(charInventories[character.characterId], instances),
+        ...await _itemsOf(charInventories[character.characterId], instances),
       ];
       owners.add(InventoryOwner(
         id: character.characterId,
@@ -115,8 +119,8 @@ class InventoryRepository {
 
     // Vault (profile inventory). Equipment-slot items in the vault report the
     // General bucket, so they are re-grouped by their definition's bucket.
-    final vaultItems =
-        _itemsOf(profile['profileInventory'], instances, useDefBucket: true);
+    final vaultItems = await _itemsOf(profile['profileInventory'], instances,
+        useDefBucket: true);
     owners.add(InventoryOwner(
       id: 'vault',
       title: 'Vault',
@@ -130,7 +134,11 @@ class InventoryRepository {
   /// Resolve the full detail (stats, sockets, breaker) for [item] from the
   /// components cached by the last [fetchInventory]. Uninstanced items have no
   /// instance-keyed data, so they resolve to empty lists.
-  ItemDetail resolveDetail(DestinyItem item) {
+  ///
+  /// [withPerkColumns] additionally resolves the roll's per-socket perk
+  /// options ([ItemDetail.perkColumns]) — off by default because the extra
+  /// socket walk is wasted work for the facet warm and the detail panel.
+  ItemDetail resolveDetail(DestinyItem item, {bool withPerkColumns = false}) {
     final id = item.itemInstanceId;
     final statsData =
         id == null ? null : _stats[id] as Map<String, dynamic>?;
@@ -154,9 +162,163 @@ class InventoryRepository {
       item: item,
       stats: _resolveStats(statsData, _resolveStatModifiers(socketsData)),
       plugs: plugs,
+      perkColumns: withPerkColumns
+          ? _resolveInstancePerkColumns(item, socketsData)
+          : const [],
       breaker: _resolveBreaker(item, socketsData),
       killTracker: _resolveKillTracker(socketsData, objectivesData),
       catalyst: catalyst,
+    );
+  }
+
+  // The WEAPON PERKS socket category (a stable game constant); its sockets
+  // are the barrel/magazine/trait/origin columns.
+  static const _weaponPerksCategory = 4241085061;
+
+  /// This roll's perk options per weapon-perk socket: the definition's WEAPON
+  /// PERKS sockets (which Bungie aligns by index with the instance socket
+  /// components), each holding the copy's own options from ItemReusablePlugs
+  /// (310) with the active plug from ItemSockets (305) flagged
+  /// ([PerkColumn.activeIndex]). Sockets with no instance-keyed options
+  /// (fixed perks) fall back to the active plug alone. Empty for uninstanced
+  /// items and non-weapons.
+  List<PerkColumn> _resolveInstancePerkColumns(
+      DestinyItem item, Map<String, dynamic>? socketsData) {
+    final id = item.itemInstanceId;
+    if (id == null) return const [];
+    final def = _manifest.getInventoryItem(item.itemHash);
+    final sockets = def?['sockets'];
+    if (sockets is! Map) return const [];
+    final categories = sockets['socketCategories'];
+    final entries = sockets['socketEntries'];
+    if (categories is! List || entries is! List) return const [];
+
+    List indexes = const [];
+    for (final c in categories) {
+      if ((c as Map)['socketCategoryHash'] == _weaponPerksCategory) {
+        indexes = c['socketIndexes'] as List? ?? const [];
+        break;
+      }
+    }
+    if (indexes.isEmpty) return const [];
+
+    final live = socketsData?['sockets'];
+    final reusable = (_reusablePlugs[id] as Map<String, dynamic>?)?['plugs'];
+
+    final columns = <PerkColumn>[];
+    for (final index in indexes) {
+      if (index is! int || index < 0 || index >= entries.length) continue;
+
+      // The active plug on this socket (305).
+      int? activeHash;
+      var enabled = true;
+      if (live is List && index < live.length) {
+        final s = live[index] as Map<String, dynamic>;
+        if (s['isVisible'] == false) continue;
+        activeHash = (s['plugHash'] as num?)?.toInt();
+        enabled = s['isEnabled'] != false;
+      }
+
+      // The copy's own options for this socket (310); the active plug leads
+      // when the options do not already list it (fixed sockets, or an
+      // enhanced trait whose base version is the listed option).
+      final optionHashes = <int>[];
+      final options = reusable is Map ? reusable['$index'] : null;
+      if (options is List) {
+        for (final o in options) {
+          final h = ((o as Map)['plugItemHash'] as num?)?.toInt();
+          if (h != null && h != 0 && !optionHashes.contains(h)) {
+            optionHashes.add(h);
+          }
+        }
+      }
+      if (activeHash != null &&
+          activeHash != 0 &&
+          !optionHashes.contains(activeHash)) {
+        optionHashes.insert(0, activeHash);
+      }
+
+      final activePlug = activeHash == null
+          ? null
+          : _columnPlugOf(activeHash, isEnabled: enabled);
+      final plugs = <ItemPlug>[];
+      int? activeIndex;
+      for (final hash in optionHashes) {
+        if (hash == activeHash) {
+          if (activePlug == null) continue;
+          activeIndex = plugs.length;
+          plugs.add(activePlug);
+          continue;
+        }
+        final plug = _columnPlugOf(hash);
+        // An enhanced active trait shares its name with the base option —
+        // keep the single (active) chip.
+        if (plug == null ||
+            (activePlug != null && plug.name == activePlug.name)) {
+          continue;
+        }
+        plugs.add(plug);
+      }
+      // Keep only real perk columns (tracker/cosmetic sockets classify
+      // otherwise and are dropped, matching the definition columns).
+      final hasPerk = plugs.any((p) =>
+          p.category == PlugCategory.perk ||
+          p.category == PlugCategory.frame);
+      if (!hasPerk) continue;
+
+      // Column label — preferred source is the plugs' own type names
+      // ("Barrel", "Bowstring", "Launcher Barrel", …), since the socket
+      // whitelist identifiers vary per weapon family and don't cover them
+      // all; the whitelist mapping is the fallback.
+      var label = '';
+      for (final hash in optionHashes) {
+        label = perkColumnLabelFromPlugType(_manifest
+            .getInventoryItem(hash)?['itemTypeDisplayName'] as String?);
+        if (label.isNotEmpty) break;
+      }
+      if (label.isEmpty) {
+        final typeHash =
+            ((entries[index] as Map)['socketTypeHash'] as num?)?.toInt();
+        if (typeHash != null) {
+          final whitelist =
+              _manifest.getSocketType(typeHash)?['plugWhitelist'];
+          if (whitelist is List) {
+            for (final w in whitelist) {
+              label = perkColumnLabelFor(
+                  ((w as Map)['categoryIdentifier'] as String?) ?? '');
+              if (label.isNotEmpty) break;
+            }
+          }
+        }
+      }
+      columns.add(
+          PerkColumn(plugs: plugs, label: label, activeIndex: activeIndex));
+    }
+    return columns;
+  }
+
+  /// Resolve [plugHash] for an instance perk column: name, icon, description,
+  /// and the enhanced flag. Null for placeholder plugs with no display name
+  /// and for kill trackers. Unlike [_resolvePlugs], the origin trait keeps its
+  /// clean name — its column label already reads "Origin Trait".
+  ItemPlug? _columnPlugOf(int plugHash, {bool isEnabled = true}) {
+    final def = _manifest.getInventoryItem(plugHash);
+    if (def == null) return null;
+    final display = def['displayProperties'] as Map<String, dynamic>?;
+    final name = (display?['name'] as String?) ?? '';
+    if (name.isEmpty) return null;
+    final plugCategory = def['plug']?['plugCategoryIdentifier'] as String?;
+    if (plugCategory != null &&
+        plugCategory.contains('masterworks.trackers')) {
+      return null;
+    }
+    return ItemPlug(
+      name: name,
+      iconPath: (display?['icon'] as String?) ?? '',
+      description: (display?['description'] as String?) ?? '',
+      category: classifyPlug(plugCategory),
+      isEnabled: isEnabled,
+      isEnhanced: isEnhancedPlugDef(def),
     );
   }
 
@@ -232,20 +394,27 @@ class InventoryRepository {
     return columns;
   }
 
-  /// Resolve and cache the search facets for every item in [items], in yielding
-  /// batches so the per-item socket/stat/catalyst decode never blocks a frame.
-  /// Warms the inventory `perk:`/`stat:`/`breaker:`/`source:`/`catalyst:` search
-  /// at startup so the first such search is instant. Unlike the Database's
-  /// facet warm this stays on the UI isolate — the decode reads the live
-  /// profile components in memory, which a background isolate cannot see — but
-  /// it is bounded by owned items (hundreds), not the full manifest.
+  /// Resolve and cache the search facets for every item in [items] so the first
+  /// facet-backed search (`perk:`/`stat:`/`breaker:`/`source:`/`catalyst:`) is
+  /// instant instead of decoding lazily on the first keystroke. Purely a warm:
+  /// [inventoryFacetsFor] resolves and caches any untouched item on demand, so
+  /// search is correct with or without it.
+  ///
+  /// The per-item socket/stat/catalyst decode is heavy (tens of ms each) and
+  /// must run on the UI isolate — it reads the live profile components in
+  /// memory, which a background isolate cannot see. So rather than run it in
+  /// tight batches (which back-to-back exceed a frame and stutter the UI right
+  /// as the grid appears), it resolves a small batch then waits a frame's worth
+  /// before the next, trickling the work into the background over several
+  /// seconds without dropping frames.
   Future<void> warmFacets(Iterable<DestinyItem> items) async {
-    const batch = 40;
+    const batch = 4;
+    const breather = Duration(milliseconds: 16);
     var i = 0;
     for (final item in items) {
       // inventoryFacetsFor caches by instance id, so this fills the cache.
       inventoryFacetsFor(item);
-      if (++i % batch == 0) await Future<void>.delayed(Duration.zero);
+      if (++i % batch == 0) await Future<void>.delayed(breather);
     }
   }
 
@@ -727,9 +896,7 @@ class InventoryRepository {
       if (plugCategory == 'origins') {
         name = '$name - Origin Trait';
       }
-      // Enhanced traits are identified by their itemTypeDisplayName; base
-      // traits share the same "frames" plug category but read "Trait".
-      final enhanced = def['itemTypeDisplayName'] == 'Enhanced Trait';
+      final enhanced = isEnhancedPlugDef(def);
       var category = classifyPlug(plugCategory);
       // Craftables' "Empty Memento Socket" shares the generic crafting
       // empty-socket category with trait/frame sockets; mementos (empty or
@@ -752,12 +919,19 @@ class InventoryRepository {
 
   /// Resolve the `items` list of an inventory/equipment component into display
   /// items, keeping only those in a known equipment bucket.
-  List<DestinyItem> _itemsOf(
+  ///
+  /// Each item costs several synchronous manifest lookups (definition, ornament
+  /// sockets, damage/icon layers), so resolving a full profile in one stretch
+  /// blocks the frame that keeps the loading spinner animating. Yielding every
+  /// [_resolveBatch] items breaks the work into chunks the event loop can
+  /// interleave with frame rendering, so the spinner stays smooth up to the
+  /// handoff — the same batching the facet warm and gear index scan use.
+  Future<List<DestinyItem>> _itemsOf(
     dynamic component,
     Map<String, dynamic> instances, {
     bool equipped = false,
     bool useDefBucket = false,
-  }) {
+  }) async {
     final map = component is Map<String, dynamic> ? component : null;
     final data = map?['data'];
     final items = (data is Map<String, dynamic> ? data['items'] : null) ??
@@ -765,7 +939,9 @@ class InventoryRepository {
     if (items is! List) return const [];
 
     final result = <DestinyItem>[];
+    var processed = 0;
     for (final raw in items) {
+      if (++processed % _resolveBatch == 0) await Future<void>.delayed(Duration.zero);
       final item = raw as Map<String, dynamic>;
       final itemHash = (item['itemHash'] as num?)?.toInt();
       if (itemHash == null) continue;

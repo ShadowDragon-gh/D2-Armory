@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/destiny/destiny_buckets.dart';
+import '../../core/network/item_icon_cache.dart';
 import '../../domain/models/destiny_item.dart';
+import '../providers/database_provider.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/search_provider.dart';
 import '../providers/settings_provider.dart';
@@ -28,7 +30,9 @@ class ItemTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final query = ref.watch(compiledQueryProvider);
     final dimmed = !query.isEmpty && !query.matches(item);
-    final selected = identical(ref.watch(selectedItemProvider), item);
+    // Hash-keyed like the Database rows: highlighted while this item's
+    // definition is open in the shared gear-detail modal.
+    final selected = ref.watch(selectedDatabaseItemProvider) == item.itemHash;
     final showCosmetics = ref.watch(showCosmeticsProvider);
     // An applied ornament's flat icon carries the ornament's own (legendary)
     // background. When the item ships a rarity plate + transparent ornament
@@ -54,7 +58,15 @@ class ItemTile extends ConsumerWidget {
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
-            onTap: () => ref.read(selectedItemProvider.notifier).toggle(item),
+            // Opens the shared gear-detail modal (the Inventory screen listens
+            // to the definition selection and shows it). The instance is
+            // recorded first so the modal can offer this item's rolled stats.
+            onTap: () {
+              ref.read(gearModalInstanceProvider.notifier).select(item);
+              ref
+                  .read(selectedDatabaseItemProvider.notifier)
+                  .select(item.itemHash);
+            },
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -108,12 +120,15 @@ class ItemTile extends ConsumerWidget {
           if (plateUrl != null && foregroundUrl != null) ...[
             CachedNetworkImage(
               imageUrl: plateUrl,
+              cacheManager: ItemIconCache.instance,
               fit: BoxFit.cover,
               fadeInDuration: Duration.zero,
+              placeholder: (_, _) => const _IconPlaceholder(),
               errorWidget: (_, _, _) => const ColoredBox(color: ArmoryPalette.scrim26),
             ),
             CachedNetworkImage(
               imageUrl: foregroundUrl,
+              cacheManager: ItemIconCache.instance,
               fit: BoxFit.cover,
               fadeInDuration: Duration.zero,
               errorWidget: (_, _, _) => const SizedBox.shrink(),
@@ -123,8 +138,10 @@ class ItemTile extends ConsumerWidget {
           else
             CachedNetworkImage(
               imageUrl: iconUrl,
+              cacheManager: ItemIconCache.instance,
               fit: BoxFit.cover,
               fadeInDuration: Duration.zero,
+              placeholder: (_, _) => const _IconPlaceholder(),
               errorWidget: (_, _, _) => const ColoredBox(color: ArmoryPalette.scrim26),
             ),
           // Subtle translucent gold gradient rising from the bottom.
@@ -198,6 +215,37 @@ class ItemTile extends ConsumerWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// A gently pulsing scrim shown in an icon square while its art downloads, so a
+/// not-yet-loaded tile reads as "loading" rather than blank. Fills its parent.
+class _IconPlaceholder extends StatefulWidget {
+  const _IconPlaceholder();
+
+  @override
+  State<_IconPlaceholder> createState() => _IconPlaceholderState();
+}
+
+class _IconPlaceholderState extends State<_IconPlaceholder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.35, end: 0.7).animate(_controller),
+      child: const ColoredBox(color: ArmoryPalette.scrim35),
     );
   }
 }
