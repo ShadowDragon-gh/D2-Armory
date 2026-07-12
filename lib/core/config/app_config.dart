@@ -37,9 +37,6 @@ class AppConfig {
 
   static const String oauthTokenUrl = '$apiBaseUrl/App/OAuth/token/';
 
-  /// Single scope covering all read operations (inventory, vault, loadouts).
-  static const String oauthScope = 'ReadDestinyInventoryAndVault';
-
   // --- OAuth loopback redirect (Windows desktop) ---
   //
   // Bungie desktop OAuth uses a loopback redirect: the app opens the system

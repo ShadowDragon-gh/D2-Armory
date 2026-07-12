@@ -1,430 +1,223 @@
-# Destiny 2 Loadout Planner
+# D2 Armory
 
-> A Flutter application that connects to the Bungie API to let players browse, build, and save Destiny 2 loadouts with accurate, live game data.
+> A Windows desktop app for managing your Destiny 2 gear with live game data —
+> browse your inventory, move and equip items across characters and the vault,
+> change weapon perks and mods in-game, and explore a full database of every
+> weapon and armor piece.
 
----
-
-## Table of Contents
-
-1. [Project Overview](#project-overview)
-2. [Prerequisites](#prerequisites)
-3. [Bungie API Setup](#bungie-api-setup)
-4. [Tech Stack](#tech-stack)
-5. [Project Architecture](#project-architecture)
-6. [Directory Structure](#directory-structure)
-7. [Key Implementation Areas](#key-implementation-areas)
-8. [Environment Configuration](#environment-configuration)
-9. [Getting Started](#getting-started)
-10. [API Quick Reference](#api-quick-reference)
-11. [Known Gotchas & Tips](#known-gotchas--tips)
-12. [Useful Resources](#useful-resources)
+D2 Armory connects to your own Bungie.net account. It is a Windows-only desktop
+application built with Flutter.
 
 ---
 
-## Project Overview
+## What it does
 
-This app allows Destiny 2 players to:
+- **Inventory** — See all your characters and your vault side by side in a
+  grid, one column per character plus a vault column, with rows for each gear
+  slot. Character headers show the emblem, name, and power level.
+  - **Drag items to move them** between characters and the vault. Drops are
+    validated as you hover (valid = green, invalid = red), and the move is
+    written back to the game.
+  - **Drag an item onto a character's equipped slot to equip it** — including
+    pulling a copy from another character or the vault, which moves it over and
+    equips it in one action.
+  - **Tap an item** to open its detail view: element and power, full stat bars,
+    and its Frame / Traits / Mods / Masterwork / Catalyst sections.
+  - **Change a weapon's perks and mods in-game.** When you open an item you own,
+    a "This Roll" view lets you click a different perk column option — or pick a
+    mod — to apply it to that weapon on your account. Changes apply optimistically
+    and roll back if Bungie rejects them. (Items must be on a character, not in
+    the vault, to edit.)
+  - **Search and filter** with autocomplete and query syntax like `is:exotic`,
+    `perk:rampage`, `ammo:heavy`, `frame:"..."`. Non-matching items dim out.
+  - **Show/Hide cosmetics** toggles ornaments, and **Refresh** re-fetches your
+    inventory. The grid also stays current on its own via a background poll.
 
-- **Authenticate** with their Bungie.net account via OAuth 2.0
-- **Browse** their in-game inventory (weapons, armor, mods)
-- **Build** loadouts by combining weapons, armor, abilities, and mods
-- **Save** loadouts locally and optionally sync them to Bungie's in-game loadout system
-- **Inspect** perk rolls, stat breakdowns, and mod compatibility
+- **Database** — Browse every weapon and armor piece in the game, straight from
+  the local game data (no account interaction needed here).
+  - Toggle between **Weapons** and **Armor**, and use the same search/filter
+    syntax as the inventory.
+  - Open any item for a detail modal with its screenshot, flavor text, clickable
+    facet chips (element, breaker, type, ammo, frame, rarity) that filter the
+    list, a stat block, the intrinsic frame, and a **full perk grid showing every
+    possible roll**. Click perks to preview how they change the item's stats.
 
-The app targets **iOS and Android** from a single Flutter codebase, with potential for desktop support.
+- **Loadouts** — *Coming soon.* This tab is currently a placeholder; loadout
+  building and saving are not yet implemented.
 
 ---
 
-## Prerequisites
+## Download & use (for players)
 
-Before starting development, ensure you have:
+You do **not** need Flutter, a Bungie developer account, or any setup — just a
+Windows PC and your own Destiny 2 / Bungie.net account.
 
-- [ ] Flutter SDK installed (`flutter --version` — target Flutter 3.27+)
-- [ ] Dart SDK 3.0+
-- [ ] Android Studio or Xcode (for device targets)
-- [ ] A [Bungie.net developer account](https://www.bungie.net/en/Application)
-- [ ] A registered Bungie application (see below)
-- [ ] Git
+1. **Download** the latest release zip from the
+   [Releases page](../../releases) and extract the folder anywhere you like
+   (Desktop, Documents — wherever).
+2. **Run** `destiny2_loadout_planner.exe` from inside the extracted folder.
+3. **First launch — two one-time prompts.** Both are expected and safe; see
+   [doc/release_note.md](doc/release_note.md) for the full explanation:
+   - **"Windows protected your PC" (SmartScreen)** — click **More info →
+     Run anyway.** The app isn't signed with a paid certificate, so Windows
+     doesn't recognize the publisher yet. This is not a virus warning.
+   - **Browser certificate warning** on first sign-in — click **Advanced →
+     Proceed to 127.0.0.1.** Sign-in redirects through a local `127.0.0.1`
+     address that uses a self-signed certificate; nothing leaves your machine at
+     that step.
+4. **Sign in with Bungie.net.** Your browser opens Bungie's login page; after you
+   approve access it hands control back to the app. You'll stay signed in and
+   won't need to re-authenticate for a long while.
+5. On first launch the app downloads the current Destiny game data (a
+   several-tens-of-MB file) and shows a progress bar. This happens once per game
+   update, not every launch.
+
+**Updating:** download the newer release zip and replace the folder.
+
+There is no installer — the app is a self-contained folder you can move or delete
+freely. It stores its game data and your sign-in in your Windows user profile,
+not in the folder.
 
 ---
 
-## Bungie API Setup
+## Building from source (for developers)
 
-### 1. Register Your Application
+### Prerequisites
 
-Go to [bungie.net/en/Application](https://www.bungie.net/en/Application) and create a new app with these settings:
+- Flutter SDK (Dart SDK `^3.12.2`, per [pubspec.yaml](pubspec.yaml))
+- A Windows machine with desktop build support enabled
+  (`flutter config --enable-windows-desktop`)
+- A [Bungie.net application registration](https://www.bungie.net/en/Application)
+  (see below)
+
+### 1. Register a Bungie application
+
+At [bungie.net/en/Application](https://www.bungie.net/en/Application), create an
+app and set:
 
 | Field | Value |
 |---|---|
-| **OAuth Client Type** | `Public` (for mobile) |
-| **Redirect URL** | `destiny2loadout://callback` (or your custom scheme) |
-| **Scope** | `ReadDestinyInventoryAndVault` |
-| **Origin Header** | Your app's bundle ID or origin |
+| **Redirect URL** | `https://127.0.0.1:7355/callback` |
+| **OAuth Client Type** | `Confidential` (issues a refresh token → stays signed in) or `Public` (no secret, but re-auth ~hourly) |
+| **Scopes** | Enable **Read** *and* **Move or Equip Destiny Items** on the app registration |
 
-After creating the app, note your:
-- **API Key** — included in every API request as `X-API-Key`
-- **OAuth Client ID** — used in the OAuth flow
-- **OAuth Client Secret** — only needed for Confidential clients (not required for Public mobile apps)
+Enable both scopes on the portal registration — the app grants whatever the
+registration allows (it does not request scopes per sign-in), and the inventory
+move / equip / perk-edit features need the write scope, not just read.
 
-### 2. OAuth Endpoints
+Note your **API Key**, **OAuth client_id**, and — for a Confidential client —
+your **OAuth client_secret**. The app authenticates the loopback OAuth callback
+on `127.0.0.1:7355`, so the Redirect URL above must match exactly.
 
-| Endpoint | URL |
-|---|---|
-| Authorization | `https://www.bungie.net/en/oauth/authorize` |
-| Token | `https://www.bungie.net/platform/app/oauth/token/` |
-| Refresh | `https://www.bungie.net/Platform/App/OAuth/token/` |
+> The **client type** decides how often the user re-authenticates. Confidential
+> clients receive a refresh token, so the app silently renews access and rarely
+> re-prompts; Public clients get no refresh token and must sign in again roughly
+> hourly. See [doc/release_build_plan.md](doc/release_build_plan.md) §1 for the
+> full tradeoff.
 
-### 3. Required OAuth Scope
+### 2. Provide credentials
+
+Credentials are passed at build/run time via `--dart-define-from-file` and read
+through `String.fromEnvironment` in
+[app_config.dart](lib/core/config/app_config.dart) — there is no `.env` file.
+
+Copy the example and fill it in:
 
 ```
-ReadDestinyInventoryAndVault
+cp env/dev.example.json env/dev.json
 ```
 
-This single scope covers all read operations: inventory, vault, vendors, milestones, progression, and loadouts.
+```json
+{
+  "BUNGIE_API_KEY": "your_api_key",
+  "BUNGIE_CLIENT_ID": "your_client_id",
+  "BUNGIE_CLIENT_SECRET": "your_client_secret_or_empty_for_public"
+}
+```
 
-> ⚠️ **Important:** Bungie blocks WebView-based OAuth flows. On Android use Chrome Custom Tabs, on iOS use SFSafariViewController. The `flutter_web_auth_2` package handles both automatically.
+`env/*.json` files are gitignored. Leaving `BUNGIE_CLIENT_SECRET` empty makes the
+app behave as a Public client; providing it makes it Confidential.
+
+### 3. Run
+
+```
+flutter pub get
+flutter run -d windows --dart-define-from-file=env/dev.json
+```
+
+### 4. Build a release
+
+```
+flutter build windows --release --dart-define-from-file=env/release.json
+```
+
+The output is a folder at `build/windows/x64/runner/Release/` containing the exe,
+its DLLs, and a `data/` subfolder — they must ship together (it is not a single
+file). See [doc/release_build_plan.md](doc/release_build_plan.md) for the full
+packaging and distribution guide.
 
 ---
 
-## Tech Stack
+## How it works
 
-### Core
+- **Platform:** Flutter, Windows desktop only. The native title bar is hidden in
+  favor of a custom slim title bar; minimum window size is 900×600
+  ([main.dart](lib/main.dart)).
+- **Authentication:** OAuth 2.0 against Bungie.net. Because Bungie requires an
+  HTTPS redirect, the app runs a tiny local HTTPS server on `127.0.0.1:7355`
+  (serving a bundled self-signed cert) to catch the OAuth callback, and opens the
+  system browser via `url_launcher`
+  ([auth_repository.dart](lib/data/repositories/auth_repository.dart)). Tokens are
+  stored in the Windows Credential Locker via `flutter_secure_storage`.
+- **Game data (manifest):** The Destiny manifest is a SQLite database Bungie
+  ships as a zip. The app downloads it with `dio`, unzips it with `archive`, and
+  queries it read-only via the `sqlite3` package directly
+  ([manifest_database.dart](lib/data/local/manifest_database.dart)). It is
+  re-downloaded only when Bungie publishes a new version.
+- **State management:** `flutter_riverpod`.
 
-| Purpose | Package | Notes |
-|---|---|---|
-| Authentication | `flutter_web_auth_2` | System browser OAuth, handles redirect capture |
-| Secure token storage | `flutter_secure_storage` | Stores access + refresh tokens in keychain/keystore |
-| HTTP client | `dio` | Interceptors for API key header, rate limit handling, retries |
-| State management | `riverpod` (v3) | Async-first, compile-time safe, Flutter Favorite |
-| Local manifest DB | `drift` | Type-safe SQLite ORM for the Destiny manifest |
-| Key-value cache | `hive_ce` | Fast NoSQL store for preferences, saved loadouts |
-| Code generation | `freezed` + `json_serializable` | Immutable models for all API response types |
-| Code generation runner | `build_runner` | Runs freezed and json_serializable generators |
-| Image caching | `cached_network_image` | Caches Bungie-hosted item icons |
-| SVG support | `flutter_svg` | Destiny UI elements and class icons |
-
-### Dev / Tooling
+### Tech stack
 
 | Purpose | Package |
 |---|---|
-| Linting | `flutter_lints` |
-| Testing | `mocktail` + `flutter_test` |
+| State management | `flutter_riverpod` |
+| Bungie API HTTP | `dio` |
+| Token storage | `flutter_secure_storage` |
+| Manifest database | `sqlite3` (queried directly) |
+| Manifest unzip | `archive` |
+| Storage paths | `path_provider` |
+| Desktop window | `window_manager` |
+| Open browser for OAuth | `url_launcher` |
+| Icons / SVG | `cached_network_image`, `flutter_cache_manager`, `flutter_svg` |
 | Logging | `logger` |
-| Environment vars | `envied` (compile-time safe env variables) |
 
 ---
 
-## Project Architecture
-
-This project follows **Clean Architecture + MVVM**, separating concerns into three layers:
-
-```
-Data Layer
-  └── Remote (Bungie API via Dio)
-  └── Local (Drift manifest DB + Hive cache)
-  └── Repositories (combine remote + local, expose clean interfaces)
-
-Domain Layer
-  └── Models (Freezed immutable entities: Weapon, Armor, Perk, Loadout...)
-  └── Use Cases (BuildLoadout, FetchInventory, SyncLoadout...)
-
-Presentation Layer
-  └── Riverpod Providers (AsyncNotifiers wrapping use cases)
-  └── Screens + Widgets (pure UI, reads from providers)
-```
-
-**Data flows in one direction.** Widgets never call the API directly — they observe providers. Providers call use cases. Use cases call repositories. Repositories call the API or local DB.
-
----
-
-## Directory Structure
+## Project layout
 
 ```
 lib/
-├── core/
-│   ├── config/
-│   │   └── app_config.dart          # API base URL, manifest URL, etc.
-│   ├── network/
-│   │   ├── dio_client.dart          # Dio setup with interceptors
-│   │   └── interceptors/
-│   │       ├── api_key_interceptor.dart
-│   │       └── auth_interceptor.dart  # Attaches Bearer token, handles 401
-│   └── errors/
-│       └── failures.dart            # Typed failure classes
-│
+├── core/config/            # AppConfig: endpoints, OAuth redirect, dart-define secrets
 ├── data/
-│   ├── remote/
-│   │   ├── bungie_api.dart          # All Bungie endpoint calls
-│   │   └── dto/                     # Raw JSON response objects (json_serializable)
-│   │       ├── profile_response.dart
-│   │       ├── item_instance.dart
-│   │       └── manifest_response.dart
-│   ├── local/
-│   │   ├── manifest_database.dart   # Drift DB schema + queries
-│   │   ├── manifest_dao.dart        # Data Access Object for item definitions
-│   │   └── hive_service.dart        # Hive boxes for auth tokens + saved loadouts
-│   └── repositories/
-│       ├── auth_repository.dart
-│       ├── inventory_repository.dart
-│       ├── manifest_repository.dart
-│       └── loadout_repository.dart
-│
-├── domain/
-│   ├── models/                      # Freezed immutable models
-│   │   ├── weapon.dart
-│   │   ├── armor.dart
-│   │   ├── perk.dart
-│   │   ├── mod.dart
-│   │   ├── loadout.dart
-│   │   └── character.dart
-│   └── usecases/
-│       ├── fetch_inventory.dart
-│       ├── build_loadout.dart
-│       ├── sync_loadout_to_game.dart
-│       └── refresh_manifest.dart
-│
-├── presentation/
-│   ├── providers/
-│   │   ├── auth_provider.dart
-│   │   ├── inventory_provider.dart
-│   │   ├── loadout_provider.dart
-│   │   └── manifest_provider.dart
-│   ├── screens/
-│   │   ├── auth/
-│   │   │   └── login_screen.dart
-│   │   ├── home/
-│   │   │   └── home_screen.dart
-│   │   ├── loadout_builder/
-│   │   │   ├── loadout_builder_screen.dart
-│   │   │   ├── weapon_slot_widget.dart
-│   │   │   └── armor_slot_widget.dart
-│   │   ├── item_search/
-│   │   │   └── item_search_screen.dart
-│   │   └── character/
-│   │       └── character_screen.dart
-│   └── widgets/
-│       ├── item_icon.dart           # Cached Bungie item icon
-│       ├── perk_grid.dart
-│       └── stat_bar.dart
-│
-└── main.dart
+│   ├── local/              # manifest SQLite (sqlite3), token storage
+│   └── repositories/       # auth, inventory, manifest, item transfer
+├── domain/models/          # plain Dart models (oauth_tokens, etc.)
+└── presentation/
+    ├── providers/          # Riverpod providers
+    └── screens/            # auth, inventory, database, app shell, manifest loading
+env/                        # dev.json / release.json (gitignored), *.example.json
+doc/                        # implementation notes, release_build_plan.md, release_note.md
+windows/                    # Windows runner (the only platform target)
 ```
 
 ---
 
-## Key Implementation Areas
-
-### 1. OAuth Authentication Flow
-
-```dart
-// In auth_repository.dart
-Future<void> signIn() async {
-  final result = await FlutterWebAuth2.authenticate(
-    url: 'https://www.bungie.net/en/oauth/authorize'
-        '?client_id=$clientId&response_type=code&state=$state',
-    callbackUrlScheme: 'destiny2loadout',
-  );
-  
-  final code = Uri.parse(result).queryParameters['code']!;
-  await _exchangeCodeForTokens(code);
-}
-```
-
-Configure the callback URL scheme in:
-- **Android:** `android/app/src/main/AndroidManifest.xml` — add an intent filter
-- **iOS:** `ios/Runner/Info.plist` — add a URL scheme under `CFBundleURLTypes`
-
-### 2. Manifest Download & Storage
-
-The Destiny manifest is a versioned SQLite database containing every item definition (weapons, armor, perks, mods, lore, etc.). It must be downloaded on first launch and refreshed when Bungie updates it (typically with each patch).
-
-```dart
-// Step 1: Get the manifest metadata
-GET https://www.bungie.net/Platform/Destiny2/Manifest/
-// Returns version string + download paths per language
-
-// Step 2: Download the SQLite file
-// URL format: https://www.bungie.net/{mobileWorldContentPaths.en}
-
-// Step 3: Store the version string in Hive
-// On each app launch, compare stored version to API version
-// Re-download only if they differ
-```
-
-Store the manifest SQLite file in the app's documents directory using `path_provider`. Open it with `drift` using `NativeDatabase`.
-
-### 3. Fetching Player Inventory
-
-Use the `GetProfile` endpoint with components to control what data is returned:
-
-```
-GET https://www.bungie.net/Platform/Destiny2/{membershipType}/Profile/{membershipId}/
-    ?components=100,102,200,201,205,300,302,304,305,307
-```
-
-Key component codes:
-
-| Code | Component | Use |
-|---|---|---|
-| 100 | Profiles | Membership info |
-| 102 | ProfileInventories | Vault items |
-| 200 | Characters | Character list |
-| 201 | CharacterInventories | Character items |
-| 205 | CharacterEquipment | Currently equipped items |
-| 300 | ItemInstances | Power level, damage type |
-| 302 | ItemPerks | Active perks |
-| 304 | ItemStats | Weapon/armor stats |
-| 305 | ItemSockets | Equipped mods and perks |
-| 307 | ItemPlugStates | Perk column options |
-
-### 4. Resolving Item Definitions from the Manifest
-
-API responses return `itemHash` integers, not item names. You resolve them against the local manifest:
-
-```dart
-// In manifest_dao.dart
-Future<DestinyInventoryItemDefinition> getItemDefinition(int hash) async {
-  // Query local Drift DB
-  return await db.select(db.inventoryItemDefinitions)
-    ..where((t) => t.hash.equals(hash));
-}
-```
-
-The manifest tables you'll query most:
-- `DestinyInventoryItemDefinition` — weapons, armor, mods, perks
-- `DestinyStatDefinition` — stat names and descriptions
-- `DestinySocketTypeDefinition` — which mods fit which slots
-- `DestinySandboxPerkDefinition` — perk descriptions
-- `DestinyClassDefinition` — Hunter, Titan, Warlock
-
-### 5. Loadout Saving & Syncing
-
-**Local saving:** Serialize loadouts as JSON and store in a Hive box.
-
-**Syncing to the game:** Bungie added native in-game loadout support. You can write loadouts back via:
-
-```
-POST https://www.bungie.net/Platform/Destiny2/Actions/Loadouts/Snapshot/
-```
-
-This requires the `MoveEquipDestinyItems` scope in addition to the read scope. Add it to your app's registered scopes if you want write support.
-
----
-
-## Environment Configuration
-
-Use `envied` to keep secrets out of source control. Create a `.env` file at the project root (add to `.gitignore`):
-
-```
-# .env  — DO NOT COMMIT
-BUNGIE_API_KEY=your_api_key_here
-BUNGIE_CLIENT_ID=your_client_id_here
-```
-
-Then define an annotated class:
-
-```dart
-// lib/core/config/env.dart
-import 'package:envied/envied.dart';
-
-part 'env.g.dart';
-
-@Envied(path: '.env')
-abstract class Env {
-  @EnviedField(varName: 'BUNGIE_API_KEY', obfuscate: true)
-  static final String apiKey = _Env.apiKey;
-
-  @EnviedField(varName: 'BUNGIE_CLIENT_ID', obfuscate: true)
-  static final String clientId = _Env.clientId;
-}
-```
-
-Run `dart run build_runner build` to generate `env.g.dart`. The `obfuscate: true` flag prevents the key from being visible as a plain string in the compiled binary.
-
----
-
-## Getting Started
-
-```bash
-# 1. Clone the repository
-git clone <your-repo-url>
-cd destiny2_loadout_planner
-
-# 2. Install dependencies
-flutter pub get
-
-# 3. Create your .env file
-cp .env.example .env
-# Then fill in your Bungie API key and client ID
-
-# 4. Run code generation (models, DB schema, env)
-dart run build_runner build --delete-conflicting-outputs
-
-# 5. Run on a device or simulator
-flutter run
-```
-
-On first launch the app will:
-1. Show the login screen
-2. After OAuth sign-in, download the Destiny manifest (~50–100 MB)
-3. Store the manifest version in Hive for future comparison
-4. Fetch the player's characters and inventory
-
----
-
-## API Quick Reference
-
-| Action | Method | Endpoint |
-|---|---|---|
-| Get manifest metadata | GET | `/Platform/Destiny2/Manifest/` |
-| Get player profile + inventory | GET | `/Platform/Destiny2/{type}/{id}/Profile/?components=...` |
-| Get character details | GET | `/Platform/Destiny2/{type}/{id}/Character/{charId}/?components=...` |
-| Search player by name | POST | `/Platform/Destiny2/SearchDestinyPlayerByBungieName/{type}/` |
-| Get linked profiles | GET | `/Platform/Destiny2/{type}/{id}/LinkedProfiles/` |
-| Equip item | POST | `/Platform/Destiny2/Actions/Items/EquipItem/` |
-| Snapshot loadout to game | POST | `/Platform/Destiny2/Actions/Loadouts/Snapshot/` |
-| Get item definition | GET | `/Platform/Destiny2/Manifest/{entityType}/{hash}/` |
-
-All endpoints are prefixed with `https://www.bungie.net` and require the header `X-API-Key: {your_api_key}`. Authenticated endpoints additionally require `Authorization: Bearer {access_token}`.
-
----
-
-## Known Gotchas & Tips
-
-- **Manifest versioning** — The manifest updates with every game patch, sometimes mid-day. Always check the version on launch and refresh if needed. Cache the SQLite file to avoid re-downloading on every cold start.
-
-- **Hash overflow** — Bungie item hashes are unsigned 32-bit integers, but Dart's `int` is 64-bit. API responses sometimes return negative values for hashes — this is a known quirk. Apply `hash & 0xFFFFFFFF` to normalize if needed.
-
-- **Component data can be null** — Even if you request a component, the API may return null for it (e.g., a character with no equipped items). Always null-check component responses.
-
-- **Rate limiting** — Bungie enforces rate limits per API key. Implement exponential backoff in a Dio interceptor for 429 responses. Batch your component requests instead of making many small calls.
-
-- **Image base URL** — Item icons are relative paths. Prefix them with `https://www.bungie.net` to get the full image URL (e.g., `https://www.bungie.net/common/destiny2_content/icons/...`).
-
-- **Membership types** — Players can be on multiple platforms (Xbox = 1, PSN = 2, Steam = 3, Epic = 6). Use `LinkedProfiles` to find all platforms for a given Bungie account and respect cross-save primary settings.
-
-- **Token refresh** — Access tokens expire after ~60 minutes; refresh tokens after ~90 days. Implement proactive refresh in your `AuthInterceptor` before the token expires to avoid mid-session 401 errors.
-
-- **WebView is blocked** — Bungie will technically block WebView OAuth and will not feature/promote apps that use it. Use `flutter_web_auth_2` — it uses the correct system browser APIs on each platform.
-
----
-
-## Useful Resources
+## Useful resources
 
 | Resource | URL |
 |---|---|
-| Bungie API Full Docs | https://bungie-net.github.io |
+| Bungie API docs | https://bungie-net.github.io |
 | Bungie Developer Portal | https://www.bungie.net/en/Application |
 | Bungie API GitHub | https://github.com/Bungie-net/api |
-| Destiny Data Explorer (manifest browser) | https://data.destinysets.com |
-| GuardianDock (Flutter + Bungie reference app) | https://github.com/topics/bungie-destiny-api |
-| DIM (Destiny Item Manager — open source, great reference) | https://github.com/DestinyItemManager/DIM |
-| light.gg (item database, god roll reference) | https://www.light.gg |
+| DIM (open-source reference app) | https://github.com/DestinyItemManager/DIM |
 | Riverpod docs | https://riverpod.dev |
-| Drift docs | https://drift.simonbinder.eu |
-| flutter_web_auth_2 | https://pub.dev/packages/flutter_web_auth_2 |
-| Community Discord (The100 / Destiny API devs) | https://github.com/Bungie-net/api/issues |
-
----
-
-*Handover document generated for the Destiny 2 Loadout Planner Flutter project. Update this document as the project evolves — especially the Directory Structure and Key Implementation Areas sections as patterns are established.*
