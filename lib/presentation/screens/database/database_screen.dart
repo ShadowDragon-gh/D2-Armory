@@ -107,6 +107,14 @@ class _DatabaseSearchField extends ConsumerWidget {
       // controller during the user's own typing.
       text: ref.watch(databaseSearchProvider),
       names: ref.watch(databaseItemNamesProvider),
+      perks: ref.watch(perkCatalogProvider),
+      frames: ref.watch(frameCatalogProvider),
+      // The visible kind's facet warm gates its perk:/stat:/source: search and
+      // the perk autocomplete, so show the spinner while it is still running.
+      warming: ref
+          .watch(databaseFacetsWarmProvider(
+              ref.watch(databaseFilterProvider.select((f) => f.kind))))
+          .isLoading,
       unsupported: ref.watch(databaseUnsupportedTermsProvider),
       instanceData: false,
       height: 38,

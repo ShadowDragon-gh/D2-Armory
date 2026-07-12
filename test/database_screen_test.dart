@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:destiny2_loadout_planner/core/destiny/destiny_buckets.dart';
 import 'package:destiny2_loadout_planner/core/destiny/plug_category.dart';
 import 'package:destiny2_loadout_planner/core/search/item_filter.dart';
+import 'package:destiny2_loadout_planner/core/search/search_suggestions.dart';
 import 'package:destiny2_loadout_planner/data/repositories/database_repository.dart';
 import 'package:destiny2_loadout_planner/domain/models/item_detail.dart';
 import 'package:destiny2_loadout_planner/presentation/providers/database_provider.dart';
@@ -99,6 +100,10 @@ class _FakeRepo implements DatabaseRepository {
       listGear(GearFilter(kind: kind));
   @override
   Future<void> warmFacets(GearKind kind) async {}
+  @override
+  List<PerkOption> perkOptions() => const [];
+  @override
+  List<PerkOption> frameOptions() => const [];
 }
 
 Widget _app() => ProviderScope(
@@ -402,4 +407,8 @@ class _ToggleFakeRepo implements DatabaseRepository {
       listGear(GearFilter(kind: kind));
   @override
   Future<void> warmFacets(GearKind kind) async {}
+  @override
+  List<PerkOption> perkOptions() => const [];
+  @override
+  List<PerkOption> frameOptions() => const [];
 }

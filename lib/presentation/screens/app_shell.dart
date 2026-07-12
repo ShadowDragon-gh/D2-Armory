@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../core/destiny/destiny_buckets.dart';
 import '../providers/auth_provider.dart';
+import '../providers/database_provider.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/search_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/armory_palette.dart';
+import '../theme/branding_svg.dart';
 import '../widgets/search_bar_field.dart';
 import 'database/database_screen.dart';
 import 'inventory/inventory_screen.dart';
@@ -32,14 +35,14 @@ class _AppShellState extends ConsumerState<AppShell> {
         titleSpacing: 16,
         title: Row(
           children: [
-            SvgPicture.asset(
-              'assets/branding/logo-icon-transparent.svg',
+            SvgPicture.string(
+              kArmoryIconSvg,
               width: 40,
               height: 40,
             ),
             const SizedBox(width: 12),
-            SvgPicture.asset(
-              'assets/branding/logo-wordmark-transparent.svg',
+            SvgPicture.string(
+              kArmoryWordmarkSvg,
               height: 48,
             ),
             const SizedBox(width: 24),
@@ -152,6 +155,13 @@ class _SearchBar extends ConsumerWidget {
     return SearchBarField(
       text: ref.watch(searchQueryProvider),
       names: ref.watch(itemNamesProvider),
+      perks: ref.watch(perkCatalogProvider),
+      frames: ref.watch(frameCatalogProvider),
+      // The owned-item facet warm gates perk:/stat:/source:/catalyst: search;
+      // the perk autocomplete waits on the Database weapon warm. Show the
+      // spinner while either is still running.
+      warming: ref.watch(inventoryFacetsWarmProvider).isLoading ||
+          ref.watch(databaseFacetsWarmProvider(GearKind.weapon)).isLoading,
       unsupported: unsupported,
       onChanged: (v) => ref.read(searchQueryProvider.notifier).set(v),
     );

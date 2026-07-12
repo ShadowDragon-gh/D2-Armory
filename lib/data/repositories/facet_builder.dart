@@ -1,3 +1,5 @@
+import 'dart:isolate';
+
 import '../../core/destiny/destiny_buckets.dart';
 import '../../core/destiny/plug_category.dart';
 import '../../core/search/item_filter.dart';
@@ -31,6 +33,31 @@ class FacetBuilder {
   // Caches shared across a build (one FacetBuilder = one build session).
   final Map<int, String?> _plugPerkName = {};
   final Map<int, List<int>> _plugSetItems = {};
+
+  // Perk display name (lowercased) -> Bungie icon path, accumulated across the
+  // build as perk plugs are decoded. Backs the `perk:` autocomplete catalog.
+  final Map<String, String> _perkIconByName = {};
+
+  // Archetype frame name (lowercased) -> Bungie icon path, accumulated as items'
+  // intrinsic frames are decoded. Backs the `frame:` autocomplete catalog. Only
+  // shared archetypes (names ending in "frame") are recorded — unique exotic
+  // intrinsics are not, mirroring the perk catalog.
+  final Map<String, String> _frameIconByName = {};
+
+  /// The perk name -> icon path catalog gathered so far this build. Populated as
+  /// a side effect of resolving perk facets ([facetsFor]), so a caller that
+  /// builds a whole kind's facets can read the full perk pool's icons after.
+  Map<String, String> get perkIcons => _perkIconByName;
+
+  /// The archetype-frame name -> icon path catalog gathered so far this build,
+  /// a side effect of resolving frame facets ([facetsFor]). Backs the `frame:`
+  /// autocomplete.
+  Map<String, String> get frameIcons => _frameIconByName;
+
+  // TierType 6 == Exotic (mirrors DestinyEnums.tierByKeyword['exotic']). Used to
+  // keep exotic weapons' unique frame intrinsics out of the `frame:` archetype
+  // catalog.
+  static const _exoticTier = 6;
 
   // Champion effect keyword per breaker type name, so `breaker:overload` and
   // `breaker:disruption` both match (the def names the type, players type the
@@ -117,13 +144,23 @@ class FacetBuilder {
       if (plugHash == 0) return null;
       final def = _db.getInventoryItem(plugHash);
       if (def == null) return null;
-      final name =
-          (def['displayProperties']?['name'] as String?)?.toLowerCase();
+      final display = def['displayProperties'] as Map<String, dynamic>?;
+      final name = (display?['name'] as String?)?.toLowerCase();
       if (name == null || name.isEmpty) return null;
-      final category =
-          classifyPlug(def['plug']?['plugCategoryIdentifier'] as String?);
+      final plugId = def['plug']?['plugCategoryIdentifier'] as String?;
+      final category = classifyPlug(plugId);
       if (category != PlugCategory.perk && category != PlugCategory.frame) {
         return null;
+      }
+      // Record the icon for the `perk:` autocomplete catalog, but only for real
+      // trait/origin perks — not the barrels/magazines/exotic-intrinsics that
+      // the broader `perk:` search pool (this method's return value) still
+      // matches. The first plug of a name wins (base/enhanced share an icon).
+      if (isSuggestableTraitPerk(plugId)) {
+        final icon = display?['icon'] as String?;
+        if (icon != null && icon.isNotEmpty) {
+          _perkIconByName.putIfAbsent(name, () => icon);
+        }
       }
       return name;
     });
@@ -291,6 +328,12 @@ class FacetBuilder {
   String? _frameNameOf(Map<String, dynamic> def) {
     final entries = def['sockets']?['socketEntries'];
     if (entries is! List) return null;
+    // An exotic weapon's frame plug is its unique intrinsic, never a shared
+    // archetype — so it must not enter the `frame:` autocomplete even when its
+    // name happens to end in "frame" (e.g. Choir of One's "Command Frame").
+    // TierType 6 == Exotic (see DestinyEnums.tierByKeyword).
+    final isExotic =
+        (def['inventory']?['tierType'] as num?)?.toInt() == _exoticTier;
     final seen = <int>{};
     for (final entry in entries) {
       final plugHash =
@@ -300,19 +343,63 @@ class FacetBuilder {
       final category =
           classifyPlug(pd?['plug']?['plugCategoryIdentifier'] as String?);
       if (category != PlugCategory.frame) continue;
-      final name =
-          (pd?['displayProperties']?['name'] as String?)?.toLowerCase();
-      if (name != null && name.isNotEmpty) return name;
+      final display = pd?['displayProperties'] as Map<String, dynamic>?;
+      final name = (display?['name'] as String?)?.toLowerCase();
+      if (name != null && name.isNotEmpty) {
+        // Record the icon for the `frame:` autocomplete, but only for shared
+        // archetypes ("Adaptive Frame", "Rapid-Fire Frame", …): the plug is on a
+        // non-exotic weapon and its name ends in "frame". A unique exotic
+        // intrinsic is not a suggestable archetype, matching the perk catalog.
+        if (!isExotic && name.endsWith('frame')) {
+          final icon = display?['icon'] as String?;
+          if (icon != null && icon.isNotEmpty) {
+            _frameIconByName.putIfAbsent(name, () => icon);
+          }
+        }
+        return name;
+      }
     }
     return null;
   }
 }
 
+/// The sendable result of a facet build: the per-item [facets] plus the
+/// [perkIcons] and [frameIcons] catalogs (name -> icon path) gathered across the
+/// build, used by the `perk:` and `frame:` autocomplete.
+class FacetBuildResult {
+  const FacetBuildResult(this.facets, this.perkIcons, this.frameIcons);
+
+  final Map<int, SearchFacets> facets;
+  final Map<String, String> perkIcons;
+  final Map<String, String> frameIcons;
+}
+
+/// Spawn a background isolate that builds [kind]'s facets over the manifest at
+/// [dbPath] for [itemHashes], and return its result.
+///
+/// This wrapper exists so the closure handed to `Isolate.run` is created inside
+/// a **top-level function**, not an instance method. A closure literal built in
+/// an instance method captures `this` — here the repository, whose `_manifest`
+/// holds an unsendable `Logger`/`Future` — and `Isolate.spawn` rejects the send.
+/// Created at top level, the closure closes over only the sendable parameters.
+Future<FacetBuildResult> runFacetBuildInIsolate({
+  required String dbPath,
+  required GearKind kind,
+  required List<int> itemHashes,
+}) {
+  return Isolate.run(() => buildKindFacets(
+        dbPath: dbPath,
+        kind: kind,
+        itemHashes: itemHashes,
+      ));
+}
+
 /// Build the facets for every [itemHash] over the manifest at [dbPath], opening
 /// a fresh read-only connection. Runs in a background isolate (via
-/// `Isolate.run`) so the ~3s of definition decoding never touches the UI
-/// thread. Returns a plain, sendable map from item hash to its facets.
-Map<int, SearchFacets> buildKindFacets({
+/// [runFacetBuildInIsolate]) so the ~3s of definition decoding never touches the
+/// UI thread. Returns the per-item facets plus the perk-icon and frame-icon
+/// catalogs gathered across the build.
+FacetBuildResult buildKindFacets({
   required String dbPath,
   required GearKind kind,
   required List<int> itemHashes,
@@ -320,9 +407,10 @@ Map<int, SearchFacets> buildKindFacets({
   final db = ManifestDatabase.open(dbPath);
   try {
     final builder = FacetBuilder(db);
-    return {
+    final facets = {
       for (final hash in itemHashes) hash: builder.facetsFor(hash, kind),
     };
+    return FacetBuildResult(facets, builder.perkIcons, builder.frameIcons);
   } finally {
     db.close();
   }

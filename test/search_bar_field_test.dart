@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:destiny2_loadout_planner/core/search/search_suggestions.dart';
 import 'package:destiny2_loadout_planner/presentation/widgets/search_bar_field.dart';
 
 void main() {
@@ -130,6 +131,128 @@ void main() {
     expect(controller.text, 'is:handcannon ');
   });
 
+  testWidgets(
+      'a perk catalog that arrives after typing perk: surfaces the dropdown '
+      'without another keystroke', (tester) async {
+    final perksNotifier = ValueNotifier<List<PerkOption>>(const []);
+    addTearDown(perksNotifier.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ValueListenableBuilder<List<PerkOption>>(
+          valueListenable: perksNotifier,
+          builder: (context, perks, _) => SearchBarField(
+            text: '',
+            onChanged: _noop,
+            unsupported: const [],
+            perks: perks,
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+
+    // Catalog empty: typing perk: yields no suggestions.
+    await tester.enterText(find.byType(TextField), 'perk:');
+    await tester.pump();
+    expect(find.text('perk:rampage'), findsNothing);
+
+    // The background warm lands, populating the catalog. The field rebuilds
+    // with the new perks and recomputes on the next frame — no keystroke.
+    perksNotifier.value = const [PerkOption('rampage', '/i/rampage.png')];
+    await tester.pump(); // rebuild with new perks
+    await tester.pump(); // run the post-frame recompute
+    expect(find.text('perk:rampage'), findsOneWidget);
+  });
+
+  testWidgets('typing perk: with a populated catalog shows perk suggestions',
+      (tester) async {
+    final perks = List.generate(
+        200, (i) => PerkOption('perk name $i', '/common/icon$i.png'));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SearchBarField(
+          text: '',
+          onChanged: _noop,
+          unsupported: const [],
+          perks: perks,
+        ),
+      ),
+    ));
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'perk:');
+    await tester.pump();
+
+    // The overlay should be up with the alphabetical perk list.
+    expect(find.byType(ListView), findsOneWidget);
+    expect(find.text('perk:perk name 0'), findsOneWidget);
+  });
+
+  testWidgets('typing perk: one char at a time (provider-driven text) shows '
+      'perks — the real integration path', (tester) async {
+    final perks = [
+      const PerkOption('rampage', '/i/r.png'),
+      const PerkOption('adagio', '/i/a.png'),
+    ];
+    // Mirror the real screens: onChanged feeds back into `text`, and the parent
+    // rebuilds the field with the new text each keystroke (as a provider does).
+    var text = '';
+    await tester.pumpWidget(StatefulBuilder(
+      builder: (context, setState) => MaterialApp(
+        home: Scaffold(
+          body: SearchBarField(
+            text: text,
+            onChanged: (v) => setState(() => text = v),
+            unsupported: const [],
+            perks: perks,
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+
+    for (final s in ['p', 'pe', 'per', 'perk', 'perk:']) {
+      await tester.enterText(find.byType(TextField), s);
+      await tester.pump();
+    }
+    expect(find.text('perk:rampage'), findsOneWidget);
+    expect(find.text('perk:adagio'), findsOneWidget);
+  });
+
+  testWidgets('shows a warming spinner while facets are still loading',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: SearchBarField(
+          text: '',
+          onChanged: _noop,
+          unsupported: [],
+          warming: true,
+        ),
+      ),
+    ));
+    // A spinner is infinite, so pump one frame rather than settle.
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
+  testWidgets('shows no spinner once warming is done', (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: SearchBarField(
+          text: '',
+          onChanged: _noop,
+          unsupported: [],
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
   testWidgets('Escape closes the overlay first, then clears on a second press',
       (tester) async {
     var latest = 'x';
@@ -151,4 +274,24 @@ void main() {
     expect(controller.text, isEmpty);
     expect(latest, isEmpty);
   });
+
+  testWidgets('the help icon opens the search guide modal', (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: SearchBarField(text: '', onChanged: _noop, unsupported: []),
+      ),
+    ));
+    // The guide is not shown until the help icon is tapped.
+    expect(find.text('Search & Filters'), findsNothing);
+
+    await tester.tap(find.byTooltip('Search & filter help'));
+    await tester.pumpAndSettle();
+
+    // The modal is up with its title and a representative documented filter.
+    expect(find.text('Search & Filters'), findsOneWidget);
+    expect(find.text('perk:rampage'), findsOneWidget);
+  });
 }
+
+/// A const-constructible onChanged for the warming-spinner tests.
+void _noop(String _) {}

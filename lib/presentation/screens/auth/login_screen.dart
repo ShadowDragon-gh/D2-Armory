@@ -6,6 +6,7 @@ import '../../../core/config/app_config.dart';
 import '../../../core/errors/failures.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/armory_palette.dart';
+import '../../theme/branding_svg.dart';
 
 /// Entry screen. Presents Bungie sign-in and drives the OAuth flow via
 /// [authControllerProvider]. When Bungie credentials are missing from the env
@@ -29,8 +30,8 @@ class LoginScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                SvgPicture.asset(
-                  'assets/branding/logo-icon-transparent.svg',
+                SvgPicture.string(
+                  kArmoryIconSvg,
                   width: 96,
                   height: 96,
                 ),

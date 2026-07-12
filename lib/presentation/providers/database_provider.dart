@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/destiny/destiny_buckets.dart';
 import '../../core/search/item_filter.dart';
+import '../../core/search/search_suggestions.dart';
 import '../../data/repositories/database_repository.dart';
 import '../../domain/models/item_detail.dart';
 import 'manifest_provider.dart';
@@ -120,6 +121,25 @@ final databaseUnsupportedTermsProvider = Provider<List<String>>((ref) {
   return ref.watch(_databaseCompiledQueryProvider).unsupported;
 });
 
+/// The perk catalog (name + icon) offered as `perk:`/`perk1:`/`perk2:` value
+/// autocomplete on both tabs. Sourced from the Database weapon facet warm (the
+/// full weapon perk pool), so it is game-wide, not account-scoped. Empty until
+/// that warm completes, then fully populated; watching the warm rebuilds this
+/// when it lands.
+final perkCatalogProvider = Provider<List<PerkOption>>((ref) {
+  ref.watch(databaseFacetsWarmProvider(GearKind.weapon));
+  return ref.watch(databaseRepositoryProvider).perkOptions();
+});
+
+/// The archetype-frame catalog (name + icon) offered as `frame:` value
+/// autocomplete on both tabs. Sourced from the Database weapon facet warm (frame
+/// archetypes are a weapon concept), so it is game-wide. Empty until that warm
+/// completes; watching the warm rebuilds this when it lands.
+final frameCatalogProvider = Provider<List<PerkOption>>((ref) {
+  ref.watch(databaseFacetsWarmProvider(GearKind.weapon));
+  return ref.watch(databaseRepositoryProvider).frameOptions();
+});
+
 /// Gear names for the Database search field's `name:"..."` autocomplete, taken
 /// from the current kind's loaded facet results. Empty until the list loads.
 final databaseItemNamesProvider = Provider<List<String>>((ref) {
@@ -142,6 +162,19 @@ final selectedDatabaseItemProvider =
     NotifierProvider<SelectedDatabaseItemNotifier, int?>(
         SelectedDatabaseItemNotifier.new);
 
+/// Whether the shared gear-detail modal is currently up. Both the Database
+/// list and the Inventory grid react to [selectedDatabaseItemProvider] (both
+/// stay alive in the shell's IndexedStack), so `showGearDetailModal` uses this
+/// to let the first open win and make later calls no-op.
+class GearModalOpenNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool value) => state = value;
+}
+
+final gearModalOpenProvider =
+    NotifierProvider<GearModalOpenNotifier, bool>(GearModalOpenNotifier.new);
+
 /// The resolved definition detail (for the modal) of the selected gear, or null
 /// when none is selected. Resolved lazily — only the selected item decodes full
 /// detail (~8ms), so this is fine to compute synchronously.
@@ -156,6 +189,27 @@ final databaseItemDetailProvider = Provider.autoDispose<GearDetail?>((ref) {
   if (hash == null) return null;
   return ref.watch(databaseRepositoryProvider).resolveGearDetail(hash);
 });
+
+/// Which view the gear-detail modal shows when an owned item backs it (opened
+/// from the Inventory tab): the instance's actual roll — its stats, perks,
+/// mods, and masterwork state — or the item definition with every possible
+/// roll. Modal-scoped so it resets per opened item.
+enum GearModalView { rolled, definition }
+
+class GearModalViewNotifier extends Notifier<GearModalView> {
+  @override
+  GearModalView build() {
+    // Reset to the roll for each newly-opened item.
+    ref.watch(selectedDatabaseItemProvider);
+    return GearModalView.rolled;
+  }
+
+  void set(GearModalView view) => state = view;
+}
+
+final gearModalViewProvider =
+    NotifierProvider.autoDispose<GearModalViewNotifier, GearModalView>(
+        GearModalViewNotifier.new);
 
 /// Which enhancement state the perk grid shows: enhanced-only or regular-only
 /// (the toggle by the "Perks" title). Modal-scoped so it resets each time the

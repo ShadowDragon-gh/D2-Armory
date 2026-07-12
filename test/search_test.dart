@@ -447,4 +447,70 @@ void main() {
       expect(q.matches(item(isMasterwork: true)), isTrue);
     });
   });
+
+  // Guards the search-help modal (search_help_modal.dart): every filter it
+  // documents must be a real, evaluable term — none may route to `unsupported`
+  // when the app supplies its resolvers. If a filter is added to or removed from
+  // the guide, update this list to match. Keeps the guide from claiming filters
+  // the grammar does not actually support.
+  group('search-help guide filters all exist', () {
+    final fullFacets = const SearchFacets(
+      perks: {'rampage'},
+      perkColumns: [
+        {'outlaw'},
+        {'kill clip'}
+      ],
+      stats: {'range': 70, 'stability': 60, 'handling': 20, 'mobility': 40},
+      breaker: 'overload',
+      sources: {'source: season of the seraph'},
+      description: 'kills with this weapon',
+      catalyst: CatalystState.complete,
+      frame: 'adaptive frame',
+    );
+    FacetResolver facetsOf(SearchFacets f) => (_) => f;
+
+    // One representative term per documented filter (matching the modal's
+    // examples), with live-data terms included since the Inventory tab supports
+    // them all.
+    const documentedFilters = <String>[
+      'fatebringer',
+      'name:"the messenger"',
+      'exactname:"gjallarhorn"',
+      'is:weapon', 'is:armor',
+      'is:handcannon', 'is:sniperrifle', 'is:smg',
+      'is:solar', 'is:void', 'is:arc', 'is:stasis', 'is:strand', 'is:kinetic',
+      'is:light', 'is:dark',
+      'is:exotic', 'is:legendary', 'is:rare',
+      'is:titan', 'is:hunter', 'is:warlock',
+      'is:helmet', 'is:gauntlets', 'is:chest', 'is:legs', 'is:classitem',
+      'is:kineticslot', 'is:energy', 'is:power',
+      'ammo:primary', 'ammo:special', 'ammo:heavy',
+      'perk:rampage', 'perk1:outlaw', 'perk2:"kill clip"',
+      'frame:adaptive', 'frame:"rapid-fire"',
+      'breaker:overload', 'breaker:barrier', 'breaker:unstoppable',
+      'stat:range:>70', 'stat:stability:>=60', 'stat:handling:<40',
+      'stat:mobility',
+      'source:seraph', 'source:raid',
+      'description:"kills with this"',
+      'keyword:volatile',
+      'power:>1800', 'light:<=1600',
+      'is:equipped', 'is:masterwork', 'is:locked',
+      'count:>1',
+      'catalyst:complete', 'catalyst:incomplete', 'catalyst:missing',
+      '-is:exotic', 'not:masterwork',
+    ];
+
+    for (final filter in documentedFilters) {
+      test('"$filter" is a supported filter', () {
+        final q = compileQuery(
+          filter,
+          facetsOf: facetsOf(fullFacets),
+          countOf: (_) => 3,
+        );
+        expect(q.unsupported, isEmpty,
+            reason: '"$filter" is documented in the help guide but the grammar '
+                'routes it to unsupported');
+      });
+    }
+  });
 }

@@ -44,4 +44,39 @@ void main() {
       expect(classifyPlug(''), PlugCategory.other);
     });
   });
+
+  group('isSuggestableTraitPerk', () {
+    test('trait perks are suggestable', () {
+      // Real weapon trait perks (Rampage, Firefly, …) are bare `frames`.
+      expect(isSuggestableTraitPerk('frames'), isTrue);
+      expect(isSuggestableTraitPerk('frames.traits'), isTrue);
+      expect(isSuggestableTraitPerk('v300.weapon.traits'), isTrue);
+      expect(isSuggestableTraitPerk('traits'), isTrue);
+      // Enhanced/exotic trait variants keep the traits segment mid-id.
+      expect(isSuggestableTraitPerk('frames.traits.exotic'), isTrue);
+    });
+
+    test('origin traits are suggestable', () {
+      expect(isSuggestableTraitPerk('origins'), isTrue);
+    });
+
+    test('barrels / magazines / stocks are NOT suggestable', () {
+      expect(isSuggestableTraitPerk('barrels'), isFalse);
+      expect(isSuggestableTraitPerk('magazines'), isFalse);
+      expect(isSuggestableTraitPerk('stocks'), isFalse);
+      expect(isSuggestableTraitPerk('scopes'), isFalse);
+      expect(isSuggestableTraitPerk('batteries'), isFalse);
+    });
+
+    test('exotic intrinsics are NOT suggestable (unique per-weapon perks)', () {
+      expect(isSuggestableTraitPerk('intrinsics'), isFalse);
+      expect(isSuggestableTraitPerk('v600.new.fusion_rifle0.masterwork'),
+          isFalse);
+    });
+
+    test('empty / null are not suggestable', () {
+      expect(isSuggestableTraitPerk(null), isFalse);
+      expect(isSuggestableTraitPerk(''), isFalse);
+    });
+  });
 }

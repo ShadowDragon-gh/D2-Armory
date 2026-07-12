@@ -1,10 +1,9 @@
-import 'dart:isolate';
-
 import '../../core/destiny/destiny_buckets.dart';
 import '../../core/destiny/plug_category.dart';
 import '../../core/search/item_filter.dart';
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/item_detail.dart';
+import '../../core/search/search_suggestions.dart';
 import 'facet_builder.dart';
 import 'manifest_repository.dart';
 
@@ -65,6 +64,15 @@ class DatabaseRepository {
   // Deduped index summaries keyed by item hash, per kind, so [facetsFor] can
   // find the summary for a hash without scanning the list. Built with the index.
   final Map<GearKind, Map<int, GearSummary>> _summariesByHash = {};
+
+  // Perk display name (lowercased) -> Bungie icon path, the catalog that backs
+  // the `perk:` autocomplete. Merged from each kind's facet warm; perks are a
+  // weapon concept, so in practice only the weapon warm populates it.
+  final Map<String, String> _perkIconByName = {};
+
+  // Archetype-frame name (lowercased) -> Bungie icon path, the catalog behind
+  // the `frame:` autocomplete. Also merged from the facet warm.
+  final Map<String, String> _frameIconByName = {};
 
   // The stable WEAPON PERKS socket-category hash (like the bucket hashes in
   // EquipmentBucket, a game constant, not a per-launch lookup). Its sockets are
@@ -181,13 +189,40 @@ class DatabaseRepository {
     final dbPath = _manifest.databasePath;
     if (dbPath == null) return; // lazy facetsFor still covers searches
     final hashes = [for (final s in index) s.itemHash];
-    final built = await Isolate.run(() => buildKindFacets(
-          dbPath: dbPath,
-          kind: kind,
-          itemHashes: hashes,
-        ));
+    final built = await runFacetBuildInIsolate(
+      dbPath: dbPath,
+      kind: kind,
+      itemHashes: hashes,
+    );
     final cache = _facetsByKind[kind]!;
-    built.forEach((hash, facets) => cache[hash] ??= facets);
+    built.facets.forEach((hash, facets) => cache[hash] ??= facets);
+    // Merge the kind's catalogs; first path to record a name wins.
+    built.perkIcons.forEach((name, icon) => _perkIconByName[name] ??= icon);
+    built.frameIcons.forEach((name, icon) => _frameIconByName[name] ??= icon);
+  }
+
+  /// The perk catalog (name + icon) for the `perk:` autocomplete, sorted by
+  /// name. Draws from both the background warm's merged catalog and the lazy
+  /// UI-thread builder — whichever resolved a perk first — so autocomplete works
+  /// even if a search touches items before (or instead of) the isolate warm.
+  /// Empty only until at least one weapon's perks have decoded either way.
+  List<PerkOption> perkOptions() {
+    final byName = {..._perkIconByName};
+    // Fold in perks resolved lazily on the UI thread (the isolate warm merges
+    // its own into _perkIconByName; the lazy builder keeps its own map).
+    _lazyBuilder?.perkIcons.forEach((name, icon) => byName[name] ??= icon);
+    final names = byName.keys.toList()..sort();
+    return [for (final name in names) PerkOption(name, byName[name]!)];
+  }
+
+  /// The archetype-frame catalog (name + icon) for the `frame:` autocomplete,
+  /// sorted by name. Same dual-source resolution as [perkOptions] — the warm's
+  /// merged catalog plus the lazy builder — so it fills whichever path runs.
+  List<PerkOption> frameOptions() {
+    final byName = {..._frameIconByName};
+    _lazyBuilder?.frameIcons.forEach((name, icon) => byName[name] ??= icon);
+    final names = byName.keys.toList()..sort();
+    return [for (final name in names) PerkOption(name, byName[name]!)];
   }
 
   /// Build a [GearSummary] from a projected gear row, or null when it lacks a
@@ -360,10 +395,18 @@ class DatabaseRepository {
     return columns;
   }
 
-  /// A human column label ("Barrel", "Magazine", "Trait", "Origin Trait") from
-  /// the socket type's plug whitelist category identifier. Falls back to an
-  /// empty label when the socket type is unknown.
+  /// A human column label ("Barrel", "Bowstring", "Launcher Barrel",
+  /// "Magazine", "Trait", "Origin Trait"…). Preferred source: the plugs' own
+  /// type names, since the whitelist identifiers vary per weapon family and
+  /// don't cover them all; falls back to the socket type's plug whitelist,
+  /// then to an empty label.
   String _columnLabel(Map<String, dynamic> entry) {
+    for (final hash in _columnPlugHashes(entry)) {
+      if (hash == 0) continue;
+      final label = perkColumnLabelFromPlugType(
+          _manifest.getInventoryItem(hash)?['itemTypeDisplayName'] as String?);
+      if (label.isNotEmpty) return label;
+    }
     final typeHash = (entry['socketTypeHash'] as num?)?.toInt();
     if (typeHash == null) return '';
     final type = _manifest.getSocketType(typeHash);
@@ -371,30 +414,9 @@ class DatabaseRepository {
     if (whitelist is! List) return '';
     for (final w in whitelist) {
       final id = ((w as Map)['categoryIdentifier'] as String?) ?? '';
-      final label = _labelForWhitelistId(id);
+      final label = perkColumnLabelFor(id);
       if (label.isNotEmpty) return label;
     }
-    return '';
-  }
-
-  // Weapon perk-socket whitelist category identifiers → column label. Barrel
-  // and magazine sockets vary by weapon family (blades/scopes/hafts for
-  // swords/bows/GLs; batteries/arrows/guards for fusions/bows/swords).
-  static const _barrelIds = {'barrels', 'blades', 'scopes', 'hafts'};
-  static const _magazineIds = {
-    'magazines',
-    'magazines_gl',
-    'batteries',
-    'arrows',
-    'guards',
-    'tubes',
-  };
-
-  String _labelForWhitelistId(String id) {
-    if (_barrelIds.contains(id)) return 'Barrel';
-    if (_magazineIds.contains(id)) return 'Magazine';
-    if (id == 'frames') return 'Trait';
-    if (id == 'origins') return 'Origin Trait';
     return '';
   }
 
@@ -405,27 +427,10 @@ class DatabaseRepository {
   List<ItemPlug> _columnPlugs(Map<String, dynamic> entry) {
     final seen = <int>{};
     final plugs = <ItemPlug>[];
-    void addHash(int? hash) {
-      if (hash == null || hash == 0 || !seen.add(hash)) return;
+    for (final hash in _columnPlugHashes(entry)) {
+      if (hash == 0 || !seen.add(hash)) continue;
       final plug = _plugOf(hash, PlugCategory.perk);
       if (plug != null) plugs.add(plug);
-    }
-
-    for (final key in ['randomizedPlugSetHash', 'reusablePlugSetHash']) {
-      final setHash = (entry[key] as num?)?.toInt();
-      if (setHash == null) continue;
-      final set = _manifest.getPlugSet(setHash);
-      final items = set?['reusablePlugItems'];
-      if (items is! List) continue;
-      for (final pi in items) {
-        addHash(((pi as Map)['plugItemHash'] as num?)?.toInt());
-      }
-    }
-    final inline = entry['reusablePlugItems'];
-    if (inline is List) {
-      for (final pi in inline) {
-        addHash(((pi as Map)['plugItemHash'] as num?)?.toInt());
-      }
     }
     // A column's plug sets list base and enhanced rolls in a mixed order (and a
     // socket may draw from two sets). Group all enhanced first, then base, each
@@ -436,6 +441,30 @@ class DatabaseRepository {
       ...plugs.where((p) => p.isEnhanced),
       ...plugs.where((p) => !p.isEnhanced),
     ];
+  }
+
+  /// Every candidate plug hash of a perk socket, in definition order: the
+  /// plug-set entries (randomized rolls, then reusable) then inline reusable
+  /// plugs. May contain duplicates; callers dedupe as needed.
+  Iterable<int> _columnPlugHashes(Map<String, dynamic> entry) sync* {
+    for (final key in ['randomizedPlugSetHash', 'reusablePlugSetHash']) {
+      final setHash = (entry[key] as num?)?.toInt();
+      if (setHash == null) continue;
+      final set = _manifest.getPlugSet(setHash);
+      final items = set?['reusablePlugItems'];
+      if (items is! List) continue;
+      for (final pi in items) {
+        final hash = ((pi as Map)['plugItemHash'] as num?)?.toInt();
+        if (hash != null) yield hash;
+      }
+    }
+    final inline = entry['reusablePlugItems'];
+    if (inline is List) {
+      for (final pi in inline) {
+        final hash = ((pi as Map)['plugItemHash'] as num?)?.toInt();
+        if (hash != null) yield hash;
+      }
+    }
   }
 
   /// Resolve a plug definition to an [ItemPlug]. [fallbackCategory] is used when
@@ -451,7 +480,7 @@ class DatabaseRepository {
     final category = plugCategory == null
         ? fallbackCategory
         : classifyPlug(plugCategory);
-    final enhanced = _isEnhancedPlug(def);
+    final enhanced = isEnhancedPlugDef(def);
     return ItemPlug(
       name: name,
       iconPath: (display?['icon'] as String?) ?? '',
@@ -481,25 +510,6 @@ class DatabaseRepository {
       effects.add(PerkStatEffect(hash: statHash, name: name, value: value));
     }
     return effects;
-  }
-
-  /// Whether a plug definition is the *enhanced* version of a perk. The
-  /// authoritative signal is the game's own enhanced tooltip style — an entry
-  /// in `tooltipNotifications` with `displayStyle` = `ui_display_style_enhanced_perk`
-  /// — which flags enhanced origin traits whose `itemTypeDisplayName` still
-  /// reads a plain "Origin Trait". The "Enhanced " prefix on
-  /// `itemTypeDisplayName` ("Enhanced Trait", "Enhanced Barrel", …) is a
-  /// fallback for any plug that carries it without the tooltip.
-  static bool _isEnhancedPlug(Map<String, dynamic> def) {
-    final tips = def['tooltipNotifications'];
-    if (tips is List) {
-      for (final t in tips) {
-        if ((t as Map)['displayStyle'] == 'ui_display_style_enhanced_perk') {
-          return true;
-        }
-      }
-    }
-    return (def['itemTypeDisplayName'] as String? ?? '').startsWith('Enhanced ');
   }
 
   // The intrinsic-traits socket category (a stable game constant). A weapon's

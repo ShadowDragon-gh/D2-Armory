@@ -70,6 +70,32 @@ void main() {
           contains('description:'));
     });
 
+    test('suggests frame:, exactname:, and ammo: on both tabs', () {
+      expect(suggestionsFor('fra', names).map((e) => e.insert),
+          contains('frame:'));
+      // exactname: completes only when the token prefix-matches it (typing
+      // "exact"), so it never displaces the name:"..." value suggestions.
+      expect(suggestionsFor('exact', names).map((e) => e.insert),
+          contains('exactname:'));
+      final ammo = suggestionsFor('ammo', names).map((e) => e.insert);
+      expect(ammo, containsAll(['ammo:primary', 'ammo:special', 'ammo:heavy']));
+      // These are definition-resolvable, so the Database tab offers them too.
+      expect(suggestionsFor('fra', names, instanceData: false).map((e) => e.insert),
+          contains('frame:'));
+      expect(suggestionsFor('ammo', names, instanceData: false).map((e) => e.insert),
+          contains('ammo:heavy'));
+    });
+
+    test('bare catalyst: is offered before the state variants (live tab)', () {
+      final s = suggestionsFor('catalyst', names, instanceData: true)
+          .map((e) => e.insert)
+          .toList();
+      expect(s, contains('catalyst:'));
+      // Shortest-first ordering puts the bare key ahead of catalyst:complete.
+      expect(s.indexOf('catalyst:'),
+          lessThan(s.indexOf('catalyst:complete')));
+    });
+
     test('instanceData:false hides live-only filters (power/count/catalyst)',
         () {
       final dbPower = suggestionsFor('pow', names, instanceData: false)
@@ -87,6 +113,103 @@ void main() {
           suggestionsFor('catalyst', names, instanceData: true)
               .map((e) => e.insert),
           contains('catalyst:complete'));
+    });
+  });
+
+  group('perk value completion', () {
+    const perks = [
+      PerkOption('adagio', '/icon/adagio.png'),
+      PerkOption('rampage', '/icon/rampage.png'),
+      PerkOption('rangefinder', '/icon/rangefinder.png'),
+    ];
+
+    test('bare perk: lists every perk, quoted, with its icon', () {
+      final s = suggestionsFor('perk:', names, perks: perks);
+      expect(s.map((e) => e.insert), [
+        'perk:"adagio"',
+        'perk:"rampage"',
+        'perk:"rangefinder"',
+      ]);
+      // The label is the unquoted, readable form; the icon is carried through.
+      expect(s.first.label, 'perk:adagio');
+      expect(s.first.iconPath, '/icon/adagio.png');
+    });
+
+    test('a typed value narrows to matching perks (substring)', () {
+      final s = suggestionsFor('perk:ran', names, perks: perks)
+          .map((e) => e.insert)
+          .toList();
+      expect(s, contains('perk:"rangefinder"'));
+      expect(s, isNot(contains('perk:"adagio"')));
+      // "ran" is a substring of rampage? no — but of rangefinder yes.
+      expect(s, isNot(contains('perk:"rampage"')));
+    });
+
+    test('perk1: / perk2: complete against the same catalog, keyed', () {
+      final s = suggestionsFor('perk1:ram', names, perks: perks)
+          .map((e) => e.insert)
+          .toList();
+      expect(s, contains('perk1:"rampage"'));
+      final s2 = suggestionsFor('perk2:', names, perks: perks)
+          .map((e) => e.insert)
+          .toList();
+      expect(s2, contains('perk2:"adagio"'));
+    });
+
+    test('the inserted token quotes names so multi-word perks tokenize', () {
+      const spaced = [PerkOption('aberrant combustion', '/i/ab.png')];
+      final s = suggestionsFor('perk:aber', names, perks: spaced);
+      expect(s.single.insert, 'perk:"aberrant combustion"');
+    });
+
+    test('perkMax caps the bare-list length', () {
+      final many =
+          List.generate(500, (i) => PerkOption('perk $i', '/i/$i.png'));
+      expect(
+          suggestionsFor('perk:', names, perks: many, perkMax: 200).length, 200);
+    });
+
+    test('an empty catalog yields no perk suggestions (warm not done)', () {
+      expect(suggestionsFor('perk:', names), isEmpty);
+      expect(suggestionsFor('perk:ram', names), isEmpty);
+    });
+  });
+
+  group('frame value completion', () {
+    const frames = [
+      PerkOption('adaptive frame', '/i/adaptive.png'),
+      PerkOption('rapid-fire frame', '/i/rapid.png'),
+      PerkOption('precision frame', '/i/precision.png'),
+    ];
+
+    test('bare frame: lists every frame, quoted, with its icon', () {
+      final s = suggestionsFor('frame:', names, frames: frames);
+      expect(s.map((e) => e.insert), [
+        'frame:"adaptive frame"',
+        'frame:"rapid-fire frame"',
+        'frame:"precision frame"',
+      ]);
+      expect(s.first.label, 'frame:adaptive frame');
+      expect(s.first.iconPath, '/i/adaptive.png');
+    });
+
+    test('a typed value narrows to matching frames', () {
+      final s = suggestionsFor('frame:rapid', names, frames: frames)
+          .map((e) => e.insert)
+          .toList();
+      expect(s, ['frame:"rapid-fire frame"']);
+    });
+
+    test('the frame catalog is independent of the perk catalog', () {
+      // Passing only perks must not leak into frame: completion, and vice versa.
+      const perks = [PerkOption('rampage', '/i/r.png')];
+      expect(suggestionsFor('frame:', names, perks: perks), isEmpty);
+      expect(suggestionsFor('perk:', names, frames: frames), isEmpty);
+    });
+
+    test('an empty frame catalog yields no frame suggestions', () {
+      expect(suggestionsFor('frame:', names), isEmpty);
+      expect(suggestionsFor('frame:adapt', names), isEmpty);
     });
   });
 }

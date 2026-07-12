@@ -1,9 +1,13 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/config/app_config.dart';
+import '../../core/network/item_icon_cache.dart';
 import '../../core/search/search_suggestions.dart';
 import '../theme/armory_palette.dart';
 import '../theme/armory_theme_extension.dart';
+import 'search_help_modal.dart';
 
 /// The shared search field with filter autocomplete, used by both the Inventory
 /// and Database tabs. It owns the text controller, the suggestion overlay, and
@@ -18,6 +22,9 @@ class SearchBarField extends StatefulWidget {
     required this.onChanged,
     required this.unsupported,
     this.names = const [],
+    this.perks = const [],
+    this.frames = const [],
+    this.warming = false,
     this.instanceData = true,
     this.hintText = 'Filter items — e.g. is:solar is:handcannon power:>540',
     this.height = 40,
@@ -37,6 +44,19 @@ class SearchBarField extends StatefulWidget {
 
   /// Item names offered as `name:"..."` autocomplete suggestions.
   final List<String> names;
+
+  /// The perk catalog (name + icon) offered as `perk:` value autocomplete.
+  final List<PerkOption> perks;
+
+  /// The archetype-frame catalog (name + icon) offered as `frame:` value
+  /// autocomplete.
+  final List<PerkOption> frames;
+
+  /// Whether background facet warming is still running, so the definition-backed
+  /// filters (`perk:`/`stat:`/`source:`/…) and the perk autocomplete are not yet
+  /// fully populated. Surfaced as a spinner in the field so the user knows the
+  /// search is still coming online.
+  final bool warming;
 
   /// Whether to suggest filters that need live account data (power/count/…).
   final bool instanceData;
@@ -80,6 +100,18 @@ class _SearchBarFieldState extends State<SearchBarField> {
       _controller.selection =
           TextSelection.collapsed(offset: widget.text.length);
     }
+    // The perk/frame catalogs warm in the background and can arrive after the
+    // user has already typed `perk:`/`frame:` (which showed nothing while empty).
+    // When one lands, recompute so an open, focused field surfaces the values
+    // without another keystroke. Deferred to a post-frame callback so we do not
+    // mutate the overlay during this build.
+    final catalogGrew = widget.perks.length != old.perks.length ||
+        widget.frames.length != old.frames.length;
+    if (catalogGrew && _focusNode.hasFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _focusNode.hasFocus) _recomputeSuggestions();
+      });
+    }
   }
 
   @override
@@ -107,7 +139,9 @@ class _SearchBarFieldState extends State<SearchBarField> {
     final tok =
         currentToken(_controller.text, _controller.selection.baseOffset);
     final next = suggestionsFor(tok.token, widget.names,
-        instanceData: widget.instanceData);
+        instanceData: widget.instanceData,
+        perks: widget.perks,
+        frames: widget.frames);
     setState(() {
       _suggestions = next;
       _selectedIndex = 0; // best match highlighted first
@@ -237,6 +271,7 @@ class _SearchBarFieldState extends State<SearchBarField> {
               controller: _controller,
               focusNode: _focusNode,
               unsupported: widget.unsupported,
+              warming: widget.warming,
               hintText: widget.hintText,
               fontSize: widget.fontSize,
               onChanged: _onChanged,
@@ -256,6 +291,7 @@ class _Field extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.unsupported,
+    required this.warming,
     required this.hintText,
     required this.fontSize,
     required this.onChanged,
@@ -266,6 +302,7 @@ class _Field extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final List<String> unsupported;
+  final bool warming;
   final String hintText;
   final double fontSize;
   final ValueChanged<String> onChanged;
@@ -294,14 +331,37 @@ class _Field extends StatelessWidget {
             suffixIcon: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (warming)
+                  Tooltip(
+                    message: 'Preparing search…\n'
+                        'perk:, stat:, source: and perk autocomplete '
+                        'are still loading.',
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.tertiary,
+                        ),
+                      ),
+                    ),
+                  ),
                 if (unsupported.isNotEmpty)
                   Tooltip(
                     message:
-                        'Not supported here (ignored):\n${unsupported.join('\n')}',
+                        'Incomplete or unsupported filter (ignored):\n${unsupported.join('\n')}',
                     child: Icon(Icons.info_outline,
                         size: 18,
                         color: Theme.of(context).colorScheme.tertiary),
                   ),
+                IconButton(
+                  icon: const Icon(Icons.help_outline, size: 18),
+                  tooltip: 'Search & filter help',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => showSearchHelpModal(context),
+                ),
                 if (hasText)
                   IconButton(
                     icon: const Icon(Icons.clear, size: 16),
@@ -362,9 +422,10 @@ class _SuggestionsOverlay extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   child: Row(
                     children: [
-                      Icon(Icons.search,
-                          size: 16,
-                          color: selected ? theme.colorScheme.primary : null),
+                      _LeadingGlyph(
+                          iconPath: option.iconPath,
+                          selected: selected,
+                          color: theme.colorScheme.primary),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(option.label,
@@ -382,6 +443,41 @@ class _SuggestionsOverlay extends StatelessWidget {
             },
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The leading glyph for a suggestion row: the perk's Bungie icon when the
+/// suggestion carries an [iconPath], otherwise the default search glyph (tinted
+/// when the row is keyboard-[selected]).
+class _LeadingGlyph extends StatelessWidget {
+  const _LeadingGlyph({
+    required this.iconPath,
+    required this.selected,
+    required this.color,
+  });
+
+  final String? iconPath;
+  final bool selected;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = iconPath;
+    if (path == null || path.isEmpty) {
+      return Icon(Icons.search, size: 16, color: selected ? color : null);
+    }
+    return SizedBox(
+      width: 18,
+      height: 18,
+      child: CachedNetworkImage(
+        imageUrl: '${AppConfig.bungieBaseUrl}$path',
+        cacheManager: ItemIconCache.instance,
+        fit: BoxFit.cover,
+        fadeInDuration: Duration.zero,
+        errorWidget: (_, _, _) =>
+            Icon(Icons.search, size: 16, color: selected ? color : null),
       ),
     );
   }

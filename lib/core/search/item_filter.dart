@@ -476,11 +476,18 @@ List<String> filterSuggestionCatalog({bool instanceData = true}) => [
       for (final k in _isKeywords.keys) 'is:$k',
       // Free-text / definition-backed keys, on both tabs.
       'name:',
+      'exactname:',
       'perk:',
       'perk1:',
       'perk2:',
+      'frame:',
       'stat:',
       'source:',
+      // The three ammo types as full suggestions; resolved from the item
+      // directly, so they work on both tabs.
+      'ammo:primary',
+      'ammo:special',
+      'ammo:heavy',
       // The three champion breakers as full suggestions; `breaker:` still lets
       // any value be typed.
       'breaker:overload',
@@ -493,6 +500,8 @@ List<String> filterSuggestionCatalog({bool instanceData = true}) => [
         'power:',
         'light:',
         'count:',
+        // Bare `catalyst:` (any item that has a catalyst) plus each state.
+        'catalyst:',
         'catalyst:complete',
         'catalyst:incomplete',
         'catalyst:missing',

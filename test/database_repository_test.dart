@@ -321,7 +321,9 @@ void main() {
         },
         'flavorText': 'Forged in the Light.',
         'itemType': 3,
-        'inventory': {'tierType': 6, 'bucketTypeHash': 1498876634},
+        // Legendary: its "Adaptive Frame" is a shared archetype (in the frame
+        // catalog), unlike an exotic's unique intrinsic.
+        'inventory': {'tierType': 5, 'bucketTypeHash': 1498876634},
         'breakerTypeHash': 3178805705, // Stagger → Unstoppable
         'collectibleHash': 777,
         'stats': {
@@ -332,26 +334,34 @@ void main() {
         },
         'sockets': {
           'socketEntries': [
+            {'singleInitialItemHash': 900}, // archetype frame intrinsic
             {'randomizedPlugSetHash': 555},
           ],
         },
       });
+      // The archetype frame: name ends in "frame", so it enters the frame
+      // catalog and is `frame:`-searchable.
+      when(() => manifest.getInventoryItem(900))
+          .thenReturn(_plug('Adaptive Frame', category: 'intrinsics'));
       when(() => manifest.getStat(111)).thenReturn({
         'displayProperties': {'name': 'Range'}
       });
       when(() => manifest.getStat(222)).thenReturn({
         'displayProperties': {'name': 'Reload Speed'}
       });
-      // The perk pool: one real trait, plus a masterwork plug that must NOT be
-      // treated as a searchable perk.
+      // The perk pool: one real trait, one magazine (searchable via perk: but
+      // NOT a suggestable trait perk), plus a masterwork plug excluded entirely.
       when(() => manifest.getPlugSet(555)).thenReturn({
         'reusablePlugItems': [
           {'plugItemHash': 801},
+          {'plugItemHash': 803}, // magazine → in perks pool, not in catalog
           {'plugItemHash': 802}, // masterwork → excluded from perks
         ]
       });
       when(() => manifest.getInventoryItem(801))
           .thenReturn(_plug('Rampage', category: 'frames.traits'));
+      when(() => manifest.getInventoryItem(803))
+          .thenReturn(_plug('Alloy Magazine', category: 'magazines'));
       when(() => manifest.getInventoryItem(802))
           .thenReturn(_plug('Range MW', category: 'v400.weapon.masterworks'));
       when(() => manifest.getBreakerType(3178805705)).thenReturn({
@@ -365,7 +375,10 @@ void main() {
     test('resolves perks (traits only), stats, breaker, source, description',
         () {
       final facets = repo.facetsFor(GearKind.weapon, 100)!;
-      expect(facets.perks, {'rampage'}); // masterwork plug excluded
+      // The `perk:` search pool includes traits AND build plugs like the
+      // magazine (so perk:"alloy magazine" still finds the weapon); only the
+      // masterwork is excluded.
+      expect(facets.perks, {'rampage', 'alloy magazine'});
       expect(facets.stats, {'range': 60, 'reload speed': 30});
       // Stagger's champion effect is Unstoppable; both are searchable so
       // breaker:stagger and breaker:unstoppable each match.
@@ -377,6 +390,66 @@ void main() {
 
     test('returns null for a hash not in the index', () {
       expect(repo.facetsFor(GearKind.weapon, 999), isNull);
+    });
+
+    test('perkOptions holds trait perks only, not build plugs or masterworks',
+        () {
+      // Touch the item so its perks decode via the lazy builder (the path a
+      // search hits before the background warm lands).
+      repo.facetsFor(GearKind.weapon, 100);
+      final options = repo.perkOptions();
+      final names = options.map((p) => p.name).toSet();
+
+      // The trait perk is offered, with its icon.
+      final rampage = options.where((p) => p.name == 'rampage');
+      expect(rampage, isNotEmpty,
+          reason: 'perk: autocomplete must work before the warm completes');
+      expect(rampage.single.iconPath, '/i/Rampage.png');
+
+      // The magazine is searchable (in facets.perks) but is NOT a suggestable
+      // trait perk, so it stays out of the autocomplete catalog. Likewise the
+      // masterwork. This is the regression the user hit: weapons/build plugs
+      // leaking into the perk list.
+      expect(names, isNot(contains('alloy magazine')));
+      expect(names.any((n) => n.contains('mw')), isFalse);
+    });
+
+    test('frameOptions holds archetype frames only, not exotic intrinsics', () {
+      // A second, EXOTIC weapon whose unique intrinsic is named like an
+      // archetype ("Command Frame" — the real Choir of One case). It is
+      // frame:-searchable but must be kept out of the archetype list purely
+      // because its owner is exotic, even though the name ends in "frame".
+      when(() => manifest.queryGearSummaries(GearKind.weapon)).thenReturn([
+        row(hash: 100, name: 'Facet Cannon'),
+        row(hash: 200, name: 'Exotic Cannon'),
+      ]);
+      when(() => manifest.getInventoryItem(200)).thenReturn({
+        'hash': 200,
+        'displayProperties': {'name': 'Exotic Cannon', 'icon': '/ec.png'},
+        'itemType': 3,
+        'inventory': {'tierType': 6, 'bucketTypeHash': 1498876634}, // exotic
+        'sockets': {
+          'socketEntries': [
+            {'singleInitialItemHash': 902}, // unique exotic intrinsic
+          ],
+        },
+      });
+      when(() => manifest.getInventoryItem(902))
+          .thenReturn(_plug('Command Frame', category: 'intrinsics'));
+
+      repo.facetsFor(GearKind.weapon, 100); // legendary "Adaptive Frame"
+      repo.facetsFor(GearKind.weapon, 200); // exotic "Command Frame"
+
+      // Both frames are searchable via facets.frame…
+      expect(repo.facetsFor(GearKind.weapon, 100)!.frame, 'adaptive frame');
+      expect(repo.facetsFor(GearKind.weapon, 200)!.frame, 'command frame');
+
+      // …but the exotic's "Command Frame" is excluded from the archetype list
+      // despite ending in "frame", because its owner is exotic.
+      final frameNames = repo.frameOptions().map((f) => f.name).toSet();
+      expect(frameNames, contains('adaptive frame'));
+      expect(frameNames, isNot(contains('command frame')));
+      expect(repo.frameOptions().single.iconPath, '/i/Adaptive Frame.png');
     });
   });
 }
