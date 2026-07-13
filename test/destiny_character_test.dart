@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/domain/models/destiny_character.dart';
+import 'package:d2_armory/domain/models/destiny_character.dart';
 
 void main() {
   Map<String, dynamic> characterJson({

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/domain/models/destiny_item.dart';
-import 'package:destiny2_loadout_planner/presentation/theme/armory_palette.dart';
+import 'package:d2_armory/domain/models/destiny_item.dart';
+import 'package:d2_armory/presentation/theme/armory_palette.dart';
 
 DestinyItem _item({required int itemType, required int tierType, int gearTier = 5}) =>
     DestinyItem(

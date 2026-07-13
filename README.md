@@ -55,7 +55,7 @@ Windows PC and your own Destiny 2 / Bungie.net account.
 1. **Download** the latest release zip from the
    [Releases page](../../releases) and extract the folder anywhere you like
    (Desktop, Documents — wherever).
-2. **Run** `destiny2_loadout_planner.exe` from inside the extracted folder.
+2. **Run** `d2_armory.exe` from inside the extracted folder.
 3. **First launch — two one-time prompts.** Both are expected and safe; see
    [doc/release_note.md](doc/release_note.md) for the full explanation:
    - **"Windows protected your PC" (SmartScreen)** — click **More info →

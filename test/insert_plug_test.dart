@@ -4,13 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:destiny2_loadout_planner/core/destiny/destiny_buckets.dart';
-import 'package:destiny2_loadout_planner/core/errors/failures.dart';
-import 'package:destiny2_loadout_planner/data/repositories/item_transfer_repository.dart';
-import 'package:destiny2_loadout_planner/domain/models/destiny_character.dart';
-import 'package:destiny2_loadout_planner/domain/models/destiny_item.dart';
-import 'package:destiny2_loadout_planner/domain/models/inventory_grid.dart';
-import 'package:destiny2_loadout_planner/presentation/providers/inventory_provider.dart';
+import 'package:d2_armory/core/destiny/destiny_buckets.dart';
+import 'package:d2_armory/core/errors/failures.dart';
+import 'package:d2_armory/data/repositories/item_transfer_repository.dart';
+import 'package:d2_armory/domain/models/destiny_character.dart';
+import 'package:d2_armory/domain/models/destiny_item.dart';
+import 'package:d2_armory/domain/models/inventory_grid.dart';
+import 'package:d2_armory/presentation/providers/inventory_provider.dart';
 
 class _MockTransfer extends Mock implements ItemTransferRepository {}
 

@@ -2,8 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:destiny2_loadout_planner/data/repositories/manifest_repository.dart';
-import 'package:destiny2_loadout_planner/presentation/providers/manifest_provider.dart';
+import 'package:d2_armory/data/repositories/manifest_repository.dart';
+import 'package:d2_armory/presentation/providers/manifest_provider.dart';
 
 class _MockManifestRepository extends Mock implements ManifestRepository {}
 

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/domain/models/app_version.dart';
+import 'package:d2_armory/domain/models/app_version.dart';
 
 void main() {
   group('AppVersion.tryParse', () {

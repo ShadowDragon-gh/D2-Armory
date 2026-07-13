@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/domain/models/item_detail.dart';
+import 'package:d2_armory/domain/models/item_detail.dart';
 
 // Real weapon stat hashes so the canonical in-game ordering applies.
 const _impact = 4043523819;

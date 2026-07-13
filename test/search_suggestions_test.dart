@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/core/search/search_suggestions.dart';
+import 'package:d2_armory/core/search/search_suggestions.dart';
 
 void main() {
   const names = ["Winter's Guile", "Felwinter's Helm", "Fatebringer"];

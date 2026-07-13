@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/data/local/manifest_database.dart';
+import 'package:d2_armory/data/local/manifest_database.dart';
 
 void main() {
   group('ManifestDatabase.signedHash', () {

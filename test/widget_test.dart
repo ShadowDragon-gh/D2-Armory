@@ -10,7 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/main.dart';
+import 'package:d2_armory/main.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -23,7 +23,7 @@ void main() {
 
   testWidgets('login screen disables sign-in when credentials are missing',
       (WidgetTester tester) async {
-    await tester.pumpWidget(const ProviderScope(child: DestinyLoadoutPlannerApp()));
+    await tester.pumpWidget(const ProviderScope(child: D2ArmoryApp()));
 
     // Startup shows a splash until the persisted session check resolves.
     await tester.pumpAndSettle();

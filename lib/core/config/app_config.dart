@@ -63,7 +63,7 @@ class AppConfig {
 
   static const String githubOwner = 'ShadowDragon-gh';
 
-  static const String githubRepo = 'DestinyLoadoutPlanner';
+  static const String githubRepo = 'D2-Armory';
 
   static const String latestReleaseUrl =
       'https://api.github.com/repos/$githubOwner/$githubRepo/releases/latest';
