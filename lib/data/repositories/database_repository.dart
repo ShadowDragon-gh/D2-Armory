@@ -88,14 +88,11 @@ class DatabaseRepository {
     'charge time',
     'magazine',
     'rounds per magazine',
-    'swing speed',
     'ammo capacity',
-    'guard efficiency',
-    'guard resistance',
-    'guard endurance',
-    'charge rate',
     'heat generated',
     'cooling efficiency',
+    // Note: the sword bar stats (Swing Speed, Charge Rate, Guard Resistance,
+    // Guard Endurance) are intentionally NOT here — the game shows them as bars.
   };
 
   /// The gear of [filter], as list-row summaries. Filtered in Dart against the
@@ -323,6 +320,10 @@ class DatabaseRepository {
   List<ItemStat> _resolveStats(Map<String, dynamic> def) {
     final map = def['stats']?['stats'];
     if (map is! Map) return const [];
+    // The stats a weapon shows are its stat group's scaledStats — the declared
+    // `stats.stats` is a superset with hidden junk (e.g. a sword declares
+    // Zoom/Range/Guard Efficiency but shows none). Filter to the shown set.
+    final shown = _shownStatHashes(def);
     final result = <ItemStat>[];
     for (final entry in map.values) {
       final e = entry as Map<String, dynamic>;
@@ -330,6 +331,7 @@ class DatabaseRepository {
       final value = (e['value'] as num?)?.toInt();
       if (statHash == null || value == null) continue;
       if (_powerLevelStatHashes.contains(statHash)) continue;
+      if (shown != null && !shown.contains(statHash)) continue;
       final statDef = _manifest.getStat(statHash);
       final name = (statDef?['displayProperties']?['name'] as String?) ?? '';
       if (name.isEmpty) continue;
@@ -343,6 +345,20 @@ class DatabaseRepository {
           statHash: statHash, name: name, value: value, display: display));
     }
     return sortStatsForDisplay(result);
+  }
+
+  /// The stat hashes a weapon actually displays — its stat group's
+  /// `scaledStats`. Null when the item has no stat group (show every declared
+  /// stat, unchanged behaviour).
+  Set<int>? _shownStatHashes(Map<String, dynamic> def) {
+    final groupHash = (def['stats']?['statGroupHash'] as num?)?.toInt();
+    if (groupHash == null) return null;
+    final scaled = _manifest.getStatGroup(groupHash)?['scaledStats'];
+    if (scaled is! List) return null;
+    return {
+      for (final s in scaled)
+        ?((s as Map)['statHash'] as num?)?.toInt(),
+    };
   }
 
   /// The intrinsic frame plug(s): a weapon's frame ("Adaptive Frame") or an

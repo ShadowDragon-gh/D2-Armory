@@ -220,8 +220,8 @@ class ItemTile extends ConsumerWidget {
               ),
             ),
           // Gear-tier diamonds down the top-left (count = tier, tier-coloured),
-          // matching the in-game / DIM display.
-          if (showTier && item.gearTier > 0)
+          // matching the in-game / DIM display. Exotic armor has no tier badge.
+          if (showTier && item.showsGearTier)
             Positioned(
               top: 2,
               left: 2,

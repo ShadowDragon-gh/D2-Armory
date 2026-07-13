@@ -7,12 +7,22 @@ enum StatDisplay { bar, numeric, recoil }
 
 /// The canonical in-game weapon-stat order by stat hash. Matches how Destiny
 /// lists stats on the weapon inspect screen, so the detail panel reads the same
-/// (e.g. Zoom sits third from the bottom of the bars, before Airborne
-/// Effectiveness and Ammo Generation). Stats not listed here sort to the end of
-/// their display group in manifest order.
+/// — Blast Radius and Velocity lead (grenade/rocket launchers), Accuracy sits
+/// just after Impact, Shield Duration just after Range (glaives), Zoom third
+/// from the bottom of the bars, and the sword stats in their own order. Stats
+/// not listed here sort to the end of their display group in manifest order.
 const List<int> _weaponStatOrder = [
+  3614673599, // Blast Radius
+  2523465841, // Velocity
   4043523819, // Impact
+  1591432999, // Accuracy (scouts / bows)
   1240592695, // Range
+  1842278586, // Shield Duration (glaives)
+  2837207746, // Swing Speed (swords)
+  3022301683, // Charge Rate (swords)
+  209426660, // Guard Resistance (swords)
+  3736848092, // Guard Endurance (swords)
+  925767036, // Ammo Capacity (swords)
   155624089, // Stability
   943549884, // Handling
   4188031367, // Reload Speed

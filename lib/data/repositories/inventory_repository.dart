@@ -221,7 +221,7 @@ class InventoryRepository {
 
     final catalyst = _resolveCatalyst(item);
     final interpolator = _statInterpolatorFor(item, socketsData);
-    var plugs = _resolvePlugs(socketsData);
+    var plugs = _resolvePlugs(socketsData, interpolator);
     // Craftable exotics hide the empty catalyst socket on live instances;
     // stand in with the definition's shell plug so the Masterwork section
     // still shows the empty slot.
@@ -1051,14 +1051,11 @@ class InventoryRepository {
     'charge time',
     'magazine',
     'rounds per magazine',
-    'swing speed',
     'ammo capacity',
-    'guard efficiency',
-    'guard resistance',
-    'guard endurance',
-    'charge rate',
     'heat generated',
     'cooling efficiency',
+    // Note: the sword bar stats (Swing Speed, Charge Rate, Guard Resistance,
+    // Guard Endurance) are intentionally NOT here — the game shows them as bars.
   };
 
   /// Build the stat interpolator for [item] from its weapon stat group's
@@ -1074,11 +1071,18 @@ class InventoryRepository {
     final scaled =
         groupHash == null ? null : _manifest.getStatGroup(groupHash)?['scaledStats'];
     final curves = <int, List<({double input, double output})>>{};
+    // The stat group's scaledStats are exactly the stats the game *shows* for
+    // the weapon (the declared `stats.stats` is a superset with hidden junk —
+    // e.g. a sword declares Zoom/Range but shows neither). Captured so the
+    // detail panel displays only these.
+    final displayed = <int>{};
     if (scaled is List) {
       for (final s in scaled) {
         final statHash = ((s as Map)['statHash'] as num?)?.toInt();
+        if (statHash == null) continue;
+        displayed.add(statHash);
         final interp = s['displayInterpolation'];
-        if (statHash == null || interp is! List) continue;
+        if (interp is! List) continue;
         // Bungie/DIM convention: a knot's `value` is the investment input and
         // its `weight` is the displayed output.
         final knots = <({double input, double output})>[
@@ -1117,7 +1121,7 @@ class InventoryRepository {
       }
     }
 
-    return _StatInterpolator(curves, base);
+    return _StatInterpolator(curves, base, displayed);
   }
 
   /// A stat's total investment for [item], summed by source — the DIM stat
@@ -1126,11 +1130,20 @@ class InventoryRepository {
   /// The displayed value is `interpolate(total)`, computed once (never per
   /// plug), so scaled/inverted stats (Magazine, Heat) read correctly.
   ///
-  /// A tiered weapon's masterwork adds `+gearTier` to each stat its masterwork
-  /// plug marks *conditionally active* — the `tieredWeaponMW` bonus, folded into
-  /// the masterwork investment. Conditional stats otherwise stay inert.
+  /// A tiered weapon (gearTier > 0) carries a per-stat `+gearTier` bonus that is
+  /// in no plug's face value; Bungie folds it into two plug kinds (see
+  /// [_tierAdjustedValue], mirroring DIM's `getPlugStatValue`):
+  ///   • the enhanced intrinsic (a crafted/enhanced weapon's frame), where the
+  ///     frame's conditional archetype stats resolve to exactly `gearTier` and
+  ///     its unconditional stats to `value + gearTier`; and
+  ///   • a tiered weapon's masterwork plug, where the lifted stats resolve to
+  ///     `value + gearTier`.
   ///
-  /// `plain` is the base roll (definition + perks/barrels/etc.), `mod`/`mw` are
+  /// "Conditionally active" investment stats otherwise count at face value (a
+  /// mod like Backup Mag whose +Ammo offsets a blade's −Ammo penalty) — DIM
+  /// treats a conditional stat with no recognised activation rule as live.
+  ///
+  /// `plain` is the base roll (definition + perks/barrels/frame), `mod`/`mw` are
   /// the weapon-mod and masterwork/tier contributions (positive = the coloured
   /// gain segments), and `loss` is the summed negative contribution.
   ({int plain, int mod, int mw, int loss}) _statInvestment(
@@ -1185,18 +1198,12 @@ class InventoryRepository {
         for (final stat in invStats) {
           final st = stat as Map<String, dynamic>;
           if ((st['statTypeHash'] as num?)?.toInt() != statHash) continue;
-          final conditional = st['isConditionallyActive'] == true;
-          final raw = (st['value'] as num?)?.toInt() ?? 0;
-          if (conditional) {
-            // Tiered-weapon masterwork: a conditional stat on the masterwork
-            // plug gains +gearTier (the tieredWeaponMW rule). Other conditional
-            // stats stay inert.
-            if (category == PlugCategory.masterwork && item.gearTier > 0) {
-              add(item.gearTier, PlugCategory.masterwork);
-            }
-          } else {
-            add(raw, category);
-          }
+          final adj = _tierAdjustedValue(st, pdef, item.gearTier);
+          if (adj == null) continue; // recognised-inactive conditional
+          // The plug's own value keeps its category (perk/mod/frame); any
+          // gearTier lift folded in on top is a masterwork-coloured segment.
+          add(adj.base, category);
+          add(adj.tierLift, PlugCategory.masterwork);
         }
       }
     }
@@ -1204,24 +1211,77 @@ class InventoryRepository {
     return (plain: plain, mod: mod, mw: mw, loss: loss);
   }
 
+  /// One investment-stat entry's contribution, split into its plug-value part
+  /// ([base]) and any `+gearTier` lift the game folds on top ([tierLift]).
+  /// Returns null when a conditionally-active entry is recognised-inactive and
+  /// should be dropped. Mirrors DIM's `getPlugStatValue` + `isPlugStatActive`:
+  ///
+  ///   • On an *enhanced intrinsic* (a crafted/enhanced weapon's frame, whose
+  ///     plug `itemTypeDisplayName` is "Enhanced Intrinsic") of a tiered weapon:
+  ///     a conditional archetype stat resolves to exactly `gearTier`
+  ///     (base 0, lift gearTier); an unconditional stat to `value + gearTier`.
+  ///   • On a tiered weapon's *masterwork* plug, a `tieredWeaponMW` stat
+  ///     resolves to `value + gearTier`.
+  ///   • Otherwise the entry counts at its face `value`; a conditional entry
+  ///     with no recognised activation rule is still live (DIM default), so
+  ///     only the `never`/masterwork-gated cases are dropped.
+  ({int base, int tierLift})? _tierAdjustedValue(
+    Map<String, dynamic> stat,
+    Map<String, dynamic>? plugDef,
+    int gearTier,
+  ) {
+    final value = (stat['value'] as num?)?.toInt() ?? 0;
+    final conditional = stat['isConditionallyActive'] == true;
+    final plug = plugDef?['plug'] as Map<String, dynamic>?;
+    final typeName = plugDef?['itemTypeDisplayName'] as String? ?? '';
+    final isEnhancedIntrinsic = typeName == 'Enhanced Intrinsic';
+    final isMasterwork =
+        (plug?['uiPlugLabel'] as String?) == 'masterwork';
+
+    if (gearTier > 0 && isEnhancedIntrinsic) {
+      // The frame's conditional archetype bonuses become the flat gearTier; its
+      // defining (unconditional) stat gains gearTier on top of its value.
+      return conditional
+          ? (base: 0, tierLift: gearTier)
+          : (base: value, tierLift: gearTier);
+    }
+    if (gearTier > 0 && isMasterwork && conditional && value == 0) {
+      // A tiered masterwork's marker stats (conditional, value 0) lift by tier;
+      // the real masterwork bonus is a separate unconditional +N on the plug.
+      return (base: 0, tierLift: gearTier);
+    }
+    // Non-tier entry. Conditional stats with no recognised inactive rule stay
+    // live (DIM's default) — the app has no such gated case for weapons yet, so
+    // count every remaining entry at face value.
+    return (base: value, tierLift: 0);
+  }
+
   /// The weapon's displayed stats, computed the DIM way: for each stat the
-  /// definition declares, sum its investment by source ([_statInvestment]) and
-  /// interpolate the total *once*. The bar's segments are the marginal
-  /// interpolation deltas of each source (so blue mod / gold masterwork / red
-  /// loss still read within the value). Ordered bar → recoil → numeric.
+  /// weapon shows (its stat group's scaledStats — the declared `stats.stats` is
+  /// a superset with hidden junk), sum its investment by source
+  /// ([_statInvestment]) and interpolate the total *once*. The bar's segments
+  /// are the marginal interpolation deltas of each source (so blue mod / gold
+  /// masterwork / red loss still read within the value). Ordered bar → recoil →
+  /// numeric.
   List<ItemStat> _resolveStats(
     DestinyItem item,
     Map<String, dynamic>? socketsData,
     _StatInterpolator interpolator,
   ) {
-    // The stats a weapon shows are its definition's declared stats.
+    // The stats to show are the stat group's scaledStats when known — the
+    // authoritative display set. It can include a stat the declared
+    // `stats.stats` omits (a sword lists Guard Endurance only in scaledStats),
+    // and it excludes the declared superset's hidden junk. Fall back to the
+    // declared stats when the item has no stat group.
     final statMap = _manifest.getInventoryItem(item.itemHash)?['stats']?['stats'];
-    if (statMap is! Map) return const [];
+    final Iterable<int> statHashes = interpolator.displayedStats ??
+        (statMap is Map
+            ? [for (final k in statMap.keys) int.tryParse(k as String) ?? -1]
+            : const <int>[]);
 
     final result = <ItemStat>[];
-    for (final key in statMap.keys) {
-      final statHash = int.tryParse(key as String);
-      if (statHash == null) continue;
+    for (final statHash in statHashes) {
+      if (statHash < 0) continue;
       if (_powerLevelStatHashes.contains(statHash)) continue;
       final sdef = _manifest.getStat(statHash);
       final name = (sdef?['displayProperties']?['name'] as String?) ?? '';
@@ -1243,6 +1303,7 @@ class InventoryRepository {
           interpolator.display(statHash, inv.plain + inv.mod + inv.mw);
       final totalD = interpolator.display(
           statHash, inv.plain + inv.mod + inv.mw - inv.loss);
+
 
       // Signed displayed deltas per source. On an inverted stat (Heat), a mod's
       // positive investment *lowers* the displayed value, so its delta is
@@ -1273,7 +1334,8 @@ class InventoryRepository {
     return sortStatsForDisplay(result);
   }
 
-  List<ItemPlug> _resolvePlugs(Map<String, dynamic>? socketsData) {
+  List<ItemPlug> _resolvePlugs(
+      Map<String, dynamic>? socketsData, _StatInterpolator interpolator) {
     final sockets = socketsData?['sockets'];
     if (sockets is! List) return const [];
     final result = <ItemPlug>[];
@@ -1310,15 +1372,21 @@ class InventoryRepository {
           name.toLowerCase().contains('memento')) {
         category = PlugCategory.cosmetic;
       }
+      // Resolve the same tooltip detail the mod-picker options carry (stat
+      // effects + the sandbox-perk description fallback), so hovering the
+      // equipped chip shows what hovering an option does.
+      final statEffects = _plugStatEffects(def, interpolator);
       result.add(ItemPlug(
         name: name,
         iconPath: (display?['icon'] as String?) ?? '',
-        description: (display?['description'] as String?) ?? '',
+        description:
+            _plugDescription(def, display, hasStatEffects: statEffects.isNotEmpty),
         category: category,
         isEnabled: s['isEnabled'] != false,
         isEnhanced: enhanced,
         plugHash: plugHash,
         socketIndex: socketIndex,
+        statEffects: statEffects,
       ));
     }
     return result;
@@ -1600,7 +1668,8 @@ class InventoryRepository {
 /// game scales and can invert (Zealous Ideal's Heat Generated: +10 raw
 /// investment on a base of 18 applies as −2). Stats with no curve map 1:1.
 class _StatInterpolator {
-  const _StatInterpolator(this._curves, [this._baseInvestment = const {}]);
+  const _StatInterpolator(this._curves,
+      [this._baseInvestment = const {}, this._displayed = const {}]);
 
   /// Per stat, the interpolation knots as `(input: investment, output:
   /// displayed)`, sorted by input ascending.
@@ -1610,6 +1679,18 @@ class _StatInterpolator {
   /// tooltip delta is measured from ([appliedFromRaw]). Empty for a bare
   /// interpolator (the stat resolver, which sums investment itself).
   final Map<int, int> _baseInvestment;
+
+  /// The stat hashes the weapon actually displays (the stat group's
+  /// `scaledStats`). Empty means "no group known" — show every declared stat.
+  final Set<int> _displayed;
+
+  /// Whether the weapon displays [statHash] in-game. When no stat group is
+  /// known (empty [_displayed]), every stat shows (unchanged legacy behaviour).
+  bool shows(int statHash) => _displayed.isEmpty || _displayed.contains(statHash);
+
+  /// The stat hashes the weapon shows in scaledStats order, or null when no
+  /// stat group is known (the caller should fall back to the declared stats).
+  Set<int>? get displayedStats => _displayed.isEmpty ? null : _displayed;
 
   /// The displayed value for an [investment] of [statHash], via linear
   /// interpolation between the curve's knots (clamped to the endpoints).

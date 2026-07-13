@@ -85,6 +85,12 @@ class DestinyItem {
   /// with no tier (uninstanced, or pre-tier-system gear).
   final int gearTier;
 
+  /// Whether the tile should show gear-tier diamonds: the item has a tier, but
+  /// NOT exotic armor — exotics have a fixed tier that the game does not badge
+  /// (itemType 2 = armor, tierType 6 = exotic).
+  bool get showsGearTier =>
+      gearTier > 0 && !(itemType == 2 && tierType == 6);
+
   String? get iconUrl =>
       iconPath.isEmpty ? null : '${AppConfig.bungieBaseUrl}$iconPath';
 

@@ -3,6 +3,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:destiny2_loadout_planner/core/destiny/destiny_buckets.dart';
 import 'package:destiny2_loadout_planner/core/destiny/plug_category.dart';
+import 'package:destiny2_loadout_planner/domain/models/item_detail.dart';
 import 'package:destiny2_loadout_planner/data/remote/bungie_api.dart';
 import 'package:destiny2_loadout_planner/data/repositories/inventory_repository.dart';
 import 'package:destiny2_loadout_planner/data/repositories/manifest_repository.dart';
@@ -136,12 +137,6 @@ void main() {
       },
       'investmentStats': [
         {'statTypeHash': rangeStatHash, 'value': 10},
-        // Conditionally active bonuses are not counted.
-        {
-          'statTypeHash': rangeStatHash,
-          'value': 3,
-          'isConditionallyActive': true
-        },
       ],
     });
 
@@ -246,10 +241,9 @@ void main() {
     final detail = repo.resolveDetail(weapon);
 
     // Stats: the masterwork's +10 Range is the gold segment and the mod's +5
-    // Range is the blue segment (split by source); its conditionally active
-    // entry is not counted, and the perk's +7 Range folds into the base bar.
-    // Reductions from the mod (-12) and the perk drawback (-4) combine into the
-    // red deficit segment.
+    // Range is the blue segment (split by source); the perk's +7 Range folds
+    // into the base bar. Reductions from the mod (-12) and the perk drawback
+    // (-4) combine into the red deficit segment.
     final range = detail.stats.firstWhere((s) => s.name == 'Range');
     expect(range.value, 73);
     expect(range.masterworkBonus, 10);
@@ -1514,34 +1508,49 @@ void main() {
         18);
   });
 
-  test('a tiered weapon (gearTier 5) adds +tier to the stats its masterwork '
-      'marks conditionally active — bar +5, interpolated numeric +1', () async {
+  test('a fully masterworked tiered weapon (gearTier 5): +tier lifts the '
+      'stats its masterwork marks (Range/Magazine), a frame conditional bonus '
+      'is live, unmarked Impact is not lifted', () async {
     const tierWeaponHash = 10001;
-    const mwPlug = 10101; // Masterworked plug
-    const rangeStat = 1240592695; // bar, ~1:1
-    const coolingStat = 4006394725; // numeric, inverted-ish curve
+    const framePlug = 10101; // intrinsic frame (Rufus-style conditional bonus)
+    const mwPlug = 10102; // full masterwork with tier marker entries
+    const rangeStat = 1240592695; // marked, 1:1
+    const magStat = 3871231066; // marked, step curve
+    const impactStat = 4043523819; // unmarked → NOT tier-boosted
     const statGroupHash = 10200;
 
-    // Cooling curve: slope 0.2 (investment→display), so a +5 investment tier
-    // bonus scales to +1 displayed. Wide input range so the operating point
-    // (investment 110-115) stays on the curve, not clamped. Range has no curve
-    // (1:1). Range is a plain 1:1 bar stat.
+    // Real-shaped magazine step curve; Impact has a shallow curve; Range 1:1
+    // (listed in scaledStats — the shown set — but with no interpolation).
     when(() => manifest.getStatGroup(statGroupHash)).thenReturn({
       'scaledStats': [
+        {'statHash': rangeStat},
         {
-          'statHash': coolingStat,
+          'statHash': magStat,
           'displayInterpolation': [
-            {'value': 0, 'weight': 0},
-            {'value': 500, 'weight': 100},
+            {'value': 0, 'weight': 30},
+            {'value': 9, 'weight': 30},
+            {'value': 10, 'weight': 35},
+            {'value': 19, 'weight': 35},
+            {'value': 20, 'weight': 39},
           ],
-        }
+        },
+        {
+          'statHash': impactStat,
+          'displayInterpolation': [
+            {'value': 0, 'weight': 25},
+            {'value': 100, 'weight': 65},
+          ],
+        },
       ],
     });
     when(() => manifest.getStat(rangeStat)).thenReturn({
       'displayProperties': {'name': 'Range'},
     });
-    when(() => manifest.getStat(coolingStat)).thenReturn({
-      'displayProperties': {'name': 'Cooling Efficiency'},
+    when(() => manifest.getStat(magStat)).thenReturn({
+      'displayProperties': {'name': 'Magazine'},
+    });
+    when(() => manifest.getStat(impactStat)).thenReturn({
+      'displayProperties': {'name': 'Impact'},
     });
 
     when(() => manifest.getInventoryItem(tierWeaponHash)).thenReturn({
@@ -1554,26 +1563,39 @@ void main() {
         'statGroupHash': statGroupHash,
         'stats': {
           '$rangeStat': {'statHash': rangeStat},
-          '$coolingStat': {'statHash': coolingStat},
+          '$magStat': {'statHash': magStat},
+          '$impactStat': {'statHash': impactStat},
         }
       },
-      // Base investment: Range 76 (1:1 → shown 76), Cooling 110 (curve slope
-      // 0.2 → shown 22). The +tier bonus lifts each via the masterwork markers.
+      // Base investment: Range 40, Magazine 5, Impact 100 (→ interp 65).
       'investmentStats': [
-        {'statTypeHash': rangeStat, 'value': 76},
-        {'statTypeHash': coolingStat, 'value': 110},
+        {'statTypeHash': rangeStat, 'value': 40},
+        {'statTypeHash': magStat, 'value': 5},
+        {'statTypeHash': impactStat, 'value': 100},
       ],
     });
-    // The masterwork plug marks Range + Cooling conditionally active — the stats
-    // the tiered-weapon +gearTier bonus applies to.
+    // The intrinsic frame: an unconditional Range +6 plus a *conditional* Range
+    // +2 that is live in-game (frame conditional bonuses are counted).
+    when(() => manifest.getInventoryItem(framePlug)).thenReturn({
+      'displayProperties': {'name': 'Rapid-Fire Frame', 'icon': '/i/fr.jpg'},
+      'plug': {'plugCategoryIdentifier': 'intrinsics'},
+      'investmentStats': [
+        {'statTypeHash': rangeStat, 'value': 6, 'isConditionallyActive': false},
+        {'statTypeHash': rangeStat, 'value': 2, 'isConditionallyActive': true},
+      ],
+    });
+    // The full masterwork: conditionally-active value-0 marker entries name the
+    // stats the +gearTier bonus lifts (Range + Magazine here; Impact is
+    // unmarked). A tiered masterwork carries `uiPlugLabel: 'masterwork'`.
     when(() => manifest.getInventoryItem(mwPlug)).thenReturn({
-      'displayProperties': {'name': 'Masterworked: Cooling', 'icon': '/i/mw.jpg'},
+      'displayProperties': {'name': 'Masterworked: Range', 'icon': '/i/mw.jpg'},
       'plug': {
-        'plugCategoryIdentifier': 'v400.plugs.weapons.masterworks.stat.heat'
+        'plugCategoryIdentifier': 'v400.plugs.weapons.masterworks.stat.range',
+        'uiPlugLabel': 'masterwork',
       },
       'investmentStats': [
         {'statTypeHash': rangeStat, 'value': 0, 'isConditionallyActive': true},
-        {'statTypeHash': coolingStat, 'value': 0, 'isConditionallyActive': true},
+        {'statTypeHash': magStat, 'value': 0, 'isConditionallyActive': true},
       ],
     });
 
@@ -1625,6 +1647,7 @@ void main() {
               'data': {
                 '1000': {
                   'sockets': [
+                    {'plugHash': framePlug, 'isEnabled': true, 'isVisible': true},
                     {'plugHash': mwPlug, 'isEnabled': true, 'isVisible': true},
                   ]
                 }
@@ -1640,12 +1663,299 @@ void main() {
     expect(weapon.gearTier, 5);
     final detail = repo.resolveDetail(weapon);
 
-    // Range (1:1): base investment 76 + tier 5 = 81.
-    expect(detail.stats.firstWhere((s) => s.name == 'Range').value, 81);
-    // Cooling (curve slope 0.2): investment 110 + tier 5 = 115 → interp 23
-    // (was 22 at 110). The +5 investment scales to +1 displayed.
-    expect(
-        detail.stats.firstWhere((s) => s.name == 'Cooling Efficiency').value,
-        23);
+    // Range (1:1, masterwork-marked): base 40 + frame 6 + frame-conditional 2 +
+    // tier 5 = 53.
+    expect(detail.stats.firstWhere((s) => s.name == 'Range').value, 53);
+    // Magazine (masterwork-marked, step curve): investment 5 + tier 5 = 10 →
+    // interp 35 (was 30 at 5). The tier crosses a curve step.
+    expect(detail.stats.firstWhere((s) => s.name == 'Magazine').value, 35);
+    // Impact is unmarked → NOT tier-boosted: investment 100 → interp 65.
+    expect(detail.stats.firstWhere((s) => s.name == 'Impact').value, 65);
+  });
+
+  test('a crafted tiered weapon: the enhanced-intrinsic frame drives the tier '
+      'lift — its conditional archetype stats resolve to exactly gearTier, its '
+      'unconditional stat to value + gearTier', () async {
+    // Models The Other Half (crafted tier-4 sword): the "Enhanced Intrinsic"
+    // frame lifts Charge Rate to gearTier and Impact by value + gearTier.
+    const craftedHash = 11001;
+    const framePlug = 11101; // enhanced-intrinsic frame
+    const guardPlug = 11102; // a normal perk plug (no tier treatment)
+    const bladePlug = 11103; // a normal barrel/blade plug (no tier treatment)
+    const impactStat = 4043523819; // frame *unconditional* → value + tier
+    const chargeStat = 3022301683; // frame *conditional* → exactly tier
+    const statGroupHash = 11200;
+
+    // Impact bars on a {0→40, 100→80} curve (as swords do); Charge Rate is 1:1.
+    when(() => manifest.getStatGroup(statGroupHash)).thenReturn({
+      'scaledStats': [
+        {
+          'statHash': impactStat,
+          'displayInterpolation': [
+            {'value': 0, 'weight': 40},
+            {'value': 100, 'weight': 80},
+          ],
+        },
+        {'statHash': chargeStat},
+      ],
+    });
+    when(() => manifest.getStat(impactStat)).thenReturn({
+      'displayProperties': {'name': 'Impact'},
+    });
+    when(() => manifest.getStat(chargeStat)).thenReturn({
+      'displayProperties': {'name': 'Charge Rate'},
+    });
+
+    when(() => manifest.getInventoryItem(craftedHash)).thenReturn({
+      'displayProperties': {'name': 'Crafted Sword', 'icon': '/i/cs.jpg'},
+      'itemType': 3,
+      'itemSubType': 6,
+      'itemTypeDisplayName': 'Sword',
+      'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
+      'stats': {
+        'statGroupHash': statGroupHash,
+        'stats': {
+          '$impactStat': {'statHash': impactStat},
+          '$chargeStat': {'statHash': chargeStat},
+        }
+      },
+      // Base: Impact 50, Charge Rate 20.
+      'investmentStats': [
+        {'statTypeHash': impactStat, 'value': 50},
+        {'statTypeHash': chargeStat, 'value': 20},
+      ],
+    });
+    // Enhanced-intrinsic frame: unconditional Impact +10, conditional Charge +2
+    // (the raw +2 is ignored — a frame conditional resolves to exactly tier).
+    when(() => manifest.getInventoryItem(framePlug)).thenReturn({
+      'displayProperties': {'name': 'Adaptive Frame', 'icon': '/i/af.jpg'},
+      'itemTypeDisplayName': 'Enhanced Intrinsic',
+      'plug': {'plugCategoryIdentifier': 'intrinsics'},
+      'investmentStats': [
+        {'statTypeHash': impactStat, 'value': 10, 'isConditionallyActive': false},
+        {'statTypeHash': chargeStat, 'value': 2, 'isConditionallyActive': true},
+      ],
+    });
+    // A normal guard perk: unconditional Charge Rate +10, untouched by tier.
+    when(() => manifest.getInventoryItem(guardPlug)).thenReturn({
+      'displayProperties': {'name': "Swordmaster's Guard", 'icon': '/i/g.jpg'},
+      'plug': {'plugCategoryIdentifier': 'guards'},
+      'investmentStats': [
+        {'statTypeHash': chargeStat, 'value': 10, 'isConditionallyActive': false},
+      ],
+    });
+    // A normal blade perk: unconditional Impact +10, untouched by tier.
+    when(() => manifest.getInventoryItem(bladePlug)).thenReturn({
+      'displayProperties': {'name': 'Jagged Edge', 'icon': '/i/b.jpg'},
+      'plug': {'plugCategoryIdentifier': 'blades'},
+      'investmentStats': [
+        {'statTypeHash': impactStat, 'value': 10, 'isConditionallyActive': false},
+      ],
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': craftedHash,
+                    'itemInstanceId': '2000',
+                    'bucketHash': EquipmentBucket.kineticWeapons.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                '2000': {
+                  'damageType': 1,
+                  'primaryStat': {'value': 540},
+                  'gearTier': 4,
+                }
+              }
+            },
+            'sockets': {
+              'data': {
+                '2000': {
+                  'sockets': [
+                    {'plugHash': framePlug, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': guardPlug, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': bladePlug, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final weapon = grid.owners.first
+        .itemsFor(EquipmentBucket.kineticWeapons.hash)
+        .single;
+    expect(weapon.gearTier, 4);
+    final detail = repo.resolveDetail(weapon);
+
+    // Charge Rate (1:1): base 20 + guard 10 + frame-conditional → tier 4 = 34.
+    expect(detail.stats.firstWhere((s) => s.name == 'Charge Rate').value, 34);
+    // Impact: base 50 + blade 10 + frame unconditional (10 + tier 4) = 74 →
+    // interp on {0→40, 100→80} = 40 + 0.74·40 = 69.6, rounded to 70.
+    expect(detail.stats.firstWhere((s) => s.name == 'Impact').value, 70);
+  });
+
+  test('a sword shows only its stat-group scaledStats (hidden declared stats '
+      'like Zoom/Range dropped), with bars except Ammo Capacity', () async {
+    const swordHash = 12001;
+    const swingSpeed = 2837207746;
+    const chargeRate = 3022301683;
+    const guardResistance = 209426660;
+    const guardEndurance = 3736848092;
+    const ammoCapacity = 925767036;
+    const impactStat = 4043523819;
+    const zoomStat = 3555269338; // declared but NOT in scaledStats → hidden
+    const rangeStat = 1240592695; // declared but NOT in scaledStats → hidden
+    const statGroupHash = 12200;
+
+    for (final e in {
+      swingSpeed: 'Swing Speed',
+      chargeRate: 'Charge Rate',
+      guardResistance: 'Guard Resistance',
+      guardEndurance: 'Guard Endurance',
+      ammoCapacity: 'Ammo Capacity',
+      impactStat: 'Impact',
+      zoomStat: 'Zoom',
+      rangeStat: 'Range',
+    }.entries) {
+      when(() => manifest.getStat(e.key))
+          .thenReturn({'displayProperties': {'name': e.value}});
+    }
+
+    // scaledStats = exactly the in-game sword list (order + membership).
+    when(() => manifest.getStatGroup(statGroupHash)).thenReturn({
+      'scaledStats': [
+        {'statHash': impactStat},
+        {'statHash': swingSpeed},
+        {'statHash': chargeRate},
+        {'statHash': guardResistance},
+        {'statHash': guardEndurance},
+        {'statHash': ammoCapacity},
+      ],
+    });
+
+    when(() => manifest.getInventoryItem(swordHash)).thenReturn({
+      'displayProperties': {'name': 'Test Sword', 'icon': '/i/sw.jpg'},
+      'itemType': 3,
+      'itemSubType': 18, // sword
+      'itemTypeDisplayName': 'Sword',
+      'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
+      'stats': {
+        'statGroupHash': statGroupHash,
+        // Declared superset includes hidden Zoom + Range the game omits.
+        'stats': {
+          '$impactStat': {'statHash': impactStat},
+          '$swingSpeed': {'statHash': swingSpeed},
+          '$chargeRate': {'statHash': chargeRate},
+          '$guardResistance': {'statHash': guardResistance},
+          '$guardEndurance': {'statHash': guardEndurance},
+          '$ammoCapacity': {'statHash': ammoCapacity},
+          '$zoomStat': {'statHash': zoomStat},
+          '$rangeStat': {'statHash': rangeStat},
+        }
+      },
+      'investmentStats': [
+        {'statTypeHash': impactStat, 'value': 70},
+        {'statTypeHash': swingSpeed, 'value': 44},
+        {'statTypeHash': chargeRate, 'value': 34},
+        {'statTypeHash': guardResistance, 'value': 19},
+        {'statTypeHash': guardEndurance, 'value': 40},
+        {'statTypeHash': ammoCapacity, 'value': 70},
+        {'statTypeHash': zoomStat, 'value': 15},
+        {'statTypeHash': rangeStat, 'value': 50},
+      ],
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': swordHash,
+                    'itemInstanceId': '3000',
+                    'bucketHash': EquipmentBucket.kineticWeapons.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                '3000': {'damageType': 1, 'primaryStat': {'value': 540}}
+              }
+            },
+            'sockets': {'data': {}},
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final weapon = grid.owners.first
+        .itemsFor(EquipmentBucket.kineticWeapons.hash)
+        .single;
+    final detail = repo.resolveDetail(weapon);
+    final names = detail.stats.map((s) => s.name).toList();
+
+    // Only the scaledStats, in in-game order — Zoom and Range are dropped.
+    expect(names, [
+      'Impact', 'Swing Speed', 'Charge Rate', 'Guard Resistance',
+      'Guard Endurance', 'Ammo Capacity',
+    ]);
+    // All are bars except Ammo Capacity (numeric).
+    for (final s in detail.stats) {
+      final expected = s.name == 'Ammo Capacity'
+          ? StatDisplay.numeric
+          : StatDisplay.bar;
+      expect(s.display, expected, reason: '${s.name} display');
+    }
   });
 }

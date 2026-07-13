@@ -15,6 +15,10 @@ const _ammoGen = 1931675084;
 const _recoil = 2715839340;
 const _rpm = 4284893193;
 const _magazine = 3871231066;
+const _blastRadius = 3614673599;
+const _velocity = 2523465841;
+const _accuracy = 1591432999;
+const _shieldDuration = 1842278586;
 
 ItemStat _stat(int hash, String name, StatDisplay display) =>
     ItemStat(statHash: hash, name: name, value: 50, display: display);
@@ -48,6 +52,26 @@ void main() {
       // Then the recoil gauge, then numeric stats.
       'Recoil Direction',
       'Rounds Per Minute', 'Magazine',
+    ]);
+  });
+
+  test('launcher/glaive/bow order: Blast Radius + Velocity lead, Accuracy '
+      'follows Impact, Shield Duration follows Range', () {
+    // A grenade-launcher-ish bar set plus glaive/bow stats, scrambled.
+    final input = [
+      _stat(_range, 'Range', StatDisplay.bar),
+      _stat(_velocity, 'Velocity', StatDisplay.bar),
+      _stat(_shieldDuration, 'Shield Duration', StatDisplay.bar),
+      _stat(_impact, 'Impact', StatDisplay.bar),
+      _stat(_blastRadius, 'Blast Radius', StatDisplay.bar),
+      _stat(_accuracy, 'Accuracy', StatDisplay.bar),
+      _stat(_stability, 'Stability', StatDisplay.bar),
+    ];
+    expect(sortStatsForDisplay(input).map((s) => s.name), [
+      'Blast Radius', 'Velocity', // lead
+      'Impact', 'Accuracy', // Accuracy just after Impact
+      'Range', 'Shield Duration', // Shield Duration just after Range
+      'Stability',
     ]);
   });
 
