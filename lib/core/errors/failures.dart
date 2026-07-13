@@ -40,3 +40,8 @@ class AuthFailure extends Failure {
 class StrandedInVaultFailure extends Failure {
   const StrandedInVaultFailure(super.message, {super.cause});
 }
+
+/// Self-update failed (download, checksum mismatch, or launching the installer).
+class UpdateFailure extends Failure {
+  const UpdateFailure(super.message, {super.cause});
+}

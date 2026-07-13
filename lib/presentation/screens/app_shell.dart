@@ -11,6 +11,7 @@ import '../providers/settings_provider.dart';
 import '../theme/armory_palette.dart';
 import '../theme/branding_svg.dart';
 import '../widgets/search_bar_field.dart';
+import '../widgets/update_banner.dart';
 import 'database/database_screen.dart';
 import 'inventory/inventory_screen.dart';
 import 'stub_page.dart';
@@ -92,6 +93,7 @@ class _AppShellState extends ConsumerState<AppShell> {
               onPressed: () => ref.invalidate(inventoryGridProvider),
             ),
           ],
+          const UpdateAction(),
           IconButton(
             tooltip: 'Sign out',
             icon: const Icon(Icons.logout),

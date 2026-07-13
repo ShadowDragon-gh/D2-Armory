@@ -53,4 +53,18 @@ class AppConfig {
 
   static String get oauthRedirectUrl =>
       'https://$oauthRedirectHost:$oauthRedirectPort$oauthRedirectPath';
+
+  // --- Self-update (GitHub Releases) ---
+  //
+  // The updater reads the latest release from the public GitHub Releases API.
+  // This requires the repository to be public; while it is private the
+  // unauthenticated request 404s and the updater reports "no update" rather
+  // than failing loudly.
+
+  static const String githubOwner = 'ShadowDragon-gh';
+
+  static const String githubRepo = 'DestinyLoadoutPlanner';
+
+  static const String latestReleaseUrl =
+      'https://api.github.com/repos/$githubOwner/$githubRepo/releases/latest';
 }
