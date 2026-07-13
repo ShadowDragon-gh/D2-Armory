@@ -4,8 +4,7 @@ import 'armory_palette.dart';
 import 'armory_theme_extension.dart';
 
 /// Builds the app-wide D2 Armory dark theme from the brand tokens in
-/// [ArmoryPalette]. Token-to-slot mapping is documented in
-/// doc/theme_implementation_plan.md.
+/// [ArmoryPalette].
 ThemeData buildArmoryTheme() {
   const scheme = ColorScheme(
     brightness: Brightness.dark,

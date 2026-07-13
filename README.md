@@ -72,7 +72,11 @@ Windows PC and your own Destiny 2 / Bungie.net account.
    several-tens-of-MB file) and shows a progress bar. This happens once per game
    update, not every launch.
 
-**Updating:** download the newer release zip and replace the folder.
+**Updating:** the app updates itself. When a newer release is available, an
+update icon appears in the top bar; clicking it and choosing **Update now**
+downloads the new version, closes the app, applies it, and reopens. (If you ever
+need to, you can still update manually by downloading the newer release zip and
+replacing the folder.)
 
 There is no installer — the app is a self-contained folder you can move or delete
 freely. It stores its game data and your sign-in in your Windows user profile,
@@ -112,8 +116,7 @@ on `127.0.0.1:7355`, so the Redirect URL above must match exactly.
 > The **client type** decides how often the user re-authenticates. Confidential
 > clients receive a refresh token, so the app silently renews access and rarely
 > re-prompts; Public clients get no refresh token and must sign in again roughly
-> hourly. See [doc/release_build_plan.md](doc/release_build_plan.md) §1 for the
-> full tradeoff.
+> hourly.
 
 ### 2. Provide credentials
 
@@ -153,8 +156,10 @@ flutter build windows --release --dart-define-from-file=env/release.json
 
 The output is a folder at `build/windows/x64/runner/Release/` containing the exe,
 its DLLs, and a `data/` subfolder — they must ship together (it is not a single
-file). See [doc/release_build_plan.md](doc/release_build_plan.md) for the full
-packaging and distribution guide.
+file). To package a release for distribution, run
+[tool/package_release.ps1](tool/package_release.ps1), which builds, zips the
+folder's contents, and prints the `gh release` command (with the checksum the
+in-app updater verifies against).
 
 ---
 
@@ -206,7 +211,8 @@ lib/
     ├── providers/          # Riverpod providers
     └── screens/            # auth, inventory, database, app shell, manifest loading
 env/                        # dev.json / release.json (gitignored), *.example.json
-doc/                        # implementation notes, release_build_plan.md, release_note.md
+doc/                        # implementation notes and release_note.md
+tool/                       # package_release.ps1 (build + package a release)
 windows/                    # Windows runner (the only platform target)
 ```
 
