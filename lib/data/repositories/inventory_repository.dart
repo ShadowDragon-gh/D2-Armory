@@ -1172,6 +1172,7 @@ class InventoryRepository {
 
     // Definition base investment (unconditional entries for this stat).
     final wdef = _manifest.getInventoryItem(item.itemHash);
+    final adept = wdef?['isAdept'] == true;
     final baseInv = wdef?['investmentStats'];
     if (baseInv is List) {
       for (final s in baseInv) {
@@ -1198,8 +1199,8 @@ class InventoryRepository {
         for (final stat in invStats) {
           final st = stat as Map<String, dynamic>;
           if ((st['statTypeHash'] as num?)?.toInt() != statHash) continue;
-          final adj = _tierAdjustedValue(st, pdef, item.gearTier);
-          if (adj == null) continue; // recognised-inactive conditional
+          final adj = _tierAdjustedValue(st, pdef, item.gearTier, adept);
+          if (adj == null) continue; // a marker entry, dropped
           // The plug's own value keeps its category (perk/mod/frame); any
           // gearTier lift folded in on top is a masterwork-coloured segment.
           add(adj.base, category);
@@ -1213,46 +1214,58 @@ class InventoryRepository {
 
   /// One investment-stat entry's contribution, split into its plug-value part
   /// ([base]) and any `+gearTier` lift the game folds on top ([tierLift]).
-  /// Returns null when a conditionally-active entry is recognised-inactive and
-  /// should be dropped. Mirrors DIM's `getPlugStatValue` + `isPlugStatActive`:
+  /// Returns null when the entry is a marker that should be dropped entirely.
+  /// Mirrors DIM's `getPlugStatValue` + `isPlugStatActive`, verified in-game
+  /// against The Other Half (crafted tier-4 sword, non-adept) and Rufus's Fury
+  /// (Adept) (crafted tier-5 auto rifle):
   ///
-  ///   • On an *enhanced intrinsic* (a crafted/enhanced weapon's frame, whose
-  ///     plug `itemTypeDisplayName` is "Enhanced Intrinsic") of a tiered weapon:
-  ///     a conditional archetype stat resolves to exactly `gearTier`
-  ///     (base 0, lift gearTier); an unconditional stat to `value + gearTier`.
-  ///   • On a tiered weapon's *masterwork* plug, a `tieredWeaponMW` stat
-  ///     resolves to `value + gearTier`.
-  ///   • Otherwise the entry counts at its face `value`; a conditional entry
-  ///     with no recognised activation rule is still live (DIM default), so
-  ///     only the `never`/masterwork-gated cases are dropped.
+  ///   • The `+gearTier` lift on a *crafted* weapon comes solely from its
+  ///     *enhanced intrinsic* frame (plug `itemTypeDisplayName` "Enhanced
+  ///     Intrinsic"). Its unconditional stat resolves to `value + gearTier`; its
+  ///     conditional archetype stat to `value + gearTier` when the weapon is
+  ///     adept (or crafted level ≥ 20 — see TODO) and to exactly `gearTier`
+  ///     (dropping the +N) otherwise.
+  ///   • The `Enhancement N` enhancer plug (`…mods.enhancers`) also lists those
+  ///     stats conditionally, but they are *markers*: dropped entirely (counting
+  ///     them double-applies the tier — Rufus overshot by ~+8–10).
+  ///   • A *non-crafted* fully-masterworked weapon takes the lift from its
+  ///     masterwork plug instead: a `tieredWeaponMW` marker (masterwork
+  ///     `uiPlugLabel`, conditional value 0) lifts by `gearTier`.
+  ///   • Otherwise the entry counts at its face `value`.
   ({int base, int tierLift})? _tierAdjustedValue(
     Map<String, dynamic> stat,
     Map<String, dynamic>? plugDef,
     int gearTier,
+    bool adept,
   ) {
     final value = (stat['value'] as num?)?.toInt() ?? 0;
     final conditional = stat['isConditionallyActive'] == true;
-    final plug = plugDef?['plug'] as Map<String, dynamic>?;
+    final catId =
+        (plugDef?['plug']?['plugCategoryIdentifier'] as String?) ?? '';
     final typeName = plugDef?['itemTypeDisplayName'] as String? ?? '';
     final isEnhancedIntrinsic = typeName == 'Enhanced Intrinsic';
+    final isEnhancer = catId.contains('enhancers');
     final isMasterwork =
-        (plug?['uiPlugLabel'] as String?) == 'masterwork';
+        (plugDef?['plug']?['uiPlugLabel'] as String?) == 'masterwork';
+
+    // The crafted enhancer's conditional entries are markers; the frame already
+    // supplies the tier lift, so counting these would double-apply it.
+    if (isEnhancer && conditional) return null;
 
     if (gearTier > 0 && isEnhancedIntrinsic) {
-      // The frame's conditional archetype bonuses become the flat gearTier; its
-      // defining (unconditional) stat gains gearTier on top of its value.
-      return conditional
-          ? (base: 0, tierLift: gearTier)
-          : (base: value, tierLift: gearTier);
+      if (!conditional) return (base: value, tierLift: gearTier);
+      // TODO: also treat as adept when the crafted weapon's level ≥ 20 (needs
+      // the deepsight/level plug objective, not yet decoded).
+      return adept
+          ? (base: value, tierLift: gearTier) // keep the +N, add the tier
+          : (base: 0, tierLift: gearTier); // the tier replaces the +N
     }
     if (gearTier > 0 && isMasterwork && conditional && value == 0) {
       // A tiered masterwork's marker stats (conditional, value 0) lift by tier;
       // the real masterwork bonus is a separate unconditional +N on the plug.
       return (base: 0, tierLift: gearTier);
     }
-    // Non-tier entry. Conditional stats with no recognised inactive rule stay
-    // live (DIM's default) — the app has no such gated case for weapons yet, so
-    // count every remaining entry at face value.
+    // Non-tier entry — count at face value.
     return (base: value, tierLift: 0);
   }
 

@@ -1824,6 +1824,150 @@ void main() {
     expect(detail.stats.firstWhere((s) => s.name == 'Impact').value, 70);
   });
 
+  test('an adept crafted weapon with an Enhancement plug: the frame conditional '
+      'keeps its +N and adds tier, and the enhancer stat markers are ignored '
+      '(no double tier)', () async {
+    // Models Rufus\'s Fury (Adept), gearTier 5: the Enhancement N enhancer lists
+    // the same stats the frame lifts, but those are markers — counting them
+    // would apply the tier twice.
+    const adeptHash = 13001;
+    const framePlug = 13101; // enhanced-intrinsic frame
+    const enhancerPlug = 13102; // "Enhancement 3" — markers only
+    const rangeStat = 1240592695; // frame *conditional* → value + tier (adept)
+    const handlingStat = 943549884; // frame *unconditional* → value + tier
+
+    when(() => manifest.getStat(rangeStat)).thenReturn({
+      'displayProperties': {'name': 'Range'},
+    });
+    when(() => manifest.getStat(handlingStat)).thenReturn({
+      'displayProperties': {'name': 'Handling'},
+    });
+
+    // No stat group → 1:1 stats. isAdept flags the adept branch.
+    when(() => manifest.getInventoryItem(adeptHash)).thenReturn({
+      'displayProperties': {'name': 'Adept Gun', 'icon': '/i/ag.jpg'},
+      'itemType': 3,
+      'itemSubType': 6,
+      'itemTypeDisplayName': 'Auto Rifle',
+      'isAdept': true,
+      'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
+      'stats': {
+        'stats': {
+          '$rangeStat': {'statHash': rangeStat},
+          '$handlingStat': {'statHash': handlingStat},
+        }
+      },
+      'investmentStats': [
+        {'statTypeHash': rangeStat, 'value': 34},
+        {'statTypeHash': handlingStat, 'value': 41},
+      ],
+    });
+    // Enhanced-intrinsic frame: unconditional Handling +10, conditional Range +2.
+    when(() => manifest.getInventoryItem(framePlug)).thenReturn({
+      'displayProperties': {'name': 'Rapid-Fire Frame', 'icon': '/i/fr.jpg'},
+      'itemTypeDisplayName': 'Enhanced Intrinsic',
+      'plug': {'plugCategoryIdentifier': 'intrinsics'},
+      'investmentStats': [
+        {
+          'statTypeHash': handlingStat,
+          'value': 10,
+          'isConditionallyActive': false
+        },
+        {'statTypeHash': rangeStat, 'value': 2, 'isConditionallyActive': true},
+      ],
+    });
+    // The Enhancement plug lists Range +10 / Handling +10 conditionally — pure
+    // markers that must contribute nothing.
+    when(() => manifest.getInventoryItem(enhancerPlug)).thenReturn({
+      'displayProperties': {'name': 'Enhancement 3', 'icon': '/i/en.jpg'},
+      'plug': {
+        'plugCategoryIdentifier': 'crafting.plugs.weapons.mods.enhancers'
+      },
+      'investmentStats': [
+        {'statTypeHash': rangeStat, 'value': 10, 'isConditionallyActive': true},
+        {
+          'statTypeHash': handlingStat,
+          'value': 10,
+          'isConditionallyActive': true
+        },
+      ],
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': adeptHash,
+                    'itemInstanceId': '3000',
+                    'bucketHash': EquipmentBucket.kineticWeapons.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                '3000': {
+                  'damageType': 1,
+                  'primaryStat': {'value': 540},
+                  'gearTier': 5,
+                }
+              }
+            },
+            'sockets': {
+              'data': {
+                '3000': {
+                  'sockets': [
+                    {'plugHash': framePlug, 'isEnabled': true, 'isVisible': true},
+                    {
+                      'plugHash': enhancerPlug,
+                      'isEnabled': true,
+                      'isVisible': true
+                    },
+                  ]
+                }
+              }
+            },
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final weapon = grid.owners.first
+        .itemsFor(EquipmentBucket.kineticWeapons.hash)
+        .single;
+    expect(weapon.gearTier, 5);
+    final detail = repo.resolveDetail(weapon);
+
+    // Range (adept frame conditional keeps +2, plus tier 5): 34 + 2 + 5 = 41.
+    // The enhancer's Range +10 marker is ignored.
+    expect(detail.stats.firstWhere((s) => s.name == 'Range').value, 41);
+    // Handling (frame unconditional): 41 + (10 + tier 5) = 56. The enhancer's
+    // Handling +10 marker is ignored.
+    expect(detail.stats.firstWhere((s) => s.name == 'Handling').value, 56);
+  });
+
   test('a sword shows only its stat-group scaledStats (hidden declared stats '
       'like Zoom/Range dropped), with bars except Ammo Capacity', () async {
     const swordHash = 12001;
