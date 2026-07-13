@@ -61,15 +61,15 @@ with an inventory-backed source.
 
 ## Dependencies on the other planned tabs
 
-- **Requires the Database tab's definition layer** (see `database_tab_implementation.md`):
+- **Requires the Database tab's definition layer** (now built —
+  `lib/presentation/screens/database/`, `lib/data/repositories/database_repository.dart`):
   the sandbox's "pick any item" and "customise perks" flows are exactly the Database tab's
-  definition browse + perk-column resolution. **Build the Database tab first, or at least
-  its query + `resolveDefinitionDetail` layer.** Don't duplicate that resolution here
-  (rule 8/11).
-- **Tier 3 overlaps the drag-to-move plan** (see `drag_to_move_implementation.md`): both
-  need the write OAuth scope and item-action POSTs. If drag-to-move lands first, Tier 3
-  reuses its `_postResponse` + action methods and the re-auth flow. Flag the shared work;
-  don't build two write layers.
+  definition browse + perk-column resolution. Reuse that query + definition-detail layer;
+  don't duplicate the resolution here (rule 8/11).
+- **Tier 3 overlaps the shipped write layer** (now built —
+  `lib/data/repositories/item_transfer_repository.dart`): the drag-to-move/equip feature
+  already has the write OAuth scope and item-action POSTs. Tier 3 reuses its action methods
+  and the re-auth flow; don't build a second write layer.
 
 ---
 

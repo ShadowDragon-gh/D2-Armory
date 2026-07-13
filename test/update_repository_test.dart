@@ -2,8 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:destiny2_loadout_planner/data/repositories/update_repository.dart';
-import 'package:destiny2_loadout_planner/domain/models/app_version.dart';
+import 'package:d2_armory/data/repositories/update_repository.dart';
+import 'package:d2_armory/domain/models/app_version.dart';
 
 class _MockDio extends Mock implements Dio {}
 

@@ -5,8 +5,7 @@ import 'package:flutter/painting.dart';
 /// `:root` block so the two stay diff-able.
 ///
 /// Rarity and weapon-element colors are game-derived domain lookups and live
-/// in `core/destiny/` (decision D1 in doc/theme_implementation_plan.md); they
-/// are deliberately not duplicated here.
+/// in `core/destiny/`; they are deliberately not duplicated here.
 abstract final class ArmoryPalette {
   // Surfaces — elevation ramp, darkest to lightest.
   static const surface0 = Color(0xFF0D1013); // page canvas / window frame
@@ -54,8 +53,7 @@ abstract final class ArmoryPalette {
   static const scrim87 = Color(0xDD000000);
 
   // Domain colors: game meaning (masterwork tier, reduced stats), kept
-  // visually distinct from the brand bronze (decision D2 in
-  // doc/theme_implementation_plan.md).
+  // visually distinct from the brand bronze.
   static const masterworkGold = Color(0xFFE5C15B);
   static const statPenaltyRed = Color(0xFFB84C43);
 

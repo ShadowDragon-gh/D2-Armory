@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:destiny2_loadout_planner/core/destiny/destiny_buckets.dart';
-import 'package:destiny2_loadout_planner/data/repositories/database_repository.dart';
-import 'package:destiny2_loadout_planner/data/repositories/manifest_repository.dart';
-import 'package:destiny2_loadout_planner/domain/models/item_detail.dart';
+import 'package:d2_armory/core/destiny/destiny_buckets.dart';
+import 'package:d2_armory/data/repositories/database_repository.dart';
+import 'package:d2_armory/data/repositories/manifest_repository.dart';
+import 'package:d2_armory/domain/models/item_detail.dart';
 
 class _MockManifest extends Mock implements ManifestRepository {}
 

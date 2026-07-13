@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/core/destiny/destiny_buckets.dart';
-import 'package:destiny2_loadout_planner/core/destiny/plug_category.dart';
-import 'package:destiny2_loadout_planner/core/search/item_filter.dart';
-import 'package:destiny2_loadout_planner/core/search/search_suggestions.dart';
-import 'package:destiny2_loadout_planner/data/repositories/database_repository.dart';
-import 'package:destiny2_loadout_planner/domain/models/item_detail.dart';
-import 'package:destiny2_loadout_planner/presentation/providers/database_provider.dart';
-import 'package:destiny2_loadout_planner/presentation/screens/database/database_screen.dart';
+import 'package:d2_armory/core/destiny/destiny_buckets.dart';
+import 'package:d2_armory/core/destiny/plug_category.dart';
+import 'package:d2_armory/core/search/item_filter.dart';
+import 'package:d2_armory/core/search/search_suggestions.dart';
+import 'package:d2_armory/data/repositories/database_repository.dart';
+import 'package:d2_armory/domain/models/item_detail.dart';
+import 'package:d2_armory/presentation/providers/database_provider.dart';
+import 'package:d2_armory/presentation/screens/database/database_screen.dart';
 
 /// A hand-built DatabaseRepository with a fixed in-memory gear set, so the
 /// widget test exercises the real screen + modal + providers without a manifest.

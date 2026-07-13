@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/core/destiny/destiny_buckets.dart';
-import 'package:destiny2_loadout_planner/core/search/item_filter.dart';
-import 'package:destiny2_loadout_planner/core/search/search_query.dart';
-import 'package:destiny2_loadout_planner/domain/models/destiny_item.dart';
+import 'package:d2_armory/core/destiny/destiny_buckets.dart';
+import 'package:d2_armory/core/search/item_filter.dart';
+import 'package:d2_armory/core/search/search_query.dart';
+import 'package:d2_armory/domain/models/destiny_item.dart';
 
 DestinyItem item({
   String name = 'Test Item',

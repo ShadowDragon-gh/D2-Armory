@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/core/destiny/plug_category.dart';
+import 'package:d2_armory/core/destiny/plug_category.dart';
 
 void main() {
   group('classifyPlug', () {

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/core/search/search_suggestions.dart';
-import 'package:destiny2_loadout_planner/presentation/widgets/search_bar_field.dart';
+import 'package:d2_armory/core/search/search_suggestions.dart';
+import 'package:d2_armory/presentation/widgets/search_bar_field.dart';
 
 void main() {
   // Pumps the field, focuses it, and returns the last value onChanged emitted.

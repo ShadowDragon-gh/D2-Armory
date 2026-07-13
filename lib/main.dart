@@ -25,11 +25,11 @@ Future<void> main() async {
       },
     );
   }
-  runApp(const ProviderScope(child: DestinyLoadoutPlannerApp()));
+  runApp(const ProviderScope(child: D2ArmoryApp()));
 }
 
-class DestinyLoadoutPlannerApp extends StatelessWidget {
-  const DestinyLoadoutPlannerApp({super.key});
+class D2ArmoryApp extends StatelessWidget {
+  const D2ArmoryApp({super.key});
 
   @override
   Widget build(BuildContext context) {

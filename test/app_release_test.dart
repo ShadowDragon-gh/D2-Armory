@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/domain/models/app_release.dart';
-import 'package:destiny2_loadout_planner/domain/models/app_version.dart';
+import 'package:d2_armory/domain/models/app_release.dart';
+import 'package:d2_armory/domain/models/app_version.dart';
 
 /// A minimal GitHub `releases/latest` payload with one zip asset.
 Map<String, dynamic> _payload({

@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart';
 
-import 'package:destiny2_loadout_planner/core/destiny/destiny_buckets.dart';
-import 'package:destiny2_loadout_planner/data/local/manifest_database.dart';
+import 'package:d2_armory/core/destiny/destiny_buckets.dart';
+import 'package:d2_armory/data/local/manifest_database.dart';
 
 /// Build an in-memory manifest with the real (id INTEGER, json TEXT) schema and
 /// seed it with the given definitions, keyed by their unsigned hash.

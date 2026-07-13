@@ -89,12 +89,12 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "DestinyLoadoutPlanner" "\0"
+            VALUE "CompanyName", "D2 Armory" "\0"
             VALUE "FileDescription", "D2 Armory" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "destiny2_loadout_planner" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 DestinyLoadoutPlanner. All rights reserved." "\0"
-            VALUE "OriginalFilename", "destiny2_loadout_planner.exe" "\0"
+            VALUE "InternalName", "d2_armory" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 D2 Armory. All rights reserved." "\0"
+            VALUE "OriginalFilename", "d2_armory.exe" "\0"
             VALUE "ProductName", "D2 Armory" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

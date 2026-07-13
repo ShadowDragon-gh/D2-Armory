@@ -40,4 +40,9 @@ Bungie.net** again (and click through the certificate warning once more).
 ## Installing / updating
 
 There's no installer. Unzip the folder anywhere you like and run the `.exe`
-inside it. To update later, download the new zip and replace the folder.
+inside it.
+
+The app keeps itself up to date: when a new version is out, an update icon shows
+up in the top bar — click it and choose **Update now**, and the app will
+download the update, close, apply it, and reopen on its own. You don't need to
+re-download anything by hand.

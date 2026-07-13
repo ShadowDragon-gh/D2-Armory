@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/core/destiny/destiny_enums.dart';
-import 'package:destiny2_loadout_planner/core/search/item_filter.dart';
-import 'package:destiny2_loadout_planner/domain/models/destiny_item.dart';
+import 'package:d2_armory/core/destiny/destiny_enums.dart';
+import 'package:d2_armory/core/search/item_filter.dart';
+import 'package:d2_armory/domain/models/destiny_item.dart';
 
 // A minimal item for grammar matching.
 DestinyItem item({

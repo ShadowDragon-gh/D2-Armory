@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:destiny2_loadout_planner/presentation/theme/branding_svg.dart';
+import 'package:d2_armory/presentation/theme/branding_svg.dart';
 
 void main() {
   // The brand marks render from inline string constants (no asset-bundle read,

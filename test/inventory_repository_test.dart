@@ -1,13 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:destiny2_loadout_planner/core/destiny/destiny_buckets.dart';
-import 'package:destiny2_loadout_planner/core/search/item_filter.dart';
-import 'package:destiny2_loadout_planner/data/remote/bungie_api.dart';
-import 'package:destiny2_loadout_planner/data/repositories/inventory_repository.dart';
-import 'package:destiny2_loadout_planner/data/repositories/manifest_repository.dart';
-import 'package:destiny2_loadout_planner/domain/models/destiny_item.dart';
-import 'package:destiny2_loadout_planner/domain/models/inventory_grid.dart';
+import 'package:d2_armory/core/destiny/destiny_buckets.dart';
+import 'package:d2_armory/core/search/item_filter.dart';
+import 'package:d2_armory/data/remote/bungie_api.dart';
+import 'package:d2_armory/data/repositories/inventory_repository.dart';
+import 'package:d2_armory/data/repositories/manifest_repository.dart';
+import 'package:d2_armory/domain/models/destiny_item.dart';
+import 'package:d2_armory/domain/models/inventory_grid.dart';
 
 class _MockApi extends Mock implements BungieApi {}
 
