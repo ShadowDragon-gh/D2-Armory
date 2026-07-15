@@ -66,13 +66,25 @@ Future<void> showGearDetailModal(BuildContext context, WidgetRef ref) {
   });
 }
 
-class _ModalBody extends ConsumerWidget {
+class _ModalBody extends ConsumerStatefulWidget {
   const _ModalBody({required this.detail});
 
   final GearDetail detail;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ModalBody> createState() => _ModalBodyState();
+}
+
+class _ModalBodyState extends ConsumerState<_ModalBody> {
+  // The effects panel (Selected Perks / rolled Perk Effects) starts expanded;
+  // collapsing it hands its width back to the perk grid so wide grids (many
+  // trait/origin columns) no longer crowd it. Modal-body local — a transient UI
+  // toggle, so it lives here rather than in a provider.
+  bool _effectsCollapsed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = widget.detail;
     final rolled = _rolledFor(ref, detail);
     final showRoll = rolled != null &&
         ref.watch(gearModalViewProvider) == GearModalView.rolled;
@@ -82,59 +94,168 @@ class _ModalBody extends ConsumerWidget {
         _Header(detail: detail),
         const Divider(height: 1),
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Left: screenshot render + stats + versions.
-                SizedBox(
-                  width: 380,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+          // The scrolling left+middle content and the full-height effects panel
+          // are siblings: the panel stretches the modal body's height and sits
+          // flush to the right edge, outside the scroll view's padding.
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _Screenshot(detail: detail),
-                      const SizedBox(height: 16),
-                      if (detail.frame != null) ...[
-                        _Intrinsic(frame: detail.frame!),
-                        const SizedBox(height: 16),
-                      ],
-                      _StatArea(detail: detail),
+                      // Left: screenshot render + stats + versions.
+                      SizedBox(
+                        width: 380,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _Screenshot(detail: detail),
+                            const SizedBox(height: 16),
+                            if (detail.frame != null) ...[
+                              _Intrinsic(frame: detail.frame!),
+                              const SizedBox(height: 16),
+                            ],
+                            _StatArea(detail: detail),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 24),
+                      // Middle: the roll's actual plugs, or the clickable
+                      // all-possible-rolls perk grid (with the catalyst's effect
+                      // whenever an owned exotic backs the modal).
+                      Expanded(
+                        child: showRoll
+                            ? _RolledPlugArea(instance: rolled)
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _PerkArea(detail: detail),
+                                  if (rolled?.catalyst != null) ...[
+                                    const SizedBox(height: 16),
+                                    _CatalystInfo(catalyst: rolled!.catalyst!),
+                                  ],
+                                ],
+                              ),
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(width: 24),
-                // Middle: the roll's actual plugs, or the clickable
-                // all-possible-rolls perk grid (with the catalyst's effect
-                // whenever an owned exotic backs the modal).
-                Expanded(
-                  child: showRoll
-                      ? _RolledPlugArea(instance: rolled)
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _PerkArea(detail: detail),
-                            if (rolled?.catalyst != null) ...[
-                              const SizedBox(height: 16),
-                              _CatalystInfo(catalyst: rolled!.catalyst!),
-                            ],
-                          ],
-                        ),
-                ),
-                const SizedBox(width: 24),
-                // Right: effects — the roll's perks, or the grid selection.
-                SizedBox(
-                  width: 260,
-                  child: showRoll
-                      ? _RolledEffects(
-                          perks: rolled.plugsOf(PlugCategory.perk).toList())
-                      : const _SelectedEffects(),
-                ),
-              ],
-            ),
+              ),
+              // Right: effects — the roll's perks, or the grid selection — in a
+              // full-height panel that collapses to a thin rail to free grid
+              // space.
+              _EffectsPanel(
+                collapsed: _effectsCollapsed,
+                onToggle: () => setState(
+                    () => _effectsCollapsed = !_effectsCollapsed),
+                child: showRoll
+                    ? _RolledEffects(
+                        perks: rolled.plugsOf(PlugCategory.perk).toList())
+                    : const _SelectedEffects(),
+              ),
+            ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The collapsible right-hand effects panel. Expanded it holds [child] (the
+/// Selected Perks / rolled Perk Effects list) with a chevron on its left edge;
+/// collapsed it animates down to a thin rail showing only the reopen chevron,
+/// giving the width back to the perk grid. The width tween is the smooth
+/// open/close animation; the content fades in step so it is gone by the time
+/// the rail width hides it.
+class _EffectsPanel extends StatelessWidget {
+  const _EffectsPanel({
+    required this.collapsed,
+    required this.onToggle,
+    required this.child,
+  });
+
+  final bool collapsed;
+  final VoidCallback onToggle;
+  final Widget child;
+
+  static const _expandedWidth = 260.0;
+  static const _railWidth = 36.0;
+  static const _duration = Duration(milliseconds: 240);
+  static const _curve = Curves.easeInOutCubic;
+
+  // Fraction of the expanded width the rail occupies — the collapsed target for
+  // the width-factor tween.
+  static const _railFactor = _railWidth / _expandedWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final toggle = IconButton(
+      tooltip: collapsed ? 'Show selected perks' : 'Hide selected perks',
+      visualDensity: VisualDensity.compact,
+      iconSize: 20,
+      icon: Icon(
+          collapsed ? Icons.chevron_left : Icons.chevron_right,
+          color: theme.colorScheme.onSurfaceVariant),
+      onPressed: onToggle,
+    );
+
+    // The panel content is always laid out at the full expanded width so it
+    // never reflows; collapsing reveals only a left-hand slice of it, sized by
+    // an animated width factor. The chevron pins to the top-left so it stays in
+    // that slice, and the effects list scrolls within the panel's full height
+    // (a long list no longer overflows). The fade hides the list as the slice
+    // narrows.
+    final content = SizedBox(
+      width: _expandedWidth,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: _railWidth,
+            child: Align(alignment: Alignment.topCenter, child: toggle),
+          ),
+          Expanded(
+            child: IgnorePointer(
+              ignoring: collapsed,
+              child: AnimatedOpacity(
+                duration: _duration,
+                curve: _curve,
+                opacity: collapsed ? 0 : 1,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(
+                      top: 20, right: 20, bottom: 20),
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return DecoratedBox(
+      // A marginally lighter surface with a hairline on the left, so the panel
+      // reads as its own raised region set off from the perk grid.
+      decoration: const BoxDecoration(
+        color: ArmoryPalette.surface2,
+        border: Border(left: BorderSide(color: ArmoryPalette.border)),
+      ),
+      child: ClipRect(
+        child: TweenAnimationBuilder<double>(
+          duration: _duration,
+          curve: _curve,
+          tween: Tween(end: collapsed ? _railFactor : 1.0),
+          builder: (context, factor, _) => Align(
+            alignment: Alignment.centerLeft,
+            widthFactor: factor,
+            child: content,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1240,13 +1361,21 @@ class _PerkArea extends ConsumerWidget {
     final canToggle = hasEnhanced && hasRegular;
 
     // Filter each column to the chosen enhancement state, keeping each plug's
-    // *original* index so selection stays keyed to the full column.
-    List<_IndexedPlug> visible(PerkColumn column) => [
-          for (var i = 0; i < column.plugs.length; i++)
-            if (!canToggle ||
-                column.plugs[i].isEnhanced == (view == PerkView.enhanced))
-              _IndexedPlug(index: i, plug: column.plugs[i]),
-        ];
+    // *original* index so selection stays keyed to the full column. The filter
+    // is applied per column, and only to columns that actually hold both an
+    // enhanced and a regular variant to switch between — a Barrel/Magazine or
+    // origin-trait column with no enhanced version always shows its plugs, so
+    // toggling to Enhanced never blanks it.
+    List<_IndexedPlug> visible(PerkColumn column) {
+      final columnHasBoth = column.plugs.any((p) => p.isEnhanced) &&
+          column.plugs.any((p) => !p.isEnhanced);
+      return [
+        for (var i = 0; i < column.plugs.length; i++)
+          if (!columnHasBoth ||
+              column.plugs[i].isEnhanced == (view == PerkView.enhanced))
+            _IndexedPlug(index: i, plug: column.plugs[i]),
+      ];
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -437,18 +437,24 @@ class DatabaseRepository {
   /// resolved to displayable trait/perk plugs. Placeholder/empty plugs are
   /// dropped.
   List<ItemPlug> _columnPlugs(Map<String, dynamic> entry) {
-    final seen = <int>{};
+    final seenHash = <int>{};
+    // Collapse plugs that display identically — the game ships more than one
+    // hash for the same perk (e.g. two "Drop Mag" magazine plugs), which would
+    // otherwise show as a duplicate chip. A base and its enhanced counterpart
+    // share a name but differ in [isEnhanced], so they stay distinct.
+    final seenDisplay = <(String, bool)>{};
     final plugs = <ItemPlug>[];
     for (final hash in _columnPlugHashes(entry)) {
-      if (hash == 0 || !seen.add(hash)) continue;
+      if (hash == 0 || !seenHash.add(hash)) continue;
       final plug = _plugOf(hash, PlugCategory.perk);
-      if (plug != null) plugs.add(plug);
+      if (plug == null) continue;
+      if (!seenDisplay.add((plug.name, plug.isEnhanced))) continue;
+      plugs.add(plug);
     }
     // A column's plug sets list base and enhanced rolls in a mixed order (and a
     // socket may draw from two sets). Group all enhanced first, then base, each
     // keeping its original order (a stable partition, not List.sort which is
-    // not guaranteed stable). Perks are never deduped — a same-named base and
-    // enhanced roll are two distinct, real options.
+    // not guaranteed stable).
     return [
       ...plugs.where((p) => p.isEnhanced),
       ...plugs.where((p) => !p.isEnhanced),
@@ -479,9 +485,15 @@ class DatabaseRepository {
     }
   }
 
+  // The category identifier every crafted-weapon "Empty <Trait/Origins> Socket"
+  // placeholder shares. These appear in a definition's randomized/reusable plug
+  // sets as the unfilled-socket default; they are not real perks, so the modal
+  // drops them.
+  static const _craftingEmptySocket = 'crafting.recipes.empty_socket';
+
   /// Resolve a plug definition to an [ItemPlug]. [fallbackCategory] is used when
   /// the plug's own category identifier is missing. Returns null for plugs with
-  /// no display name (empty-socket placeholders).
+  /// no display name and for crafted-weapon empty-socket placeholders.
   ItemPlug? _plugOf(int plugHash, PlugCategory fallbackCategory) {
     final def = _manifest.getInventoryItem(plugHash);
     if (def == null) return null;
@@ -489,6 +501,7 @@ class DatabaseRepository {
     final name = (display?['name'] as String?) ?? '';
     if (name.isEmpty) return null;
     final plugCategory = def['plug']?['plugCategoryIdentifier'] as String?;
+    if (plugCategory == _craftingEmptySocket) return null;
     final category = plugCategory == null
         ? fallbackCategory
         : classifyPlug(plugCategory);
