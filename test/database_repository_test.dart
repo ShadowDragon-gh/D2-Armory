@@ -178,7 +178,9 @@ void main() {
 
       // The perk column's plug set: a base perk, an enhanced trait, an enhanced
       // barrel, an enhanced-via-tooltip copy of the base perk (same name, as
-      // enhanced origin traits appear), and one empty placeholder.
+      // enhanced origin traits appear), an empty placeholder with no name, and
+      // a crafted-weapon empty-socket placeholder (a NAMED "Empty Traits
+      // Socket").
       when(() => manifest.getPlugSet(555)).thenReturn({
         'reusablePlugItems': [
           {'plugItemHash': 801},
@@ -186,6 +188,8 @@ void main() {
           {'plugItemHash': 804},
           {'plugItemHash': 805}, // enhanced "Rampage" via tooltip → NOT deduped
           {'plugItemHash': 803}, // placeholder (no display name) → dropped
+          {'plugItemHash': 806}, // crafting empty-socket placeholder → dropped
+          {'plugItemHash': 807}, // 2nd base "Rampage" hash → deduped to one
         ]
       });
       when(() => manifest.getInventoryItem(801))
@@ -204,6 +208,18 @@ void main() {
         'displayProperties': {'name': ''},
         'plug': {'plugCategoryIdentifier': 'frames.traits'},
       });
+      // A crafted-weapon empty-socket placeholder: it HAS a display name
+      // ("Empty Traits Socket") but its crafting.recipes.empty_socket category
+      // marks it as the unfilled-socket default, not a real perk.
+      when(() => manifest.getInventoryItem(806)).thenReturn({
+        'displayProperties': {'name': 'Empty Traits Socket'},
+        'plug': {'plugCategoryIdentifier': 'crafting.recipes.empty_socket'},
+      });
+      // A second base "Rampage" under a different hash — the game ships more
+      // than one hash for the same perk. It must collapse into the one base
+      // Rampage chip (801), not show a duplicate.
+      when(() => manifest.getInventoryItem(807))
+          .thenReturn(_plug('Rampage', category: 'frames.traits'));
       when(() => manifest.getBreakerType(any())).thenReturn(null);
     });
 
@@ -226,13 +242,31 @@ void main() {
 
     test('perk column lists every candidate, dropping empty placeholders', () {
       final plugs = repo.resolveGearDetail(100)!.perkColumns.single.plugs;
-      // 803 (empty placeholder) dropped. The base and enhanced Rampage are both
-      // kept — same-named base/enhanced rolls are distinct, real options and
-      // are never deduped.
+      // 803 (no name) and 806 (crafting empty-socket) both dropped. The base and
+      // enhanced Rampage are both kept — same-named base/enhanced rolls are
+      // distinct, real options and are never deduped.
       expect(plugs.length, 4);
       expect(plugs.map((p) => p.name).toSet(),
           {'Rampage', 'Kill Clip', 'Fluted Barrel'});
       expect(plugs.where((p) => p.name == 'Rampage').length, 2);
+    });
+
+    test('crafted-weapon empty-socket placeholders are not shown as perks', () {
+      final plugs = repo.resolveGearDetail(100)!.perkColumns.single.plugs;
+      // The named "Empty Traits Socket" placeholder (crafting.recipes.
+      // empty_socket) must never appear as a selectable perk.
+      expect(plugs.where((p) => p.name == 'Empty Traits Socket'), isEmpty);
+    });
+
+    test('display-identical perks (same name + enhancement) are deduped', () {
+      final plugs = repo.resolveGearDetail(100)!.perkColumns.single.plugs;
+      // Hashes 801 and 807 are both base "Rampage" — they collapse to one chip.
+      // The enhanced Rampage (805) is a distinct option and survives, so there
+      // are exactly two Rampages: one base, one enhanced.
+      final rampages = plugs.where((p) => p.name == 'Rampage').toList();
+      expect(rampages.length, 2);
+      expect(rampages.where((p) => p.isEnhanced).length, 1);
+      expect(rampages.where((p) => !p.isEnhanced).length, 1);
     });
 
     test('enhanced plugs are ordered before base plugs in a column', () {

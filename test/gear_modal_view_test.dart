@@ -288,4 +288,41 @@ void main() {
     expect(c.read(databaseSearchProvider), 'is:exotic');
     expect(c.read(searchQueryProvider), ''); // inventory query untouched
   });
+
+  testWidgets(
+      'the Selected Perks panel starts expanded, then collapses to a narrower '
+      'rail and reopens via its chevron', (tester) async {
+    useWideSurface(tester);
+    final c = makeContainer();
+    await tester.pumpWidget(app(c));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Fatebringer'));
+    await tester.pumpAndSettle();
+
+    // The panel's animated width is the size of its width-factor builder.
+    final panel = find.byType(TweenAnimationBuilder<double>);
+
+    // Expanded by default: the Selected Perks section shows, and the toggle
+    // offers to hide it. The panel is at its full width.
+    expect(find.text('SELECTED PERKS'), findsOneWidget);
+    expect(find.textContaining('No perks selected'), findsOneWidget);
+    expect(find.byTooltip('Hide selected perks'), findsOneWidget);
+    final expandedWidth = tester.getSize(panel).width;
+
+    // Collapse via the chevron: the panel shrinks to a narrower rail whose
+    // chevron now offers to reopen it.
+    await tester.tap(find.byTooltip('Hide selected perks'));
+    await tester.pumpAndSettle();
+    final collapsedWidth = tester.getSize(panel).width;
+    expect(collapsedWidth, lessThan(expandedWidth));
+    expect(find.byTooltip('Show selected perks'), findsOneWidget);
+    expect(find.byTooltip('Hide selected perks'), findsNothing);
+
+    // Reopen: back to full width with the hide chevron.
+    await tester.tap(find.byTooltip('Show selected perks'));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(panel).width, expandedWidth);
+    expect(find.byTooltip('Hide selected perks'), findsOneWidget);
+  });
 }
