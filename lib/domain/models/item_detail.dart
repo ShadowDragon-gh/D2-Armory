@@ -87,6 +87,7 @@ class ItemStat {
     this.masterworkBonus = 0,
     this.reduction = 0,
     this.inverted = false,
+    this.tuningBoosted = false,
   });
 
   /// The stat's definition hash, so a selected perk's [PerkStatEffect] can be
@@ -108,6 +109,11 @@ class ItemStat {
   /// so a [reduction] is beneficial rather than a penalty — the UI colours the
   /// net effect by this.
   final bool inverted;
+
+  /// Whether the equipped armor stat-tuning ("+X / -Y") trade-off boosts this
+  /// stat — the game shows a small up/down glyph on the boosted stat only. The
+  /// tuning's value itself is already folded into [value]/[modBonus].
+  final bool tuningBoosted;
 
   /// The combined mod + masterwork gain (for callers that don't distinguish
   /// the two).
@@ -157,6 +163,7 @@ class ItemPlug {
     this.description = '',
     this.note = '',
     this.energyCost = 0,
+    this.isTuning = false,
     this.isEnabled = true,
     this.isEnhanced = false,
     this.statEffects = const [],
@@ -178,6 +185,10 @@ class ItemPlug {
   /// "Mod Cost" stat), shown as a small badge on the mod icon. 0 for plugs with
   /// no energy cost (weapon mods, perks, empty sockets).
   final int energyCost;
+
+  /// Whether this is an armor stat-tuning ("+X / -Y") plug. The mods row orders
+  /// the tuning chip right after the primary mod rather than by socket index.
+  final bool isTuning;
 
   final bool isEnabled;
 

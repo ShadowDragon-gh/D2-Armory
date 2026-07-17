@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/destiny/destiny_enums.dart';
@@ -663,12 +664,25 @@ class _RolledPlugArea extends StatelessWidget {
 
   final ItemDetail instance;
 
+  /// Order the mods for display: the stat-tuning ("+X / -Y") chip sits second —
+  /// right after the primary mod — rather than last (its socket index is the
+  /// highest). Everything else keeps its socket order.
+  static List<ItemPlug> _orderMods(List<ItemPlug> mods) {
+    final tuningIndex = mods.indexWhere((m) => m.isTuning);
+    if (tuningIndex <= 1) return mods; // absent, or already first/second
+    final reordered = [...mods];
+    final tuning = reordered.removeAt(tuningIndex);
+    reordered.insert(1, tuning);
+    return reordered;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final perks = instance.plugsOf(PlugCategory.perk).toList();
-    final mods = instance.plugsOf(PlugCategory.mod).toList();
+    final mods = _orderMods(instance.plugsOf(PlugCategory.mod).toList());
     final masterwork = instance.plugsOf(PlugCategory.masterwork).toList();
+    final cosmetics = instance.plugsOf(PlugCategory.cosmetic).toList();
     final catalyst = instance.catalyst;
     // Objectives show while the catalyst is acquired but not yet complete.
     final objectives =
@@ -752,6 +766,12 @@ class _RolledPlugArea extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: 16),
+        ],
+        if (cosmetics.isNotEmpty) ...[
+          const _SectionLabel('Cosmetics'),
+          const SizedBox(height: 8),
+          chips(cosmetics),
           const SizedBox(height: 16),
         ],
         if (catalyst != null) _CatalystInfo(catalyst: catalyst),
@@ -1132,9 +1152,19 @@ class _RolledStats extends StatelessWidget {
               children: [
                 SizedBox(
                   width: 130,
-                  child: Text(stat.name,
-                      style: const TextStyle(fontSize: 13),
-                      overflow: TextOverflow.ellipsis),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(stat.name,
+                            style: const TextStyle(fontSize: 13),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                      if (stat.tuningBoosted) ...[
+                        const SizedBox(width: 5),
+                        const _TuningGlyph(),
+                      ],
+                    ],
+                  ),
                 ),
                 SizedBox(
                   width: 34,
@@ -1163,6 +1193,33 @@ class _RolledStats extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// The stat-tuning glyph the game shows next to the stat an equipped "+X / -Y"
+/// trade-off boosts: a horizontal bar with an up-chevron on the left and a
+/// down-chevron on the right. Shown on the boosted stat only. The path is
+/// DIM's `TunedStat` icon (32×32 viewBox), which matches the in-game mark.
+class _TuningGlyph extends StatelessWidget {
+  const _TuningGlyph();
+
+  static const _path =
+      'M2,14.25 h28 v3.5 h-28zM2,10.5 l7,-7 l7,7 h-4.5 l-2.5,-2.5 l-2.5,2.5 z'
+      'M30,21.5 l-7,7 l-7,-7 h4.5 l2.5,2.5 l2.5,-2.5 z';
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Tooltip(
+      message: 'Boosted by stat tuning',
+      child: SvgPicture.string(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+        '<path d="$_path" fill="currentColor"/></svg>',
+        width: 14,
+        height: 14,
+        colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      ),
     );
   }
 }

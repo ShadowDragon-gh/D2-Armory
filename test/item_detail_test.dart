@@ -1871,6 +1871,162 @@ void main() {
     expect(active[1], 'Mod8821');
   });
 
+  test('the armor stat-tuning trade-off socket is editable, and its equipped '
+      '+X/-Y tags the affected stat rows', () async {
+    const armorHash = 8901;
+    const armorModsCategory = 590099826;
+    const tuningType = 2581339086; // whitelist ...tuning.mods
+    const tuningSet = 8900;
+    const superStat = 1000; // arbitrary test stat hashes
+    const healthStat = 1001;
+    const equippedTuning = 8910; // +Super / -Health (equipped)
+    const altTuning = 8911; // +Health / -Super (alternative)
+    const emptyTuning = 8912; // Empty Tuning Mod Socket
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Legs', 'icon': '/i/l.jpg'},
+      'itemType': 2,
+      'itemSubType': 29,
+      'itemTypeDisplayName': 'Leg Armor',
+      'inventory': {'bucketTypeHash': EquipmentBucket.legArmor.hash},
+      'stats': {
+        'stats': {
+          '$superStat': {'statHash': superStat},
+          '$healthStat': {'statHash': healthStat},
+        }
+      },
+      'sockets': {
+        'socketCategories': [
+          {'socketCategoryHash': armorModsCategory, 'socketIndexes': [0]},
+        ],
+        'socketEntries': [
+          {'singleInitialItemHash': equippedTuning, 'socketTypeHash': tuningType,
+            'reusablePlugSetHash': tuningSet},
+        ],
+      },
+    });
+    when(() => manifest.getSocketType(tuningType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'core.gear_systems.armor_tiering.plugs.tuning.mods'}
+      ],
+    });
+    when(() => manifest.getPlugSet(tuningSet)).thenReturn({
+      'reusablePlugItems': [
+        {'plugItemHash': equippedTuning},
+        {'plugItemHash': altTuning},
+        {'plugItemHash': emptyTuning},
+      ],
+    });
+    when(() => manifest.getStat(superStat)).thenReturn({
+      'displayProperties': {'name': 'Super'}
+    });
+    when(() => manifest.getStat(healthStat)).thenReturn({
+      'displayProperties': {'name': 'Health'}
+    });
+    Map<String, dynamic> tuningDef(String name, int plus, int minus,
+            {List<String> rules = const ['Requires Guardian Rank 3']}) =>
+        {
+          'displayProperties': {'name': name, 'icon': '/i/tune.jpg'},
+          'plug': {
+            'plugCategoryIdentifier':
+                'core.gear_systems.armor_tiering.plugs.tuning.mods',
+            'insertionRules': [for (final m in rules) {'failureMessage': m}],
+          },
+          'investmentStats': [
+            {'statTypeHash': plus, 'value': 5, 'isConditionallyActive': false},
+            {'statTypeHash': minus, 'value': -5, 'isConditionallyActive': false},
+          ],
+        };
+    when(() => manifest.getInventoryItem(equippedTuning))
+        .thenReturn(tuningDef('+Super / -Health', superStat, healthStat));
+    when(() => manifest.getInventoryItem(altTuning))
+        .thenReturn(tuningDef('+Health / -Super', healthStat, superStat));
+    when(() => manifest.getInventoryItem(emptyTuning)).thenReturn({
+      'displayProperties': {'name': 'Empty Tuning Mod Socket', 'icon': '/i/e.jpg'},
+      'plug': {
+        'plugCategoryIdentifier':
+            'core.gear_systems.armor_tiering.plugs.tuning.mods',
+        'insertionRules': const [],
+      },
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': 'a9',
+                    'bucketHash': EquipmentBucket.legArmor.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                'a9': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                'a9': {
+                  'sockets': [
+                    {'plugHash': equippedTuning, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {'data': {}},
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.legArmor.hash).single;
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+
+    // The tuning socket is an editable mod column with the +X/-Y options.
+    final col = detail.modColumns.single;
+    expect(col.plugs.map((p) => p.name),
+        containsAll(['+Super / -Health', '+Health / -Super']));
+    expect(col.plugs[col.activeIndex!].name, '+Super / -Health');
+
+    // The equipped tuning plug is flagged so the mods row can order it second.
+    final equipped = detail
+        .plugsOf(PlugCategory.mod)
+        .firstWhere((p) => p.name == '+Super / -Health');
+    expect(equipped.isTuning, isTrue);
+
+    // Only the boosted stat (Super) is flagged; the reduced stat (Health) and
+    // untouched stats are not — the game marks only the boosted side.
+    final bySt = {for (final s in detail.stats) s.name: s};
+    expect(bySt['Super']!.tuningBoosted, isTrue);
+    expect(bySt['Health']!.tuningBoosted, isFalse);
+  });
+
   test('patchSocketPlug applies then reverses a plug + stat change, so an '
       'optimistic insert shows the new plug and a failed one rolls back',
       () async {

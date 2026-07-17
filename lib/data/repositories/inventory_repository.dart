@@ -474,11 +474,14 @@ class InventoryRepository {
   static const _armorModsCategory = 590099826;
 
   // A socket in [_armorModsCategory] is a user-editable mod slot only when its
-  // plug whitelist names a modern armor mod family — an `enhancements.*`
-  // identifier (v2_general, v2_head, chest, universal, …). This excludes the
-  // masterwork/"Upgrade Armor" socket (v460.plugs.armor.masterworks) and any
-  // legacy 1.0 `mods` socket, which InsertSocketPlugFree rejects.
-  static bool _armorModWhitelist(String id) => id.startsWith('enhancements.');
+  // plug whitelist names a modern armor mod family: an `enhancements.*`
+  // identifier (v2_general, v2_head, chest, universal, …) or the stat-tuning
+  // trade-off socket (`…armor_tiering.plugs.tuning.mods`, the "+X / -Y" plugs).
+  // This excludes the masterwork/"Upgrade Armor" socket
+  // (v460.plugs.armor.masterworks) and any legacy 1.0 `mods` socket, which
+  // InsertSocketPlugFree rejects.
+  static bool _armorModWhitelist(String id) =>
+      id.startsWith('enhancements.') || id.contains('.tuning.');
 
   // Armor-mod install-cost stats (stable game constants): "Any Energy Type
   // Cost" and "Mod Cost". These are the mod's energy cost, not a gameplay stat
@@ -1491,6 +1494,10 @@ class InventoryRepository {
             ? [for (final k in statMap.keys) int.tryParse(k as String) ?? -1]
             : const <int>[]);
 
+    // The stat the equipped stat-tuning trade-off boosts (if any), so that row
+    // can show the tuning glyph.
+    final tuningBoostedStat = _tuningBoostedStat(socketsData);
+
     final result = <ItemStat>[];
     for (final statHash in statHashes) {
       if (statHash < 0) continue;
@@ -1541,9 +1548,37 @@ class InventoryRepository {
         masterworkBonus: mwSeg > 0 ? mwSeg : 0,
         reduction: reduction,
         inverted: interpolator.isInverted(statHash),
+        tuningBoosted: statHash == tuningBoostedStat,
       ));
     }
     return sortStatsForDisplay(result);
+  }
+
+  /// The stat hash the equipped stat-tuning trade-off *boosts*, or null when no
+  /// tuning plug is socketed. A tuning mod grants +N to one stat and -N to
+  /// another; the game marks only the boosted stat (with the up/down glyph), so
+  /// only that stat is returned.
+  int? _tuningBoostedStat(Map<String, dynamic>? socketsData) {
+    final sockets = socketsData?['sockets'];
+    if (sockets is! List) return null;
+    for (final socket in sockets) {
+      final s = socket as Map<String, dynamic>;
+      if (s['isVisible'] == false) continue;
+      final plugHash = (s['plugHash'] as num?)?.toInt();
+      if (plugHash == null || plugHash == 0) continue;
+      final def = _manifest.getInventoryItem(plugHash);
+      final pci = (def?['plug'] as Map?)?['plugCategoryIdentifier'] as String?;
+      if (pci == null || !pci.contains('.tuning.')) continue;
+      final invStats = def?['investmentStats'];
+      if (invStats is! List) return null;
+      for (final st in invStats) {
+        final statHash = ((st as Map)['statTypeHash'] as num?)?.toInt();
+        final value = (st['value'] as num?)?.toInt() ?? 0;
+        if (statHash != null && value > 0) return statHash; // the boosted stat
+      }
+      return null; // one tuning socket per piece
+    }
+    return null;
   }
 
   List<ItemPlug> _resolvePlugs(
@@ -1595,6 +1630,7 @@ class InventoryRepository {
             _plugDescription(def, display, hasStatEffects: statEffects.isNotEmpty),
         note: _plugNote(def),
         energyCost: _plugEnergyCost(def),
+        isTuning: plugCategory != null && plugCategory.contains('.tuning.'),
         category: category,
         isEnabled: s['isEnabled'] != false,
         isEnhanced: enhanced,
