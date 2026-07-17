@@ -358,6 +358,13 @@ class ArmorEnergy {
 
   final int capacity;
   final int used;
+
+  /// Whether swapping the mod currently in a socket (costing [equippedCost])
+  /// for one costing [candidateCost] keeps used energy within [capacity].
+  /// [used] already includes the equipped mod, so the swap changes it by
+  /// (candidate − equipped).
+  bool canAffordSwap({required int equippedCost, required int candidateCost}) =>
+      used - equippedCost + candidateCost <= capacity;
 }
 
 /// Everything the detail panel shows for a single item: the base [item] plus

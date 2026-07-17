@@ -1526,6 +1526,24 @@ void main() {
     expect(detail.armorEnergy!.used, 2);
   });
 
+  test('ArmorEnergy.canAffordSwap gates a mod swap on remaining capacity', () {
+    // 9 of 11 used, so 2 free. The current socket holds a cost-1 mod.
+    const energy = ArmorEnergy(capacity: 11, used: 9);
+
+    // Swap cost-1 → cost-3: net +2 → 11 used, exactly at capacity → allowed.
+    expect(
+        energy.canAffordSwap(equippedCost: 1, candidateCost: 3), isTrue);
+    // Swap cost-1 → cost-4: net +3 → 12 used, over capacity → blocked.
+    expect(
+        energy.canAffordSwap(equippedCost: 1, candidateCost: 4), isFalse);
+    // Swapping for a cheaper mod always fits.
+    expect(
+        energy.canAffordSwap(equippedCost: 3, candidateCost: 1), isTrue);
+    // Re-selecting the same-cost mod is always affordable.
+    expect(
+        energy.canAffordSwap(equippedCost: 2, candidateCost: 2), isTrue);
+  });
+
   test('patchSocketPlug applies then reverses a plug + stat change, so an '
       'optimistic insert shows the new plug and a failed one rolls back',
       () async {

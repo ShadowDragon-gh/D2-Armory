@@ -571,8 +571,9 @@ class _StatArea extends ConsumerWidget {
   }
 }
 
-/// The armor energy readout shown above the stats: "Energy  used / total" with
-/// a slim capacity bar, matching the in-game armor display.
+/// The armor energy readout shown above the stats: "Energy  used / total" over
+/// a segmented capacity bar — one segment per energy point, filled up to [used]
+/// in steel grey — matching the in-game armor display.
 class _ArmorEnergyMeter extends StatelessWidget {
   const _ArmorEnergyMeter({required this.energy});
 
@@ -582,8 +583,6 @@ class _ArmorEnergyMeter extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final capacity = energy.capacity;
-    final fraction =
-        capacity > 0 ? (energy.used / capacity).clamp(0.0, 1.0) : 0.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -602,14 +601,25 @@ class _ArmorEnergyMeter extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(2),
-          child: LinearProgressIndicator(
-            value: fraction,
-            minHeight: 5,
-            backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            color: theme.colorScheme.primary,
-          ),
+        // One segment per energy point; the first [used] segments are filled.
+        Row(
+          children: [
+            for (var i = 0; i < capacity; i++) ...[
+              if (i > 0) const SizedBox(width: 3),
+              Expanded(
+                child: Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: i < energy.used
+                        ? ArmoryPalette.borderStronger
+                        : ArmoryPalette.surface1,
+                    borderRadius: BorderRadius.circular(2),
+                    border: Border.all(color: ArmoryPalette.borderStrong),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ],
     );
@@ -909,6 +919,18 @@ class _ModPickerState extends ConsumerState<_ModPicker> {
   static const _gridColumns = 6;
   static const _cellSize = 40.0;
 
+  /// Whether the armor can afford to swap this socket's mod for [option].
+  /// Swapping changes used energy by (option − currently-equipped), so the
+  /// result must fit within capacity. Always true when there is no energy meter
+  /// (weapon mods, or armor without energy data) — nothing to constrain.
+  bool _canAfford(ItemPlug option) {
+    final energy = widget.instance.armorEnergy;
+    if (energy == null) return true;
+    return energy.canAffordSwap(
+        equippedCost: widget.equipped.energyCost,
+        candidateCost: option.energyCost);
+  }
+
   @override
   Widget build(BuildContext context) {
     final column = widget.column;
@@ -941,7 +963,13 @@ class _ModPickerState extends ConsumerState<_ModPicker> {
                   plug: option,
                   size: _cellSize,
                   selected: option.plugHash == equipped.plugHash,
-                  onTap: option.plugHash == equipped.plugHash
+                  // Disable an option the armor cannot afford: swapping this
+                  // socket's mod changes used energy by (option − equipped), so
+                  // it must fit within capacity. Only armor has an energy meter;
+                  // weapon mods have no cost, so nothing is ever blocked there.
+                  disabled: !_canAfford(option),
+                  onTap: option.plugHash == equipped.plugHash ||
+                          !_canAfford(option)
                       ? null
                       : () {
                           _controller.close();
@@ -963,18 +991,21 @@ class _ModPickerState extends ConsumerState<_ModPicker> {
 
 /// One cell in the mod-options grid: the mod's circular icon, hoverable for its
 /// details ([_PerkTooltip]) and clickable to select it. The equipped option is
-/// ringed; clicking it is a no-op (null [onTap]).
+/// ringed; clicking it is a no-op (null [onTap]). A [disabled] option (e.g. not
+/// enough armor energy to swap it in) is greyed and not selectable.
 class _ModOptionIcon extends StatelessWidget {
   const _ModOptionIcon({
     required this.plug,
     required this.size,
     required this.selected,
+    this.disabled = false,
     this.onTap,
   });
 
   final ItemPlug plug;
   final double size;
   final bool selected;
+  final bool disabled;
   final VoidCallback? onTap;
 
   @override
@@ -990,7 +1021,7 @@ class _ModOptionIcon extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(4),
             child: Opacity(
-              opacity: plug.isEnabled ? 1 : 0.4,
+              opacity: disabled || !plug.isEnabled ? 0.4 : 1,
               child: _PerkIcon(
                   plug: plug, size: size - 8, selected: selected),
             ),
