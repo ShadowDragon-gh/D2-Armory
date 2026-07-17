@@ -335,11 +335,13 @@ class MoveController extends Notifier<MoveOutcome?> {
           title: 'Perk selected');
     } on Failure catch (e) {
       // The insert did not take — roll back the optimistic update as a unit:
-      // restore the socket's prior plug (reversing the stat delta) and clear
-      // the highlight override, then re-resolve the detail.
+      // restore the socket's prior plug (reversing the stat delta), forget the
+      // pending edit so it is not re-applied over later fetches, and clear the
+      // highlight override, then re-resolve the detail.
       if (oldPlugHash != null) {
         repo.patchSocketPlug(item, socketIndex, oldPlugHash);
       }
+      repo.clearPendingSocketEdit(item, socketIndex);
       ref.read(gearModalPlugOverrideProvider.notifier).clearSocket(socketIndex);
       ref.read(gearModalRevisionProvider.notifier).bump();
       state = MoveOutcome.failure(e.message, title: 'Selection failed');

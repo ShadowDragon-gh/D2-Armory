@@ -1740,6 +1740,137 @@ void main() {
         energy.canAffordSwap(equippedCost: 2, candidateCost: 2), isTrue);
   });
 
+  test('rapid swaps on two sockets both persist through an edge-lagged refetch '
+      '— a later fetch that has not propagated a swap does not revert it',
+      () async {
+    // A weapon with two swappable mod sockets (0 and 1).
+    const gunHash = 8801;
+    const modsCategory = 2685412949;
+    // socket 0: 8810 → 8811, socket 1: 8820 → 8821.
+    Map<String, dynamic> modDef(int h) => {
+          'displayProperties': {'name': 'Mod$h', 'icon': '/i/$h.jpg'},
+          'plug': {'plugCategoryIdentifier': 'v400.plugs.weapons.mods'},
+        };
+    for (final h in [8810, 8811, 8820, 8821]) {
+      when(() => manifest.getInventoryItem(h)).thenReturn(modDef(h));
+    }
+    when(() => manifest.getInventoryItem(gunHash)).thenReturn({
+      'displayProperties': {'name': 'Test Gun', 'icon': '/i/g.jpg'},
+      'itemType': 3,
+      'itemSubType': 9,
+      'itemTypeDisplayName': 'Hand Cannon',
+      'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
+      'sockets': {
+        'socketCategories': [
+          {'socketCategoryHash': modsCategory, 'socketIndexes': [0, 1]},
+        ],
+        'socketEntries': [
+          {'singleInitialItemHash': 8810, 'reusablePlugSetHash': 8800},
+          {'singleInitialItemHash': 8820, 'reusablePlugSetHash': 8802},
+        ],
+      },
+    });
+    when(() => manifest.getPlugSet(8800)).thenReturn({
+      'reusablePlugItems': [
+        {'plugItemHash': 8810},
+        {'plugItemHash': 8811},
+      ],
+    });
+    when(() => manifest.getPlugSet(8802)).thenReturn({
+      'reusablePlugItems': [
+        {'plugItemHash': 8820},
+        {'plugItemHash': 8821},
+      ],
+    });
+
+    Map<String, dynamic> profile(int s0, int s1, String minted) => {
+          'responseMintedTimestamp': minted,
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': gunHash,
+                    'itemInstanceId': 'w1',
+                    'bucketHash': EquipmentBucket.kineticWeapons.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                'w1': {'damageType': 1, 'primaryStat': {'value': 540}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                'w1': {
+                  'sockets': [
+                    {'plugHash': s0, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': s1, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {'data': {}},
+          },
+        };
+
+    // 1) initial (T0). 2) after swap A: profile has socket0=8811 but not yet
+    // socket1's change, minted T1. 3) after swap B: edge LAGS, same T1 profile
+    // (socket1 still 8820) — the swap B optimistic edit must survive it.
+    final responses = [
+      profile(8810, 8820, '2026-07-01T00:00:00Z'),
+      profile(8811, 8820, '2026-07-01T00:00:01Z'),
+      profile(8811, 8820, '2026-07-01T00:00:01Z'),
+    ];
+    var call = 0;
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async =>
+        responses[call < responses.length ? call++ : responses.length - 1]);
+
+    final grid = await repo.fetchInventory();
+    final gun =
+        grid.owners.first.itemsFor(EquipmentBucket.kineticWeapons.hash).single;
+
+    // Swap A on socket 0, then a refetch (as insertPlug does).
+    repo.patchSocketPlug(gun, 0, 8811);
+    await repo.fetchInventory(reuseDecoded: true);
+    // Swap B on socket 1, then an edge-lagged refetch (no B yet).
+    repo.patchSocketPlug(gun, 1, 8821);
+    await repo.fetchInventory(reuseDecoded: true);
+
+    final detail = repo.resolveDetail(gun, withPerkColumns: true);
+    final active = {
+      for (final c in detail.modColumns)
+        c.socketIndex: c.plugs[c.activeIndex!].name
+    };
+    // Both swaps hold: A propagated in the profile, B held by the pending edit.
+    expect(active[0], 'Mod8811');
+    expect(active[1], 'Mod8821');
+  });
+
   test('patchSocketPlug applies then reverses a plug + stat change, so an '
       'optimistic insert shows the new plug and a failed one rolls back',
       () async {

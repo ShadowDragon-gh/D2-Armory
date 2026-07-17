@@ -29,6 +29,15 @@ class InventoryRepository {
   // computed from the definition + socket investment (the DIM model), not the
   // ItemStats (304) component, so only sockets/reusable-plugs are retained.
   Map<String, dynamic> _sockets = const {};
+  // Optimistic socket edits not yet confirmed by a fetched profile, keyed by
+  // instance id → socket index → the plug hash the user selected. A fetch
+  // overwrites [_sockets] wholesale, and Bungie's edge cache can serve a
+  // profile that lags a just-made write (newer timestamp, older sockets) — so
+  // these edits are re-applied over every fetched profile until one actually
+  // reports the selected plug, then dropped. Without this, a swap made while an
+  // edge-lagged refetch lands is silently reverted (and the stale state sticks
+  // until app restart).
+  final Map<String, Map<int, int>> _pendingSocketEdits = {};
   // Instance-keyed ItemInstances (300) component from the last fetch, retained
   // for the armor energy meter (its `energy` holds capacity/used). Power and
   // damage are read off it at decode time, so only armor energy needs it later.
@@ -61,8 +70,10 @@ class InventoryRepository {
   /// this cache would otherwise stay stale until a genuinely newer snapshot).
   /// Stats derive from the socket plugs' investment, so swapping the plug hash
   /// alone shifts the recomputed stat bars — no separate stat patch is needed.
-  /// The next fresh [fetchInventory] overwrites the component, so this is a
-  /// stop-gap a real refresh supersedes.
+  /// The edit is also recorded in [_pendingSocketEdits] and re-applied over
+  /// every later [fetchInventory] until a fetched profile reports it, so an
+  /// edge-lagged refetch cannot silently revert it (only a failed insert, via
+  /// [clearPendingSocketEdit], or genuine propagation drops it).
   ///
   /// Returns the plug hash previously in the socket, so a failed insert can be
   /// rolled back by patching it back; null when the instance or socket is not
@@ -80,7 +91,45 @@ class InventoryRepository {
     if (socket is! Map<String, dynamic>) return null;
     final oldHash = (socket['plugHash'] as num?)?.toInt();
     socket['plugHash'] = plugHash;
+    // Remember the edit so it survives a refetch that has not yet propagated it
+    // (see [_pendingSocketEdits] / [_reapplyPendingSocketEdits]).
+    (_pendingSocketEdits[instanceId] ??= {})[socketIndex] = plugHash;
     return oldHash;
+  }
+
+  /// Forget the pending optimistic edit for [item]'s [socketIndex] — called
+  /// when an insert fails and its optimistic patch is rolled back, so the edit
+  /// is not re-applied over later fetches.
+  void clearPendingSocketEdit(DestinyItem item, int socketIndex) {
+    final instanceId = item.itemInstanceId;
+    if (instanceId == null) return;
+    final edits = _pendingSocketEdits[instanceId];
+    if (edits == null) return;
+    edits.remove(socketIndex);
+    if (edits.isEmpty) _pendingSocketEdits.remove(instanceId);
+  }
+
+  /// Re-apply the pending optimistic socket edits over the freshly-fetched
+  /// [_sockets]. A fetch overwrites the sockets wholesale, so an edit the
+  /// fetched profile has not yet propagated would be lost; re-applying keeps it
+  /// visible. An edit the profile now reports (the socket already holds the
+  /// selected plug) has propagated and is dropped.
+  void _reapplyPendingSocketEdits() {
+    if (_pendingSocketEdits.isEmpty) return;
+    _pendingSocketEdits.removeWhere((instanceId, edits) {
+      final sockets = (_sockets[instanceId] as Map<String, dynamic>?)?['sockets'];
+      if (sockets is! List) return true; // instance gone — drop its edits
+      edits.removeWhere((socketIndex, plugHash) {
+        if (socketIndex < 0 || socketIndex >= sockets.length) return true;
+        final socket = sockets[socketIndex];
+        if (socket is! Map<String, dynamic>) return true;
+        final current = (socket['plugHash'] as num?)?.toInt();
+        if (current == plugHash) return true; // propagated — stop tracking
+        socket['plugHash'] = plugHash; // not yet propagated — re-apply
+        return false;
+      });
+      return edits.isEmpty;
+    });
   }
 
   // Search facets per item instance id, resolved lazily by [inventoryFacetsFor]
@@ -146,6 +195,11 @@ class InventoryRepository {
     final instances = _dataMap(itemComponents?['instances']);
     _instances = instances;
     _sockets = _dataMap(itemComponents?['sockets']);
+    // Re-apply optimistic socket edits the fetched profile has not yet caught
+    // up to (Bungie's edge cache can lag a just-made write), before decoding —
+    // so decode signatures and resolved detail reflect the edits, not a stale
+    // profile that would silently revert them.
+    _reapplyPendingSocketEdits();
     _reusablePlugs = _dataMap(itemComponents?['reusablePlugs']);
     _plugObjectives = _dataMap(itemComponents?['plugObjectives']);
     _records = _mergeRecords(profile);
