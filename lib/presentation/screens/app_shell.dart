@@ -87,11 +87,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   : Icons.diamond_outlined),
               onPressed: () => ref.read(showTierProvider.notifier).toggle(),
             ),
-            IconButton(
-              tooltip: 'Refresh',
-              icon: const Icon(Icons.refresh),
-              onPressed: () => ref.invalidate(inventoryGridProvider),
-            ),
+            const _RefreshButton(),
           ],
           const UpdateAction(),
           IconButton(
@@ -118,6 +114,57 @@ class _AppShellState extends ConsumerState<AppShell> {
           DatabaseScreen(),
         ],
       ),
+    );
+  }
+}
+
+/// The inventory refresh button. Its icon spins continuously while the profile
+/// refetch is in flight (the grid provider is loading), then stops. The spin
+/// tracks only the inventory refresh — the filter/facet warm is a separate
+/// provider and does not drive it.
+class _RefreshButton extends ConsumerStatefulWidget {
+  const _RefreshButton();
+
+  @override
+  ConsumerState<_RefreshButton> createState() => _RefreshButtonState();
+}
+
+class _RefreshButtonState extends ConsumerState<_RefreshButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+
+  @override
+  void dispose() {
+    _spin.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loading = ref.watch(inventoryGridProvider).isLoading;
+    // Repeat while refreshing; when it ends, let the current turn finish so the
+    // icon settles upright rather than stopping mid-rotation. Guard the stop on
+    // still-idle so a refresh that restarts before the turn completes keeps
+    // spinning.
+    if (loading) {
+      if (!_spin.isAnimating) _spin.repeat();
+    } else if (_spin.isAnimating) {
+      _spin.forward(from: _spin.value).whenComplete(() {
+        if (!ref.read(inventoryGridProvider).isLoading) _spin.stop();
+      });
+    }
+    return IconButton(
+      tooltip: 'Refresh',
+      icon: RotationTransition(
+        turns: _spin,
+        child: const Icon(Icons.refresh),
+      ),
+      // Ignore taps while a refresh is already running.
+      onPressed:
+          loading ? null : () => ref.invalidate(inventoryGridProvider),
     );
   }
 }
