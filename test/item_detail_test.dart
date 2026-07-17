@@ -1153,23 +1153,29 @@ void main() {
     expect(backup.description, 'Adds a small amount of reserve ammo.');
   });
 
-  test('resolveDetail(withPerkColumns) resolves ARMOR MODS and legacy '
-      'ARMOR PERKS sockets into swappable mod columns, drops the single-option '
-      'masterwork socket, and leaves the fixed ARMOR PERKS socket non-editable',
-      () async {
+  test('resolveDetail(withPerkColumns) makes only modern ARMOR MODS sockets '
+      '(enhancements.* whitelist) editable — dropping the masterwork socket, '
+      'the legacy 1.0-mods socket, and the fixed ARMOR PERKS socket', () async {
     const armorHash = 9001;
     const armorModsCategory = 590099826; // ARMOR MODS
-    const legacyPerksCategory = 2518356196; // swappable "ARMOR PERKS" (mods)
+    const legacyPerksCategory = 2518356196; // legacy "ARMOR PERKS" (1.0 mods)
     const fixedPerksCategory = 3154740035; // built-in, non-swappable
 
-    // Socket 0: an ARMOR MODS slot with two swappable mods → a column.
+    // Socket type hashes → distinct plug whitelists (what gates editability).
+    const modHeadType = 968742181; // whitelist enhancements.v2_head → editable
+    const masterworkType = 1843767421; // v460.plugs.armor.masterworks → dropped
+    const legacyModType = 4076485920; // whitelist "mods" (1.0) → NOT editable
+    const fixedType = 3154740036; // intrinsics-ish → not a mod socket
+
+    // Socket 0: a modern ARMOR MODS slot with two swappable mods → a column.
     const equippedMod = 9101; // Recovery Mod (equipped)
     const altMod = 9102; // Resilience Mod (alternative)
-    // Socket 1: a legacy ARMOR PERKS slot with two swappable stat mods.
+    // Socket 2: the masterwork/tier socket → dropped (non-enhancements.*).
+    const tierPlug = 9301; // Upgrade Armor
+    // Socket 1: a legacy ARMOR PERKS 1.0-mods slot with two options — the free
+    // socket-insert endpoint cannot edit these, so they must NOT be a column.
     const equippedLegacy = 9201; // Plasteel Reinforcement (equipped)
     const altLegacy = 9202; // Restorative (alternative)
-    // Socket 2: the masterwork/tier socket — a single, non-mod plug → dropped.
-    const tierPlug = 9301; // Upgrade Armor
     // Socket 3: a fixed (built-in) armor perk → never a mod column.
     const fixedPerk = 9401;
 
@@ -1195,12 +1201,37 @@ void main() {
           },
         ],
         'socketEntries': [
-          {'singleInitialItemHash': equippedMod},
-          {'singleInitialItemHash': equippedLegacy},
-          {'singleInitialItemHash': tierPlug},
-          {'singleInitialItemHash': fixedPerk},
+          {'singleInitialItemHash': equippedMod, 'socketTypeHash': modHeadType},
+          {
+            'singleInitialItemHash': equippedLegacy,
+            'socketTypeHash': legacyModType
+          },
+          {'singleInitialItemHash': tierPlug, 'socketTypeHash': masterworkType},
+          {'singleInitialItemHash': fixedPerk, 'socketTypeHash': fixedType},
         ],
       },
+    });
+    // Socket-type whitelists: the enhancements.* family is what makes a socket
+    // an editable modern mod slot; the others are excluded.
+    when(() => manifest.getSocketType(modHeadType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'enhancements.v2_head'}
+      ],
+    });
+    when(() => manifest.getSocketType(masterworkType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'v460.plugs.armor.masterworks'}
+      ],
+    });
+    when(() => manifest.getSocketType(legacyModType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'mods'}
+      ],
+    });
+    when(() => manifest.getSocketType(fixedType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'intrinsics'}
+      ],
     });
     when(() => manifest.getInventoryItem(equippedMod)).thenReturn({
       'displayProperties': {'name': 'Recovery Mod', 'icon': '/i/rec.jpg'},
@@ -1312,11 +1343,11 @@ void main() {
         grid.owners.first.itemsFor(EquipmentBucket.helmet.hash).single;
     final detail = repo.resolveDetail(armor, withPerkColumns: true);
 
-    // Two editable mod columns: the ARMOR MODS socket and the legacy
-    // ARMOR PERKS socket. The masterwork socket (single, non-mod plug) and the
-    // fixed-perk socket are not columns.
+    // Only the modern ARMOR MODS socket (0) is editable. The legacy 1.0-mods
+    // socket (1), the masterwork socket (2), and the fixed-perk socket (3) are
+    // all excluded — the free socket-insert endpoint cannot edit them.
     final bySocket = {for (final c in detail.modColumns) c.socketIndex: c};
-    expect(bySocket.keys, unorderedEquals([0, 1]));
+    expect(bySocket.keys, unorderedEquals([0]));
 
     final armorModColumn = bySocket[0]!;
     expect(armorModColumn.plugs.map((p) => p.name),
@@ -1328,10 +1359,6 @@ void main() {
             .plugHash,
         altMod);
 
-    final legacyColumn = bySocket[1]!;
-    expect(legacyColumn.plugs.map((p) => p.name),
-        containsAll(['Plasteel Reinforcement Mod', 'Restorative Mod']));
-
     // Armor never builds weapon-style perk columns.
     expect(detail.perkColumns, isEmpty);
   });
@@ -1340,6 +1367,7 @@ void main() {
       'cost — the cost stat is not a stat effect', () async {
     const armorHash = 9501;
     const armorModsCategory = 590099826;
+    const modChestType = 4015518015; // whitelist enhancements.chest → editable
     const equippedMod = 9601; // Void Resistance (equipped)
     const altMod = 9602; // Solar Resistance (alternative)
     const energyCostStat = 3578062600; // "Any Energy Type Cost"
@@ -1360,9 +1388,14 @@ void main() {
           },
         ],
         'socketEntries': [
-          {'singleInitialItemHash': equippedMod},
+          {'singleInitialItemHash': equippedMod, 'socketTypeHash': modChestType},
         ],
       },
+    });
+    when(() => manifest.getSocketType(modChestType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'enhancements.chest'}
+      ],
     });
     // Void Resistance, mirroring the real manifest shape: an empty own
     // description, an energy-cost investment stat, the real effect on a sandbox

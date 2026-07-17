@@ -406,13 +406,21 @@ class InventoryRepository {
   // the weapon's mod slots (e.g. Backup Mag, Freehand Grip, Boss Spec).
   static const _weaponModsCategory = 2685412949;
 
-  // The armor mod socket categories (stable game constants). ARMOR MODS holds
-  // the modern mod slots (General/slot mods) plus the masterwork "Upgrade
-  // Armor" socket; the second is the legacy "ARMOR PERKS" category whose
-  // populated sockets hold old armor stat mods (Plasteel/Restorative). Both are
-  // mod-shaped (single-chip pick, reusable plug set), so both resolve here; the
-  // ≥2-real-mod guard below drops the masterwork socket and empty legacy slots.
-  static const _armorModsCategories = {590099826, 2518356196};
+  // The ARMOR MODS socket category (a stable game constant). It holds the
+  // modern mod slots (General/slot mods) plus the masterwork "Upgrade Armor"
+  // socket. Only the sockets whose plug whitelist is a modern `enhancements.*`
+  // mod family are editable via InsertSocketPlugFree — see [_armorModWhitelist].
+  // (The legacy "ARMOR PERKS" category 2518356196 is deliberately excluded: its
+  // sockets are Armor 1.0 mods, randomized build/ammo perks, and intrinsics,
+  // none of which the free socket-insert endpoint accepts.)
+  static const _armorModsCategory = 590099826;
+
+  // A socket in [_armorModsCategory] is a user-editable mod slot only when its
+  // plug whitelist names a modern armor mod family — an `enhancements.*`
+  // identifier (v2_general, v2_head, chest, universal, …). This excludes the
+  // masterwork/"Upgrade Armor" socket (v460.plugs.armor.masterworks) and any
+  // legacy 1.0 `mods` socket, which InsertSocketPlugFree rejects.
+  static bool _armorModWhitelist(String id) => id.startsWith('enhancements.');
 
   // Armor-mod install-cost stats (stable game constants): "Any Energy Type
   // Cost" and "Mod Cost". These are the mod's energy cost, not a gameplay stat
@@ -437,12 +445,11 @@ class InventoryRepository {
     final entries = sockets['socketEntries'];
     if (categories is! List || entries is! List) return const [];
 
-    final wantCategories = item.itemType == DestinyEnums.typeArmor
-        ? _armorModsCategories
-        : {_weaponModsCategory};
+    final isArmor = item.itemType == DestinyEnums.typeArmor;
+    final wantCategory = isArmor ? _armorModsCategory : _weaponModsCategory;
     final indexes = <int>[];
     for (final c in categories) {
-      if (wantCategories.contains((c as Map)['socketCategoryHash'])) {
+      if ((c as Map)['socketCategoryHash'] == wantCategory) {
         for (final i in (c['socketIndexes'] as List? ?? const [])) {
           if (i is int) indexes.add(i);
         }
@@ -456,6 +463,22 @@ class InventoryRepository {
     final columns = <PerkColumn>[];
     for (final index in indexes) {
       if (index < 0 || index >= entries.length) continue;
+
+      // For armor, keep only true modern mod sockets — those whose plug
+      // whitelist is an `enhancements.*` family. This drops the masterwork
+      // socket and any legacy/1.0 socket, none of which InsertSocketPlugFree
+      // can edit (they would fail the insert). Weapons are not gated here.
+      if (isArmor) {
+        final typeHash =
+            ((entries[index] as Map)['socketTypeHash'] as num?)?.toInt();
+        final whitelist = typeHash == null
+            ? null
+            : _manifest.getSocketType(typeHash)?['plugWhitelist'];
+        final isModSocket = whitelist is List &&
+            whitelist.any((w) => _armorModWhitelist(
+                ((w as Map)['categoryIdentifier'] as String?) ?? ''));
+        if (!isModSocket) continue;
+      }
 
       // The equipped mod on this socket (305).
       int? activeHash;
