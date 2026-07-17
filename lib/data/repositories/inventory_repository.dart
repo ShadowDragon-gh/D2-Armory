@@ -1,4 +1,5 @@
 import '../../core/destiny/destiny_buckets.dart';
+import '../../core/destiny/destiny_enums.dart';
 import '../../core/destiny/plug_category.dart';
 import '../../core/search/item_filter.dart';
 import '../../domain/models/destiny_character.dart';
@@ -381,12 +382,20 @@ class InventoryRepository {
   // the weapon's mod slots (e.g. Backup Mag, Freehand Grip, Boss Spec).
   static const _weaponModsCategory = 2685412949;
 
-  /// This roll's weapon *mod* sockets as columns of selectable options: the
-  /// definition's WEAPON MODS sockets, each holding the copy's available mod
-  /// plugs (from ItemReusablePlugs (310), falling back to the definition's
-  /// reusable plug set) with the equipped plug from ItemSockets (305) flagged
-  /// ([PerkColumn.activeIndex]). Empty for uninstanced items and non-weapons, or
-  /// when the mod socket offers no alternatives.
+  // The armor mod socket categories (stable game constants). ARMOR MODS holds
+  // the modern mod slots (General/slot mods) plus the masterwork "Upgrade
+  // Armor" socket; the second is the legacy "ARMOR PERKS" category whose
+  // populated sockets hold old armor stat mods (Plasteel/Restorative). Both are
+  // mod-shaped (single-chip pick, reusable plug set), so both resolve here; the
+  // ≥2-real-mod guard below drops the masterwork socket and empty legacy slots.
+  static const _armorModsCategories = {590099826, 2518356196};
+
+  /// This roll's *mod* sockets as columns of selectable options: for weapons the
+  /// definition's WEAPON MODS sockets, for armor the ARMOR MODS/legacy-perk
+  /// sockets — each holding the copy's available mod plugs (from ItemReusablePlugs
+  /// (310), falling back to the definition's reusable plug set) with the equipped
+  /// plug from ItemSockets (305) flagged ([PerkColumn.activeIndex]). Empty for
+  /// uninstanced items, or when no mod socket offers alternatives.
   List<PerkColumn> _resolveInstanceModColumns(DestinyItem item,
       Map<String, dynamic>? socketsData, _StatInterpolator interpolator) {
     final id = item.itemInstanceId;
@@ -398,11 +407,15 @@ class InventoryRepository {
     final entries = sockets['socketEntries'];
     if (categories is! List || entries is! List) return const [];
 
-    List indexes = const [];
+    final wantCategories = item.itemType == DestinyEnums.typeArmor
+        ? _armorModsCategories
+        : {_weaponModsCategory};
+    final indexes = <int>[];
     for (final c in categories) {
-      if ((c as Map)['socketCategoryHash'] == _weaponModsCategory) {
-        indexes = c['socketIndexes'] as List? ?? const [];
-        break;
+      if (wantCategories.contains((c as Map)['socketCategoryHash'])) {
+        for (final i in (c['socketIndexes'] as List? ?? const [])) {
+          if (i is int) indexes.add(i);
+        }
       }
     }
     if (indexes.isEmpty) return const [];
@@ -412,7 +425,7 @@ class InventoryRepository {
 
     final columns = <PerkColumn>[];
     for (final index in indexes) {
-      if (index is! int || index < 0 || index >= entries.length) continue;
+      if (index < 0 || index >= entries.length) continue;
 
       // The equipped mod on this socket (305).
       int? activeHash;

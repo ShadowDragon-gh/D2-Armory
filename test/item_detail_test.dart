@@ -1153,6 +1153,189 @@ void main() {
     expect(backup.description, 'Adds a small amount of reserve ammo.');
   });
 
+  test('resolveDetail(withPerkColumns) resolves ARMOR MODS and legacy '
+      'ARMOR PERKS sockets into swappable mod columns, drops the single-option '
+      'masterwork socket, and leaves the fixed ARMOR PERKS socket non-editable',
+      () async {
+    const armorHash = 9001;
+    const armorModsCategory = 590099826; // ARMOR MODS
+    const legacyPerksCategory = 2518356196; // swappable "ARMOR PERKS" (mods)
+    const fixedPerksCategory = 3154740035; // built-in, non-swappable
+
+    // Socket 0: an ARMOR MODS slot with two swappable mods → a column.
+    const equippedMod = 9101; // Recovery Mod (equipped)
+    const altMod = 9102; // Resilience Mod (alternative)
+    // Socket 1: a legacy ARMOR PERKS slot with two swappable stat mods.
+    const equippedLegacy = 9201; // Plasteel Reinforcement (equipped)
+    const altLegacy = 9202; // Restorative (alternative)
+    // Socket 2: the masterwork/tier socket — a single, non-mod plug → dropped.
+    const tierPlug = 9301; // Upgrade Armor
+    // Socket 3: a fixed (built-in) armor perk → never a mod column.
+    const fixedPerk = 9401;
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Helm', 'icon': '/i/helm.jpg'},
+      'itemType': 2,
+      'itemSubType': 26,
+      'itemTypeDisplayName': 'Helmet',
+      'inventory': {'bucketTypeHash': EquipmentBucket.helmet.hash},
+      'sockets': {
+        'socketCategories': [
+          {
+            'socketCategoryHash': armorModsCategory,
+            'socketIndexes': [0, 2],
+          },
+          {
+            'socketCategoryHash': legacyPerksCategory,
+            'socketIndexes': [1],
+          },
+          {
+            'socketCategoryHash': fixedPerksCategory,
+            'socketIndexes': [3],
+          },
+        ],
+        'socketEntries': [
+          {'singleInitialItemHash': equippedMod},
+          {'singleInitialItemHash': equippedLegacy},
+          {'singleInitialItemHash': tierPlug},
+          {'singleInitialItemHash': fixedPerk},
+        ],
+      },
+    });
+    when(() => manifest.getInventoryItem(equippedMod)).thenReturn({
+      'displayProperties': {'name': 'Recovery Mod', 'icon': '/i/rec.jpg'},
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_head'},
+    });
+    when(() => manifest.getInventoryItem(altMod)).thenReturn({
+      'displayProperties': {'name': 'Resilience Mod', 'icon': '/i/res.jpg'},
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_head'},
+    });
+    when(() => manifest.getInventoryItem(equippedLegacy)).thenReturn({
+      'displayProperties': {
+        'name': 'Plasteel Reinforcement Mod',
+        'icon': '/i/pl.jpg'
+      },
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_general'},
+    });
+    when(() => manifest.getInventoryItem(altLegacy)).thenReturn({
+      'displayProperties': {'name': 'Restorative Mod', 'icon': '/i/rt.jpg'},
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_general'},
+    });
+    // The masterwork "Upgrade Armor" plug is not a mod-category plug, so even
+    // if it had alternatives it would be excluded; here it is a lone option.
+    when(() => manifest.getInventoryItem(tierPlug)).thenReturn({
+      'displayProperties': {'name': 'Upgrade Armor', 'icon': '/i/up.jpg'},
+      'plug': {'plugCategoryIdentifier': 'v460.plugs.armor.masterworks'},
+    });
+    when(() => manifest.getInventoryItem(fixedPerk)).thenReturn({
+      'displayProperties': {'name': 'Intrinsic Boost', 'icon': '/i/in.jpg'},
+      'plug': {'plugCategoryIdentifier': 'intrinsics'},
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': '888',
+                    'bucketHash': EquipmentBucket.helmet.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                '888': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                '888': {
+                  'sockets': [
+                    {'plugHash': equippedMod, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': equippedLegacy, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': tierPlug, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': fixedPerk, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {
+              'data': {
+                '888': {
+                  'plugs': {
+                    '0': [
+                      {'plugItemHash': equippedMod},
+                      {'plugItemHash': altMod},
+                    ],
+                    '1': [
+                      {'plugItemHash': equippedLegacy},
+                      {'plugItemHash': altLegacy},
+                    ],
+                    // The masterwork socket lists only its single tier plug.
+                    '2': [
+                      {'plugItemHash': tierPlug},
+                    ],
+                  }
+                }
+              }
+            },
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.helmet.hash).single;
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+
+    // Two editable mod columns: the ARMOR MODS socket and the legacy
+    // ARMOR PERKS socket. The masterwork socket (single, non-mod plug) and the
+    // fixed-perk socket are not columns.
+    final bySocket = {for (final c in detail.modColumns) c.socketIndex: c};
+    expect(bySocket.keys, unorderedEquals([0, 1]));
+
+    final armorModColumn = bySocket[0]!;
+    expect(armorModColumn.plugs.map((p) => p.name),
+        containsAll(['Recovery Mod', 'Resilience Mod']));
+    expect(armorModColumn.plugs[armorModColumn.activeIndex!].name,
+        'Recovery Mod');
+    expect(
+        armorModColumn.plugs.firstWhere((p) => p.name == 'Resilience Mod')
+            .plugHash,
+        altMod);
+
+    final legacyColumn = bySocket[1]!;
+    expect(legacyColumn.plugs.map((p) => p.name),
+        containsAll(['Plasteel Reinforcement Mod', 'Restorative Mod']));
+
+    // Armor never builds weapon-style perk columns.
+    expect(detail.perkColumns, isEmpty);
+  });
+
   test('patchSocketPlug applies then reverses a plug + stat change, so an '
       'optimistic insert shows the new plug and a failed one rolls back',
       () async {
