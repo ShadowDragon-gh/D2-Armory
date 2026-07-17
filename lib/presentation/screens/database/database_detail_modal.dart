@@ -1883,6 +1883,17 @@ class _PerkTooltip extends StatelessWidget {
                             : ArmoryPalette.statPenaltyRed),
                   ),
               ],
+              // A secondary info note (e.g. an armor mod's stacking note),
+              // smaller and dimmer than the effect, matching the game.
+              if (plug.note.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(plug.note,
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontStyle: FontStyle.italic,
+                        color: ArmoryPalette.textPrimary
+                            .withValues(alpha: 0.55))),
+              ],
               // Clarity community-research block goes here once wired.
             ],
           ),

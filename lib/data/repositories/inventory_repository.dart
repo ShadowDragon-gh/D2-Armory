@@ -390,6 +390,12 @@ class InventoryRepository {
   // ≥2-real-mod guard below drops the masterwork socket and empty legacy slots.
   static const _armorModsCategories = {590099826, 2518356196};
 
+  // Armor-mod install-cost stats (stable game constants): "Any Energy Type
+  // Cost" and "Mod Cost". These are the mod's energy cost, not a gameplay stat
+  // change, so they are excluded from a plug's stat effects. Confirmed to
+  // appear only on armor mods, never on weapon mods.
+  static const _modCostStats = {3578062600, 514071887};
+
   /// This roll's *mod* sockets as columns of selectable options: for weapons the
   /// definition's WEAPON MODS sockets, for armor the ARMOR MODS/legacy-perk
   /// sockets — each holding the copy's available mod plugs (from ItemReusablePlugs
@@ -509,6 +515,7 @@ class InventoryRepository {
       name: name,
       iconPath: (display?['icon'] as String?) ?? '',
       description: _plugDescription(def, display, hasStatEffects: statEffects.isNotEmpty),
+      note: _plugNote(def),
       category: classifyPlug(plugCategory),
       isEnabled: isEnabled,
       isEnhanced: isEnhancedPlugDef(def),
@@ -516,6 +523,21 @@ class InventoryRepository {
       socketIndex: socketIndex,
       statEffects: statEffects,
     );
+  }
+
+  /// A plug's informational note: the game's `ui_display_style_perk_info`
+  /// tooltip notification (e.g. an armor mod's stacking note), or empty when it
+  /// has none. Distinct from the effect [description] — the game renders it in
+  /// smaller, dimmer text below the effect.
+  String _plugNote(Map<String, dynamic> def) {
+    final tips = def['tooltipNotifications'];
+    if (tips is! List) return '';
+    for (final t in tips) {
+      if ((t as Map)['displayStyle'] == 'ui_display_style_perk_info') {
+        return (t['displayString'] as String?) ?? '';
+      }
+    }
+    return '';
   }
 
   /// A plug's effect description: the plug's own `displayProperties.description`
@@ -565,6 +587,11 @@ class InventoryRepository {
       final statHash = (st['statTypeHash'] as num?)?.toInt();
       final raw = (st['value'] as num?)?.toInt() ?? 0;
       if (statHash == null || raw == 0) continue;
+      // An armor mod's energy/mod cost is its install cost, not a gameplay stat
+      // change — the game shows it as the "Energy Cost" header, not a bonus
+      // line. Skip it so the tooltip surfaces the mod's real effect (its
+      // sandbox-perk description) instead of "+1 Any Energy Type Cost".
+      if (_modCostStats.contains(statHash)) continue;
       final statDef = _manifest.getStat(statHash);
       final name = (statDef?['displayProperties']?['name'] as String?) ?? '';
       if (name.isEmpty) continue;
@@ -1407,6 +1434,7 @@ class InventoryRepository {
         iconPath: (display?['icon'] as String?) ?? '',
         description:
             _plugDescription(def, display, hasStatEffects: statEffects.isNotEmpty),
+        note: _plugNote(def),
         category: category,
         isEnabled: s['isEnabled'] != false,
         isEnhanced: enhanced,

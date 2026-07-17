@@ -1336,6 +1336,180 @@ void main() {
     expect(detail.perkColumns, isEmpty);
   });
 
+  test('an armor mod shows its real effect and stacking note, not its energy '
+      'cost — the cost stat is not a stat effect', () async {
+    const armorHash = 9501;
+    const armorModsCategory = 590099826;
+    const equippedMod = 9601; // Void Resistance (equipped)
+    const altMod = 9602; // Solar Resistance (alternative)
+    const energyCostStat = 3578062600; // "Any Energy Type Cost"
+    const voidResistPerk = 20057580;
+    const solarResistPerk = 20057581;
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Chest', 'icon': '/i/chest.jpg'},
+      'itemType': 2,
+      'itemSubType': 28,
+      'itemTypeDisplayName': 'Chest Armor',
+      'inventory': {'bucketTypeHash': EquipmentBucket.chestArmor.hash},
+      'sockets': {
+        'socketCategories': [
+          {
+            'socketCategoryHash': armorModsCategory,
+            'socketIndexes': [0],
+          },
+        ],
+        'socketEntries': [
+          {'singleInitialItemHash': equippedMod},
+        ],
+      },
+    });
+    // Void Resistance, mirroring the real manifest shape: an empty own
+    // description, an energy-cost investment stat, the real effect on a sandbox
+    // perk, and a perk-info stacking note.
+    when(() => manifest.getInventoryItem(equippedMod)).thenReturn({
+      'displayProperties': {
+        'name': 'Void Resistance',
+        'icon': '/i/vr.jpg',
+        'description': '',
+      },
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_chest'},
+      'investmentStats': [
+        {'statTypeHash': energyCostStat, 'value': 2},
+      ],
+      'perks': [
+        {'perkHash': voidResistPerk}
+      ],
+      'tooltipNotifications': [
+        {
+          'displayString':
+              'Multiple copies of this mod can be stacked to increase the '
+                  'potency of its effect, with diminishing returns for each '
+                  'additional copy of the mod.',
+          'displayStyle': 'ui_display_style_perk_info',
+        }
+      ],
+    });
+    when(() => manifest.getSandboxPerk(voidResistPerk)).thenReturn({
+      'isDisplayable': true,
+      'displayProperties': {
+        'description': 'Reduces incoming Void damage from combatants.',
+      },
+    });
+    when(() => manifest.getInventoryItem(altMod)).thenReturn({
+      'displayProperties': {
+        'name': 'Solar Resistance',
+        'icon': '/i/sr.jpg',
+        'description': '',
+      },
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_chest'},
+      'investmentStats': [
+        {'statTypeHash': energyCostStat, 'value': 2},
+      ],
+      'perks': [
+        {'perkHash': solarResistPerk}
+      ],
+    });
+    when(() => manifest.getSandboxPerk(solarResistPerk)).thenReturn({
+      'isDisplayable': true,
+      'displayProperties': {
+        'description': 'Reduces incoming Solar damage from combatants.',
+      },
+    });
+    // The energy-cost stat must resolve to a name (so it would otherwise render
+    // as a stat effect) — proving it is excluded by hash, not by a missing def.
+    when(() => manifest.getStat(energyCostStat)).thenReturn({
+      'displayProperties': {'name': 'Any Energy Type Cost'},
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': '999',
+                    'bucketHash': EquipmentBucket.chestArmor.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                '999': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                '999': {
+                  'sockets': [
+                    {'plugHash': equippedMod, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {
+              'data': {
+                '999': {
+                  'plugs': {
+                    '0': [
+                      {'plugItemHash': equippedMod},
+                      {'plugItemHash': altMod},
+                    ],
+                  }
+                }
+              }
+            },
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.chestArmor.hash).single;
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+
+    final voidMod = detail.modColumns.single.plugs
+        .firstWhere((p) => p.name == 'Void Resistance');
+    // The real gameplay effect surfaces (from the sandbox perk), not the empty
+    // own description and not the energy cost.
+    expect(voidMod.description, 'Reduces incoming Void damage from combatants.');
+    // The energy cost is NOT rendered as a stat effect.
+    expect(voidMod.statEffects, isEmpty);
+    // The stacking note is carried, separately from the effect.
+    expect(voidMod.note, contains('Multiple copies of this mod can be stacked'));
+
+    // The equipped chip (read-only side-panel path) resolves the same way.
+    final equippedChip =
+        detail.plugsOf(PlugCategory.mod).firstWhere((p) => p.name == 'Void Resistance');
+    expect(equippedChip.description,
+        'Reduces incoming Void damage from combatants.');
+    expect(equippedChip.statEffects, isEmpty);
+    expect(equippedChip.note, contains('Multiple copies of this mod'));
+  });
+
   test('patchSocketPlug applies then reverses a plug + stat change, so an '
       'optimistic insert shows the new plug and a failed one rolls back',
       () async {

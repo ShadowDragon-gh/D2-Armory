@@ -155,6 +155,7 @@ class ItemPlug {
     required this.iconPath,
     required this.category,
     this.description = '',
+    this.note = '',
     this.isEnabled = true,
     this.isEnhanced = false,
     this.statEffects = const [],
@@ -166,6 +167,12 @@ class ItemPlug {
   final String iconPath;
   final PlugCategory category;
   final String description;
+
+  /// A secondary informational note the game shows in smaller, dimmer text
+  /// below the effect — e.g. an armor mod's "Multiple copies of this mod can be
+  /// stacked…" stacking note. Empty when the plug has none.
+  final String note;
+
   final bool isEnabled;
 
   /// The plug's own item hash — the plug to insert when selecting this option
