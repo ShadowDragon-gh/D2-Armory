@@ -133,15 +133,16 @@ Verified: widget tests cover collapse-on-by-default grouping (set row + bonus ba
 
 ---
 
-## Phase 5 — Set detail modal
+## Phase 5 — Set detail modal — **DONE**
 
-Files: new `lib/presentation/screens/database/armor_set_detail_modal.dart`, wired from `_SetRow`.
+Files: new `lib/presentation/screens/database/armor_set_detail_modal.dart`; wired from `_SetRow` via `selectedArmorSetProvider`; `database_provider.dart` (`selectedArmorSetDetailProvider`, `armorSetModalOpenProvider`); `database_detail_modal.dart` (single-piece set-bonus section).
 
-- [ ] A `Dialog` modeled on `DatabaseDetailModal`'s shell (size, close handling, `showArmorSetDetailModal` guarded like `showGearDetailModal`).
-- [ ] Body: the set name + set-bonus section (2-piece and 4-piece: perk icon, name, description), then a gallery of each member piece's **screenshot** preview (the manifest `screenshot`, rendered exactly like the modal's `_Screenshot` widget — 16:9 `CachedNetworkImage`). Group members sensibly (by class, or by slot) with the piece name under each.
-- [ ] Selecting a piece in the gallery deep-links to that piece's `DatabaseDetailModal` (in scope for v1 — decided). Route through `selectedDatabaseItemProvider`, and coordinate the two modals' open-guards so opening the item modal from the set modal doesn't fight `showArmorSetDetailModal`.
+- [x] `ArmorSetDetailModal` — a `Dialog` on `DatabaseDetailModal`'s shell (1400×820), `showArmorSetDetailModal` guarded by its own `armorSetModalOpenProvider` (parallel to `gearModalOpenProvider`), opened from a `selectedArmorSetProvider` listener in the Database screen, closing clears the selection.
+- [x] Body: set name + piece count, a `SetBonusSection` (each perk's icon, "N Piece: name", description; a legacy set instead shows a "no set bonus" note), then a member-screenshot gallery (16:9 `CachedNetworkImage`, piece name + type under each) laid out as one **row per class** (Titan/Hunter/Warlock), each row ordered by slot (helmet, arms, chest, legs, class item) and horizontally scrollable. Members resolved by `selectedArmorSetDetailProvider`.
+- [x] Tapping a gallery piece pops the set modal and selects the item (`selectedDatabaseItemProvider`), so the Database screen's listener opens that piece's `DatabaseDetailModal` — the two open-guards are independent, so they don't fight.
+- [x] **Extra (requested):** the single-piece armor detail modal shows the set bonus too — `_ArmorSetBonus` resolves the item's set via `armorSetForItem` and renders the shared `SetBonusSection` in the left column under the stats, in both the roll and definition views (it keys off the item's set, not the instance).
 
-Success: tapping a collapsed set opens one modal showing every piece's screenshot preview and the set bonus text. Matches the existing modal's visual language (rule 11).
+Verified: widget tests cover the set modal's bonus + member gallery from a set-row tap, and the single-piece modal showing its set bonus. `flutter analyze` clean; full suite green (357 tests).
 
 ---
 

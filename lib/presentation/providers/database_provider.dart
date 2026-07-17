@@ -329,6 +329,41 @@ final selectedArmorSetProvider =
     NotifierProvider<SelectedArmorSetNotifier, int?>(
         SelectedArmorSetNotifier.new);
 
+/// Whether the armor-set detail modal is up, so `showArmorSetDetailModal` can
+/// let the first open win (parallel to [gearModalOpenProvider] for the item
+/// modal).
+class ArmorSetModalOpenNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool value) => state = value;
+}
+
+final armorSetModalOpenProvider =
+    NotifierProvider<ArmorSetModalOpenNotifier, bool>(
+        ArmorSetModalOpenNotifier.new);
+
+/// The selected armor set plus its members' resolved detail (for the set-detail
+/// modal's screenshot gallery), or null when no set is selected. Members are
+/// resolved from their definitions and kept in the set's member order.
+class ArmorSetDetail {
+  const ArmorSetDetail({required this.set, required this.members});
+  final ArmorSet set;
+  final List<GearDetail> members;
+}
+
+final selectedArmorSetDetailProvider =
+    Provider.autoDispose<ArmorSetDetail?>((ref) {
+  final setHash = ref.watch(selectedArmorSetProvider);
+  if (setHash == null) return null;
+  final repo = ref.watch(databaseRepositoryProvider);
+  final set = repo.armorSetByHash(setHash);
+  if (set == null) return null;
+  final members = [
+    for (final hash in set.memberHashes) repo.resolveGearDetail(hash),
+  ].whereType<GearDetail>().toList();
+  return ArmorSetDetail(set: set, members: members);
+});
+
 /// Whether the shared gear-detail modal is currently up. Both the Database
 /// list and the Inventory grid react to [selectedDatabaseItemProvider] (both
 /// stay alive in the shell's IndexedStack), so `showGearDetailModal` uses this

@@ -8,11 +8,13 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/destiny/destiny_enums.dart';
 import '../../../core/destiny/plug_category.dart';
+import '../../../domain/models/destiny_item.dart';
 import '../../../domain/models/item_detail.dart';
 import '../../providers/database_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../providers/search_provider.dart';
 import '../../theme/armory_palette.dart';
+import 'armor_set_detail_modal.dart' show SetBonusSection;
 
 /// The Database tab's purpose-built detail view: a centered modal, rendered
 /// over the dimmed list, that shows the full "all-options" nature of a
@@ -127,6 +129,7 @@ class _ModalBodyState extends ConsumerState<_ModalBody> {
                               const SizedBox(height: 16),
                             ],
                             _StatArea(detail: detail),
+                            if (isArmor) _ArmorSetBonus(item: detail.item),
                           ],
                         ),
                       ),
@@ -587,6 +590,27 @@ class _StatArea extends ConsumerWidget {
 /// The armor energy readout shown above the stats: "Energy  used / total" over
 /// a segmented capacity bar — one segment per energy point, filled up to [used]
 /// in steel grey — matching the in-game armor display.
+/// The set-bonus block for an armor piece that belongs to a set with defined
+/// bonuses — shown in the single-piece detail modal (both the roll and
+/// definition views, since it keys off the item's set, not its instance).
+/// Renders nothing when the piece is in no set or its set has no bonus.
+class _ArmorSetBonus extends ConsumerWidget {
+  const _ArmorSetBonus({required this.item});
+
+  final DestinyItem item;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final set =
+        ref.watch(databaseRepositoryProvider).armorSetForItem(item.itemHash);
+    if (set == null || set.perks.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: SetBonusSection(perks: set.perks),
+    );
+  }
+}
+
 class _ArmorEnergyMeter extends StatelessWidget {
   const _ArmorEnergyMeter({required this.energy});
 

@@ -10,6 +10,7 @@ import 'package:d2_armory/data/repositories/database_repository.dart';
 import 'package:d2_armory/domain/models/armor_set.dart';
 import 'package:d2_armory/domain/models/item_detail.dart';
 import 'package:d2_armory/presentation/providers/database_provider.dart';
+import 'package:d2_armory/presentation/screens/database/armor_set_detail_modal.dart';
 import 'package:d2_armory/presentation/screens/database/database_screen.dart';
 
 /// A set whose members are Titan Helm (11) and Warlock Cowl (13); Hunter Hood
@@ -95,7 +96,11 @@ class _FakeRepo implements DatabaseRepository {
 
   @override
   GearDetail? resolveGearDetail(int itemHash) {
-    final g = _weapons.firstWhere((w) => w.itemHash == itemHash);
+    // Search both kinds so armor set members (and weapons) resolve.
+    final all = [..._weapons, ..._armor];
+    final match = all.where((g) => g.itemHash == itemHash);
+    if (match.isEmpty) return null;
+    final g = match.first;
     return GearDetail(
       item: g.toDestinyItem(),
       stats: const [ItemStat(statHash: 7, name: 'Range', value: 60)],
@@ -439,12 +444,43 @@ void main() {
     expect(find.text('Warlock Cowl'), findsOneWidget);
     expect(find.text('Hunter Hood'), findsOneWidget);
 
-    // Tapping a set row (collapse back on first) selects the set.
+    // Tapping a set row (collapse back on first) selects the set and opens the
+    // set-detail modal: it shows the set bonus and each member's screenshot.
     await tester.tap(find.text('Sets'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Aegis Set'));
     await tester.pumpAndSettle();
     expect(container.read(selectedArmorSetProvider), 777);
+    expect(find.byType(ArmorSetDetailModal), findsOneWidget);
+    expect(find.text('SET BONUS'), findsOneWidget);
+    expect(find.text('2 Piece: Guarded'), findsOneWidget);
+    expect(find.text('4 Piece: Bulwark'), findsOneWidget);
+    // The member pieces are shown in the gallery.
+    expect(find.text('Titan Helm'), findsOneWidget);
+    expect(find.text('Warlock Cowl'), findsOneWidget);
+  });
+
+  testWidgets("a single armor piece's detail modal shows its set bonus",
+      (tester) async {
+    _useWideSurface(tester);
+    final container = ProviderContainer(overrides: [
+      databaseRepositoryProvider.overrideWithValue(_FakeRepo()),
+    ]);
+    addTearDown(container.dispose);
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: Scaffold(body: DatabaseScreen())),
+    ));
+    await tester.pumpAndSettle();
+
+    // Open the detail modal for an Aegis Set member (Titan Helm, hash 11).
+    container.read(selectedDatabaseItemProvider.notifier).select(11);
+    await tester.pumpAndSettle();
+
+    // The single-piece modal shows the set's bonus.
+    expect(find.text('SET BONUS'), findsOneWidget);
+    expect(find.text('2 Piece: Guarded'), findsOneWidget);
+    expect(find.text('4 Piece: Bulwark'), findsOneWidget);
   });
 
   testWidgets('the enhanced/regular toggle filters the perk grid',

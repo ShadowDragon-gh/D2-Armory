@@ -9,6 +9,7 @@ import '../../../domain/models/item_detail.dart';
 import '../../providers/database_provider.dart';
 import '../../theme/armory_palette.dart';
 import '../../widgets/search_bar_field.dart';
+import 'armor_set_detail_modal.dart';
 import 'database_detail_modal.dart';
 
 /// The Database tab: a browsable list of every weapon and every armor piece in
@@ -24,6 +25,7 @@ class DatabaseScreen extends ConsumerStatefulWidget {
 
 class _DatabaseScreenState extends ConsumerState<DatabaseScreen> {
   bool _modalOpen = false;
+  bool _setModalOpen = false;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +38,14 @@ class _DatabaseScreenState extends ConsumerState<DatabaseScreen> {
         _modalOpen = true;
         showGearDetailModal(context, ref)
             .whenComplete(() => _modalOpen = false);
+      }
+    });
+    // Selecting a set row opens the set-detail modal, the same way.
+    ref.listen(selectedArmorSetProvider, (previous, next) {
+      if (next != null && !_setModalOpen) {
+        _setModalOpen = true;
+        showArmorSetDetailModal(context, ref)
+            .whenComplete(() => _setModalOpen = false);
       }
     });
 
