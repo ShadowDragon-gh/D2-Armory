@@ -305,7 +305,35 @@ class InventoryRepository {
       killTracker: _resolveKillTracker(socketsData, objectivesData),
       catalyst: catalyst,
       armorEnergy: _resolveArmorEnergy(item, plugs),
+      archetype: _resolveArchetype(item, socketsData),
     );
+  }
+
+  /// The armor piece's gear archetype (Powerhouse, Reaver, …): the equipped
+  /// plug whose `plugCategoryIdentifier` is `armor_archetypes`. Null for
+  /// weapons and armor with no archetype socketed. The archetype socket is
+  /// marked non-visible (defaultVisible: false), so — unlike the mod/perk
+  /// walks — the `isVisible` flag is not a filter here; the `armor_archetypes`
+  /// category alone identifies the plug.
+  ArmorArchetype? _resolveArchetype(
+      DestinyItem item, Map<String, dynamic>? socketsData) {
+    if (item.itemType != DestinyEnums.typeArmor) return null;
+    final sockets = socketsData?['sockets'];
+    if (sockets is! List) return null;
+    for (final socket in sockets) {
+      final s = socket as Map<String, dynamic>;
+      final plugHash = (s['plugHash'] as num?)?.toInt();
+      if (plugHash == null || plugHash == 0) continue;
+      final def = _manifest.getInventoryItem(plugHash);
+      final pci = (def?['plug'] as Map?)?['plugCategoryIdentifier'] as String?;
+      if (pci != 'armor_archetypes') continue;
+      final display = def?['displayProperties'] as Map<String, dynamic>?;
+      final name = (display?['name'] as String?) ?? '';
+      if (name.isEmpty) continue;
+      return ArmorArchetype(
+          name: name, iconPath: (display?['icon'] as String?) ?? '');
+    }
+    return null;
   }
 
   /// The armor energy meter for [item]: its total capacity from the instance's

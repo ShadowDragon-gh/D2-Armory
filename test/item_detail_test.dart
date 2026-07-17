@@ -2028,6 +2028,98 @@ void main() {
     expect(bySt['Health']!.tuningBoosted, isFalse);
   });
 
+  test('an armor piece exposes its equipped gear archetype (name + icon)',
+      () async {
+    const armorHash = 9901;
+    const archetypePlug = 9910; // "Powerhouse" (armor_archetypes)
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Chest', 'icon': '/i/c.jpg'},
+      'itemType': 2,
+      'itemSubType': 28,
+      'itemTypeDisplayName': 'Chest Armor',
+      'inventory': {'bucketTypeHash': EquipmentBucket.chestArmor.hash},
+      'sockets': {
+        'socketCategories': const [],
+        'socketEntries': [
+          {'singleInitialItemHash': archetypePlug},
+        ],
+      },
+    });
+    when(() => manifest.getInventoryItem(archetypePlug)).thenReturn({
+      'displayProperties': {'name': 'Powerhouse', 'icon': '/i/powerhouse.png'},
+      'plug': {'plugCategoryIdentifier': 'armor_archetypes'},
+    });
+    when(() => manifest.getBreakerType(any())).thenReturn(null);
+    when(() => manifest.getStat(any())).thenReturn(null);
+    when(() => manifest.getSocketType(any())).thenReturn(null);
+    when(() => manifest.getSandboxPerk(any())).thenReturn(null);
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': 'arch1',
+                    'bucketHash': EquipmentBucket.chestArmor.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                'arch1': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                'arch1': {
+                  'sockets': [
+                    // The archetype socket is non-visible in-game, yet its
+                    // archetype must still resolve.
+                    {'plugHash': archetypePlug, 'isEnabled': true, 'isVisible': false},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {'data': {}},
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.chestArmor.hash).single;
+    final detail = repo.resolveDetail(armor);
+
+    expect(detail.archetype, isNotNull);
+    expect(detail.archetype!.name, 'Powerhouse');
+    expect(detail.archetype!.iconUrl, contains('/i/powerhouse.png'));
+  });
+
   test('an instanced item wearing an ornament exposes the ornament art, and '
       'its cosmetic plugs resolve into the Cosmetics category', () async {
     const armorHash = 8701;

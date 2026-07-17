@@ -414,6 +414,18 @@ class ArmorEnergy {
 /// Everything the detail panel shows for a single item: the base [item] plus
 /// resolved stats, sockets (grouped by category), champion breaker, and the
 /// masterwork kill tracker.
+/// An armor piece's gear archetype (Powerhouse, Reaver, Bulwark, …): the name
+/// and icon of its equipped `armor_archetypes` plug.
+class ArmorArchetype {
+  const ArmorArchetype({required this.name, required this.iconPath});
+
+  final String name;
+  final String iconPath;
+
+  String? get iconUrl =>
+      iconPath.isEmpty ? null : '${AppConfig.bungieBaseUrl}$iconPath';
+}
+
 class ItemDetail {
   const ItemDetail({
     required this.item,
@@ -425,6 +437,7 @@ class ItemDetail {
     this.killTracker,
     this.catalyst,
     this.armorEnergy,
+    this.archetype,
   });
 
   final DestinyItem item;
@@ -449,6 +462,10 @@ class ItemDetail {
   /// The armor energy meter (capacity + used), or null for weapons and for
   /// armor with no energy data.
   final ArmorEnergy? armorEnergy;
+
+  /// The armor piece's gear archetype (its equipped `armor_archetypes` plug),
+  /// or null for weapons and armor with no archetype socketed.
+  final ArmorArchetype? archetype;
 
   Iterable<ItemPlug> plugsOf(PlugCategory c) =>
       plugs.where((p) => p.category == c);

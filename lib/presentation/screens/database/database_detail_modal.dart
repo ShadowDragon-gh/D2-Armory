@@ -566,14 +566,19 @@ class _StatArea extends ConsumerWidget {
     }
     final showRoll = rolled != null &&
         ref.watch(gearModalViewProvider) == GearModalView.rolled;
-    // The armor energy meter sits above the stats, like the in-game armor
-    // display; shown only for a roll that carries energy data.
+    // The gear archetype and energy meter sit above the stats, like the in-game
+    // armor display; both come from the roll (instance) only.
+    final archetype = showRoll ? rolled.archetype : null;
     final energy = showRoll ? rolled.armorEnergy : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (energy != null) ...[
           _ArmorEnergyMeter(energy: energy),
+          const SizedBox(height: 12),
+        ],
+        if (archetype != null) ...[
+          _ArchetypeRow(archetype: archetype),
           const SizedBox(height: 12),
         ],
         const _SectionLabel('Stats'),
@@ -607,6 +612,45 @@ class _ArmorSetBonus extends ConsumerWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 16),
       child: SetBonusSection(perks: set.perks),
+    );
+  }
+}
+
+/// The armor gear archetype header (Powerhouse, Reaver, …): its icon and name,
+/// shown at the top of the stat section for an instanced armor roll.
+class _ArchetypeRow extends StatelessWidget {
+  const _ArchetypeRow({required this.archetype});
+
+  final ArmorArchetype archetype;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        SizedBox(
+          width: 24,
+          height: 24,
+          child: archetype.iconUrl == null
+              ? const Icon(Icons.shield_outlined, size: 20)
+              : CachedNetworkImage(
+                  imageUrl: archetype.iconUrl!,
+                  errorWidget: (_, _, _) =>
+                      const Icon(Icons.shield_outlined, size: 20),
+                ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          archetype.name,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          'Archetype',
+          style: theme.textTheme.labelSmall
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+      ],
     );
   }
 }
