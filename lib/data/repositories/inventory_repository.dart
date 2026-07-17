@@ -256,9 +256,14 @@ class InventoryRepository {
 
   /// The armor energy meter for [item]: its total capacity from the instance's
   /// ItemInstances (300) `energy` component, and the energy its mods use. Null
-  /// for weapons and for armor whose instance reports no energy. Capacity comes
-  /// from the instance; `used` prefers the instance's `energyUsed` but falls
-  /// back to summing the equipped mods' [ItemPlug.energyCost] when absent.
+  /// for weapons and for armor whose instance reports no energy.
+  ///
+  /// `used` is the sum of the current [plugs]' [ItemPlug.energyCost] rather than
+  /// the instance's `energyUsed`: only real mods carry a cost (masterwork/tier
+  /// and cosmetic plugs are 0), so the sum equals the total. Deriving it from
+  /// the plugs means the meter tracks an optimistic mod swap live — the swap
+  /// patches the socket (see [patchSocketPlug]) and the plugs recompute here —
+  /// where the stale `energyUsed` would not move until the next profile fetch.
   ArmorEnergy? _resolveArmorEnergy(DestinyItem item, List<ItemPlug> plugs) {
     if (item.itemType != DestinyEnums.typeArmor) return null;
     final id = item.itemInstanceId;
@@ -267,8 +272,7 @@ class InventoryRepository {
     if (energy is! Map) return null;
     final capacity = (energy['energyCapacity'] as num?)?.toInt();
     if (capacity == null) return null;
-    final used = (energy['energyUsed'] as num?)?.toInt() ??
-        plugs.fold<int>(0, (sum, p) => sum + p.energyCost);
+    final used = plugs.fold<int>(0, (sum, p) => sum + p.energyCost);
     return ArmorEnergy(capacity: capacity, used: used);
   }
 

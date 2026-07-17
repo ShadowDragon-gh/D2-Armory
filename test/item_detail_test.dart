@@ -1491,11 +1491,14 @@ void main() {
           'itemComponents': {
             'instances': {
               'data': {
-                // Capacity comes from the instance's energy component; omitting
-                // energyUsed exercises the mod-cost-sum fallback for `used`.
+                // Capacity comes from the instance's energy component. The
+                // instance's own energyUsed is deliberately wrong (99) to prove
+                // `used` is derived from the equipped mods' costs, not the stale
+                // instance field — which is what lets the meter track an
+                // optimistic swap before the profile refetches.
                 '999': {
                   'primaryStat': {'value': 1800},
-                  'energy': {'energyCapacity': 11},
+                  'energy': {'energyCapacity': 11, 'energyUsed': 99},
                 }
               }
             },
@@ -1553,7 +1556,8 @@ void main() {
     expect(equippedChip.energyCost, 2);
 
     // The armor energy meter: capacity from the instance, used from the summed
-    // mod costs (the instance omitted energyUsed).
+    // mod costs (the single cost-2 mod) — NOT the instance's stale energyUsed
+    // (99), so an optimistic swap moves the meter before the refetch.
     expect(detail.armorEnergy, isNotNull);
     expect(detail.armorEnergy!.capacity, 11);
     expect(detail.armorEnergy!.used, 2);
