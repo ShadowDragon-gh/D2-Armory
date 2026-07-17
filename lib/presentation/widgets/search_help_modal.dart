@@ -50,6 +50,12 @@ const List<_Section> _sections = [
     _Filter('breaker:overload  breaker:barrier  breaker:unstoppable',
         'Champion breaker the weapon counters.'),
   ]),
+  _Section('Armor sets', [
+    _Filter('set:"thriving survivor"',
+        'Armor in a set matching the text — by set name or any set-bonus name.'),
+    _Filter('set2:"opening act"', 'Match the set\'s 2-piece bonus name.'),
+    _Filter('set4:"radiant orbs"', 'Match the set\'s 4-piece bonus name.'),
+  ]),
   _Section('Stats', [
     _Filter('stat:range:>70', 'A stat compared: >, <, >=, <=, or = a value.'),
     _Filter('stat:stability:>=60  stat:handling:<40', 'Any stat name works.'),

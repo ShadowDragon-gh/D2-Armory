@@ -24,6 +24,7 @@ class SearchBarField extends StatefulWidget {
     this.names = const [],
     this.perks = const [],
     this.frames = const [],
+    this.setEffects = const [],
     this.warming = false,
     this.instanceData = true,
     this.hintText = 'Filter items — e.g. is:solar is:handcannon power:>540',
@@ -51,6 +52,10 @@ class SearchBarField extends StatefulWidget {
   /// The archetype-frame catalog (name + icon) offered as `frame:` value
   /// autocomplete.
   final List<PerkOption> frames;
+
+  /// The set-effect catalog (name + icon) offered as `set:`/`set2:`/`set4:`
+  /// value autocomplete.
+  final List<PerkOption> setEffects;
 
   /// Whether background facet warming is still running, so the definition-backed
   /// filters (`perk:`/`stat:`/`source:`/…) and the perk autocomplete are not yet
@@ -106,7 +111,8 @@ class _SearchBarFieldState extends State<SearchBarField> {
     // without another keystroke. Deferred to a post-frame callback so we do not
     // mutate the overlay during this build.
     final catalogGrew = widget.perks.length != old.perks.length ||
-        widget.frames.length != old.frames.length;
+        widget.frames.length != old.frames.length ||
+        widget.setEffects.length != old.setEffects.length;
     if (catalogGrew && _focusNode.hasFocus) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _focusNode.hasFocus) _recomputeSuggestions();
@@ -141,7 +147,8 @@ class _SearchBarFieldState extends State<SearchBarField> {
     final next = suggestionsFor(tok.token, widget.names,
         instanceData: widget.instanceData,
         perks: widget.perks,
-        frames: widget.frames);
+        frames: widget.frames,
+        setEffects: widget.setEffects);
     setState(() {
       _suggestions = next;
       _selectedIndex = 0; // best match highlighted first

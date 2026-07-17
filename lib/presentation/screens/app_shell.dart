@@ -215,6 +215,7 @@ class _SearchBar extends ConsumerWidget {
       names: ref.watch(itemNamesProvider),
       perks: ref.watch(perkCatalogProvider),
       frames: ref.watch(frameCatalogProvider),
+      setEffects: ref.watch(setEffectCatalogProvider),
       // The owned-item facet warm gates perk:/stat:/source:/catalyst: search;
       // the perk autocomplete waits on the Database weapon warm. Show the
       // spinner while either is still running.

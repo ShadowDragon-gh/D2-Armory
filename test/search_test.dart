@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:d2_armory/core/destiny/destiny_buckets.dart';
 import 'package:d2_armory/core/search/item_filter.dart';
 import 'package:d2_armory/core/search/search_query.dart';
+import 'package:d2_armory/domain/models/armor_set.dart';
 import 'package:d2_armory/domain/models/destiny_item.dart';
 
 DestinyItem item({
@@ -360,6 +361,143 @@ void main() {
     });
   });
 
+  group('set filters (armor)', () {
+    FacetResolver facets(SearchFacets f) => (_) => f;
+
+    // An armor piece in the "Thriving Survivor" set with a 2-piece "Opening Act"
+    // bonus and a 4-piece "Radiant Orbs" bonus.
+    final inSet = const SearchFacets(
+      setName: 'thriving survivor',
+      setPerksByCount: {
+        2: {'opening act'},
+        4: {'radiant orbs'},
+      },
+    );
+    // A setless piece (loose armor / no set bonuses).
+    final setless = const SearchFacets();
+
+    test('set2: matches the 2-piece bonus name, not the 4-piece', () {
+      expect(compileQuery('set2:"opening act"', facetsOf: facets(inSet))
+          .matches(item()), isTrue);
+      // "radiant orbs" is a 4-piece bonus, so set2: must not match it.
+      expect(compileQuery('set2:"radiant orbs"', facetsOf: facets(inSet))
+          .matches(item()), isFalse);
+    });
+
+    test('set4: matches the 4-piece bonus name, not the 2-piece', () {
+      expect(compileQuery('set4:"radiant orbs"', facetsOf: facets(inSet))
+          .matches(item()), isTrue);
+      expect(compileQuery('set4:"opening act"', facetsOf: facets(inSet))
+          .matches(item()), isFalse);
+    });
+
+    test('set: matches the set name or any bonus name', () {
+      // set name
+      expect(compileQuery('set:thriving', facetsOf: facets(inSet))
+          .matches(item()), isTrue);
+      // a 2-piece bonus name
+      expect(compileQuery('set:"opening act"', facetsOf: facets(inSet))
+          .matches(item()), isTrue);
+      // a 4-piece bonus name
+      expect(compileQuery('set:radiant', facetsOf: facets(inSet))
+          .matches(item()), isTrue);
+      // unrelated text
+      expect(compileQuery('set:nope', facetsOf: facets(inSet))
+          .matches(item()), isFalse);
+    });
+
+    test('setless armor never matches a set filter', () {
+      expect(compileQuery('set:thriving', facetsOf: facets(setless))
+          .matches(item()), isFalse);
+      expect(compileQuery('set2:"opening act"', facetsOf: facets(setless))
+          .matches(item()), isFalse);
+      expect(compileQuery('set4:"radiant orbs"', facetsOf: facets(setless))
+          .matches(item()), isFalse);
+    });
+
+    test('set filters are unsupported when facets are unavailable', () {
+      // No facetsOf → the whole tab cannot resolve set membership. unsupported
+      // holds the raw token as typed (quotes preserved for spaced values).
+      expect(compileQuery('set:thriving').unsupported, contains('set:thriving'));
+      expect(compileQuery('set2:"opening act"').unsupported,
+          contains('set2:"opening act"'));
+      expect(compileQuery('set4:"radiant orbs"').unsupported,
+          contains('set4:"radiant orbs"'));
+    });
+
+    test('negation applies to set filters', () {
+      expect(compileQuery('-set:thriving', facetsOf: facets(inSet))
+          .matches(item()), isFalse);
+      expect(compileQuery('-set:nope', facetsOf: facets(inSet))
+          .matches(item()), isTrue);
+    });
+  });
+
+  group('buildSetSearchIndex (shared by both tabs)', () {
+    // Mirrors a real DestinyEquipableItemSetDefinition: two members, a 2-piece
+    // and a 4-piece bonus. This is the exact function the Database and Inventory
+    // facet builders both call to turn set defs into per-item set facets, so
+    // testing it covers set:/set2:/set4: resolution on both tabs.
+    const memberA = 2419726011;
+    const memberB = 365930261;
+    const perk2Hash = 681117218;
+    const perk4Hash = 681117219;
+    final setDefs = [
+      {
+        'hash': 2151917545,
+        'displayProperties': {'name': 'Thriving Survivor'},
+        'setItems': [memberA, memberB],
+        'setPerks': [
+          {'requiredSetCount': 2, 'sandboxPerkHash': perk2Hash},
+          {'requiredSetCount': 4, 'sandboxPerkHash': perk4Hash},
+        ],
+        'redacted': false,
+      },
+    ];
+    String? perkName(int h) => switch (h) {
+          perk2Hash => 'Opening Act',
+          perk4Hash => 'Radiant Orbs',
+          _ => null,
+        };
+
+    test('each member resolves to lowercased set name + effects by count', () {
+      final index = buildSetSearchIndex(setDefs, perkName);
+      for (final m in [memberA, memberB]) {
+        final f = index[m];
+        expect(f, isNotNull, reason: 'member $m should be in the index');
+        expect(f!.name, 'thriving survivor');
+        expect(f.perks[2], {'opening act'});
+        expect(f.perks[4], {'radiant orbs'});
+      }
+    });
+
+    test('an item in no set is absent from the index', () {
+      expect(buildSetSearchIndex(setDefs, perkName)[999999], isNull);
+    });
+
+    test('redacted sets are skipped', () {
+      final redacted = [
+        {...setDefs.first, 'redacted': true},
+      ];
+      expect(buildSetSearchIndex(redacted, perkName), isEmpty);
+    });
+
+    test('a perk with no resolvable name is dropped, keeping the rest', () {
+      final defs = [
+        {
+          ...setDefs.first,
+          'setPerks': [
+            {'requiredSetCount': 2, 'sandboxPerkHash': perk2Hash},
+            {'requiredSetCount': 4, 'sandboxPerkHash': 999}, // unknown → null
+          ],
+        },
+      ];
+      final f = buildSetSearchIndex(defs, perkName)[memberA]!;
+      expect(f.perks[2], {'opening act'});
+      expect(f.perks.containsKey(4), isFalse);
+    });
+  });
+
   group('count filter (inventory)', () {
     // A count resolver standing in for the account-owned tally.
     CountResolver owned(int n) => (_) => n;
@@ -485,6 +623,11 @@ void main() {
       description: 'kills with this weapon',
       catalyst: CatalystState.complete,
       frame: 'adaptive frame',
+      setName: 'thriving survivor',
+      setPerksByCount: {
+        2: {'opening act'},
+        4: {'radiant orbs'},
+      },
     );
     FacetResolver facetsOf(SearchFacets f) => (_) => f;
 
@@ -507,6 +650,7 @@ void main() {
       'perk:rampage', 'perk1:outlaw', 'perk2:"kill clip"',
       'frame:adaptive', 'frame:"rapid-fire"',
       'breaker:overload', 'breaker:barrier', 'breaker:unstoppable',
+      'set:"thriving survivor"', 'set2:"opening act"', 'set4:"radiant orbs"',
       'stat:range:>70', 'stat:stability:>=60', 'stat:handling:<40',
       'stat:mobility',
       'source:seraph', 'source:raid',

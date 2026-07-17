@@ -593,6 +593,13 @@ void main() {
       repo.armorSetByHash(setHash);
       verify(() => manifest.allEquipableItemSets()).called(1);
     });
+
+    test('setEffectOptions lists every set-bonus name (sorted, with icon)', () {
+      final options = repo.setEffectOptions();
+      // Alphabetical: "Opening Act" < "Second Act".
+      expect(options.map((o) => o.name), ['Opening Act', 'Second Act']);
+      expect(options.first.iconPath, '/i/opening_act.png');
+    });
   });
 
   group('armor sets — legacy name grouping', () {

@@ -35,6 +35,8 @@ class SearchFacets {
     this.description = '',
     this.catalyst,
     this.frame,
+    this.setName,
+    this.setPerksByCount = const {},
   });
 
   /// Every candidate perk/trait plug name for the item (the full random-roll
@@ -69,6 +71,16 @@ class SearchFacets {
   /// The catalyst unlock state, or null when the item has no catalyst (or the
   /// state is unknown — e.g. the Database tab, which has no account data).
   final CatalystState? catalyst;
+
+  /// The armor set's name (lowercased), or null when the item is in no set.
+  /// `set:` matches this (or any effect name below).
+  final String? setName;
+
+  /// The item's set-bonus effect names keyed by required piece count
+  /// (e.g. `{2: {'opening act'}, 4: {…}}`), lowercased. `set2:`/`set4:` match
+  /// the 2-/4-piece entry; `set:` matches across all. Empty for non-armor,
+  /// setless armor, and legacy sets with no bonus.
+  final Map<int, Set<String>> setPerksByCount;
 }
 
 /// Resolves the [SearchFacets] for an item, or null when facets are unavailable
@@ -233,6 +245,12 @@ ItemPredicate? _predicateFor(
       return _keywordPredicate(value, facetsOf);
     case 'catalyst':
       return _catalystPredicate(value, facetsOf);
+    case 'set':
+      return _setPredicate(value, facetsOf);
+    case 'set2':
+      return _setEffectPredicate(value, facetsOf, 2);
+    case 'set4':
+      return _setEffectPredicate(value, facetsOf, 4);
     case 'count':
       return _countPredicate(term.value, countOf);
 
@@ -350,6 +368,32 @@ ItemPredicate? _descriptionPredicate(String value, FacetResolver? facetsOf) {
   return (item) {
     final facets = facetsOf(item);
     return facets != null && facets.description.contains(value);
+  };
+}
+
+/// `set:<name>` — matches when the item's armor set's name, or any of its
+/// set-bonus effect names, contains [value]. Null (unsupported) when facets
+/// are unavailable.
+ItemPredicate? _setPredicate(String value, FacetResolver? facetsOf) {
+  if (facetsOf == null || value.isEmpty) return null;
+  return (item) {
+    final facets = facetsOf(item);
+    if (facets == null) return false;
+    if (facets.setName != null && facets.setName!.contains(value)) return true;
+    return facets.setPerksByCount.values
+        .any((names) => names.any((n) => n.contains(value)));
+  };
+}
+
+/// `set2:`/`set4:<name>` — matches when the item's set has a [count]-piece bonus
+/// whose effect name contains [value]. Null (unsupported) when facets are
+/// unavailable.
+ItemPredicate? _setEffectPredicate(
+    String value, FacetResolver? facetsOf, int count) {
+  if (facetsOf == null || value.isEmpty) return null;
+  return (item) {
+    final names = facetsOf(item)?.setPerksByCount[count];
+    return names != null && names.any((n) => n.contains(value));
   };
 }
 
@@ -503,6 +547,10 @@ List<String> filterSuggestionCatalog({bool instanceData = true}) => [
       'breaker:unstoppable',
       'description:',
       'keyword:',
+      // Armor set-effect filters (definition-backed, so both tabs).
+      'set:',
+      'set2:',
+      'set4:',
       // Live-data-only terms.
       if (instanceData) ...[
         'power:',

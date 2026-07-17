@@ -101,6 +101,8 @@ class _Repo implements DatabaseRepository {
   List<PerkOption> perkOptions() => const [];
   @override
   List<PerkOption> frameOptions() => const [];
+  @override
+  List<PerkOption> setEffectOptions() => const [];
 }
 
 void main() {

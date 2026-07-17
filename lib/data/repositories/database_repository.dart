@@ -386,6 +386,23 @@ class DatabaseRepository {
     return [for (final name in names) PerkOption(name, byName[name]!)];
   }
 
+  /// The set-effect catalog (name + icon) for the `set:`/`set2:`/`set4:`
+  /// autocomplete, sorted by name. Every set-bonus perk from every armor set,
+  /// deduped by name (first icon wins). Game-wide, so it works on both tabs;
+  /// built from the already-cached set index.
+  List<PerkOption> setEffectOptions() {
+    _ensureSetsBuilt();
+    final byName = <String, String>{};
+    for (final set in _setByHash!.values) {
+      for (final perk in set.perks) {
+        if (perk.name.isEmpty) continue;
+        byName[perk.name] ??= perk.iconPath;
+      }
+    }
+    final names = byName.keys.toList()..sort();
+    return [for (final name in names) PerkOption(name, byName[name]!)];
+  }
+
   /// Build a [GearSummary] from a projected gear row, or null when it lacks a
   /// usable name.
   GearSummary? _summaryOf(Map<String, Object?> row) {

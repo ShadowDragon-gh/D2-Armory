@@ -3,6 +3,7 @@ import 'dart:isolate';
 import '../../core/destiny/destiny_buckets.dart';
 import '../../core/destiny/plug_category.dart';
 import '../../core/search/item_filter.dart';
+import '../../domain/models/armor_set.dart';
 import '../local/manifest_database.dart';
 
 /// The manifest-lookup surface the facet build needs. Both [ManifestRepository]
@@ -17,6 +18,10 @@ abstract interface class FacetSource {
   Map<String, dynamic>? getCollectible(int hash);
   Map<String, dynamic>? getSandboxPerk(int hash);
   Map<String, dynamic>? getSocketType(int hash);
+
+  /// Every armor-set definition's decoded JSON — for the reverse item → set
+  /// index that backs the `set:`/`set2:`/`set4:` facets.
+  List<Map<String, dynamic>> allEquipableItemSets();
 }
 
 /// Builds the searchable [SearchFacets] for gear definitions, reading through a
@@ -33,6 +38,10 @@ class FacetBuilder {
   // Caches shared across a build (one FacetBuilder = one build session).
   final Map<int, String?> _plugPerkName = {};
   final Map<int, List<int>> _plugSetItems = {};
+
+  // Reverse item → set facets, built once per session from every set
+  // definition. Backs `set:`/`set2:`/`set4:`. Null until first built.
+  Map<int, SetSearchFacets>? _setByItem;
 
   // Perk display name (lowercased) -> Bungie icon path, accumulated across the
   // build as perk plugs are decoded. Backs the `perk:` autocomplete catalog.
@@ -89,6 +98,7 @@ class FacetBuilder {
       }
     }
 
+    final set = kind == GearKind.armor ? _setFacetsFor(itemHash) : null;
     return SearchFacets(
       perks: kind == GearKind.weapon ? _perkNamesOf(def) : const {},
       perkColumns:
@@ -98,7 +108,19 @@ class FacetBuilder {
       sources: _sourceStringsOf(def),
       description: _descriptionOf(def),
       frame: _frameNameOf(def),
+      setName: set?.name,
+      setPerksByCount: set?.perks ?? const {},
     );
+  }
+
+  /// The set facets for [itemHash] (its set name + effect names by piece count),
+  /// or null when it is in no set. Lazily builds the reverse index once.
+  SetSearchFacets? _setFacetsFor(int itemHash) {
+    final index = _setByItem ??= buildSetSearchIndex(
+      _db.allEquipableItemSets(),
+      (h) => _db.getSandboxPerk(h)?['displayProperties']?['name'] as String?,
+    );
+    return index[itemHash];
   }
 
   /// The item's mechanical description + flavor text, combined and lowercased.

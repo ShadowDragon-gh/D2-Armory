@@ -292,6 +292,13 @@ final frameCatalogProvider = Provider<List<PerkOption>>((ref) {
   return ref.watch(databaseRepositoryProvider).frameOptions();
 });
 
+/// The set-effect catalog (name + icon) offered as `set:`/`set2:`/`set4:` value
+/// autocomplete on both tabs. Built from the armor-set definitions (game-wide,
+/// not account-scoped) and available as soon as the manifest is open.
+final setEffectCatalogProvider = Provider<List<PerkOption>>((ref) {
+  return ref.watch(databaseRepositoryProvider).setEffectOptions();
+});
+
 /// Gear names for the Database search field's `name:"..."` autocomplete, taken
 /// from the current kind's loaded facet results. Empty until the list loads.
 final databaseItemNamesProvider = Provider<List<String>>((ref) {

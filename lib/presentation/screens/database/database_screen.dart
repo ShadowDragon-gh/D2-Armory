@@ -243,6 +243,7 @@ class _DatabaseSearchField extends ConsumerWidget {
       names: ref.watch(databaseItemNamesProvider),
       perks: ref.watch(perkCatalogProvider),
       frames: ref.watch(frameCatalogProvider),
+      setEffects: ref.watch(setEffectCatalogProvider),
       // The visible kind's facet warm gates its perk:/stat:/source: search and
       // the perk autocomplete, so show the spinner while it is still running.
       warming: ref

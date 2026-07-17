@@ -2,6 +2,7 @@ import '../../core/destiny/destiny_buckets.dart';
 import '../../core/destiny/destiny_enums.dart';
 import '../../core/destiny/plug_category.dart';
 import '../../core/search/item_filter.dart';
+import '../../domain/models/armor_set.dart';
 import '../../domain/models/destiny_character.dart';
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/inventory_grid.dart';
@@ -833,6 +834,7 @@ class InventoryRepository {
 
     final def = _manifest.getInventoryItem(item.itemHash);
 
+    final set = _setFacetsFor(item.itemHash);
     final facets = SearchFacets(
       perks: perks,
       perkColumns: def == null ? const [] : _perkColumnsFor(item, def),
@@ -841,9 +843,27 @@ class InventoryRepository {
       sources: def == null ? const {} : _sourceStringsOf(def),
       description: def == null ? '' : _descriptionOf(def),
       catalyst: _catalystStateOf(detail.catalyst),
+      setName: set?.name,
+      setPerksByCount: set?.perks ?? const {},
     );
     if (id != null) _facetsByInstance[id] = facets;
     return facets;
+  }
+
+  // Reverse item → set facets (set name + effect names by piece count), built
+  // once from every set definition to back the `set:`/`set2:`/`set4:` inventory
+  // search. Null until first built.
+  Map<int, SetSearchFacets>? _setFacetsByItem;
+
+  /// The set facets for [itemHash] (set name + effect names by piece count), or
+  /// null when it is in no set. Lazily builds the reverse index once.
+  SetSearchFacets? _setFacetsFor(int itemHash) {
+    final index = _setFacetsByItem ??= buildSetSearchIndex(
+      _manifest.allEquipableItemSets(),
+      (h) =>
+          _manifest.getSandboxPerk(h)?['displayProperties']?['name'] as String?,
+    );
+    return index[itemHash];
   }
 
   /// The rolled perk options for each random *trait* column of this weapon

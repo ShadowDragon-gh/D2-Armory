@@ -72,6 +72,7 @@ class ManifestDatabase implements FacetSource {
   /// Every armor-set definition's decoded JSON. Small table (~dozens of sets),
   /// read once to build the reverse item → set index. Fixed table name, no
   /// bound parameters, so there is no SQL-injection surface.
+  @override
   List<Map<String, dynamic>> allEquipableItemSets() {
     final rows =
         _db.select('SELECT json FROM DestinyEquipableItemSetDefinition');

@@ -212,4 +212,45 @@ void main() {
       expect(suggestionsFor('frame:adapt', names), isEmpty);
     });
   });
+
+  group('set value completion', () {
+    const setEffects = [
+      PerkOption('opening act', '/i/opening.png'),
+      PerkOption('radiant orbs', '/i/radiant.png'),
+      PerkOption('spirit of the assassin', '/i/spirit.png'),
+    ];
+
+    test('bare set: lists every set effect, quoted, with its icon', () {
+      final s = suggestionsFor('set:', names, setEffects: setEffects);
+      expect(s.map((e) => e.insert), [
+        'set:"opening act"',
+        'set:"radiant orbs"',
+        'set:"spirit of the assassin"',
+      ]);
+      expect(s.first.label, 'set:opening act');
+      expect(s.first.iconPath, '/i/opening.png');
+    });
+
+    test('set2: and set4: complete against the same set-effect catalog', () {
+      expect(
+          suggestionsFor('set2:radiant', names, setEffects: setEffects)
+              .map((e) => e.insert),
+          ['set2:"radiant orbs"']);
+      expect(
+          suggestionsFor('set4:opening', names, setEffects: setEffects)
+              .map((e) => e.insert),
+          ['set4:"opening act"']);
+    });
+
+    test('the set catalog is independent of the perk/frame catalogs', () {
+      const perks = [PerkOption('rampage', '/i/r.png')];
+      expect(suggestionsFor('set:', names, perks: perks), isEmpty);
+      expect(suggestionsFor('perk:', names, setEffects: setEffects), isEmpty);
+    });
+
+    test('an empty set catalog yields no set suggestions', () {
+      expect(suggestionsFor('set:', names), isEmpty);
+      expect(suggestionsFor('set2:opening', names), isEmpty);
+    });
+  });
 }

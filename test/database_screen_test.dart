@@ -158,6 +158,8 @@ class _FakeRepo implements DatabaseRepository {
   List<PerkOption> perkOptions() => const [];
   @override
   List<PerkOption> frameOptions() => const [];
+  @override
+  List<PerkOption> setEffectOptions() => const [];
 }
 
 Widget _app() => ProviderScope(
@@ -641,4 +643,6 @@ class _ToggleFakeRepo implements DatabaseRepository {
   List<PerkOption> perkOptions() => const [];
   @override
   List<PerkOption> frameOptions() => const [];
+  @override
+  List<PerkOption> setEffectOptions() => const [];
 }

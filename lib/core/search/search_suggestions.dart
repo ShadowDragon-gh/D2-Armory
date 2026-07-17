@@ -48,13 +48,17 @@ class PerkOption {
 /// typed after them is completed against the perk catalog.
 const _perkKeys = {'perk', 'perk1', 'perk2'};
 
+/// The set-filter keys that take a set-effect (or set) name as their value, so
+/// a value typed after them is completed against the set-effect catalog.
+const _setKeys = {'set', 'set2', 'set4'};
+
 /// Builds ranked suggestions for [token] against the filter catalog and the
 /// given item [names]. Excludes `exactname:` and never echoes raw text.
 /// [max] caps the result count. [instanceData] is forwarded to
 /// [filterSuggestionCatalog] so the Database tab (false) does not suggest
-/// filters that need live account data. [perks] and [frames] are the catalogs
-/// (name + icon) used to complete `perk:`/`perk1:`/`perk2:` and `frame:` values;
-/// each is empty until it is warmed.
+/// filters that need live account data. [perks], [frames] and [setEffects] are
+/// the catalogs (name + icon) used to complete `perk:`/`perk1:`/`perk2:`,
+/// `frame:` and `set:`/`set2:`/`set4:` values; each is empty until it is warmed.
 List<Suggestion> suggestionsFor(
   String token,
   Iterable<String> names, {
@@ -63,6 +67,7 @@ List<Suggestion> suggestionsFor(
   bool instanceData = true,
   List<PerkOption> perks = const [],
   List<PerkOption> frames = const [],
+  List<PerkOption> setEffects = const [],
 }) {
   final t = token.trim().toLowerCase();
   if (t.isEmpty) return const [];
@@ -79,7 +84,9 @@ List<Suggestion> suggestionsFor(
         ? perks
         : key == 'frame'
             ? frames
-            : null;
+            : _setKeys.contains(key)
+                ? setEffects
+                : null;
     if (catalog != null) {
       final value = t.substring(colon + 1);
       final matches = <Suggestion>[];
