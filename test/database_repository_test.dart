@@ -95,6 +95,28 @@ void main() {
 
       verify(() => manifest.queryGearSummaries(GearKind.weapon)).called(1);
     });
+
+    test('armor pieces sharing a name but differing by class/slot are both '
+        'kept; a true reissue (same name+class+slot) still collapses', () {
+      when(() => manifest.queryGearSummaries(GearKind.armor)).thenReturn([
+        // A set's "Boots" name reused across two classes (legs, slot 29) —
+        // these are distinct pieces and must BOTH survive.
+        row(hash: 1, name: 'Set Boots', itemType: 2, itemSubType: 29, classType: 0),
+        row(hash: 2, name: 'Set Boots', itemType: 2, itemSubType: 29, classType: 2),
+        // A true reissue: same name, class, and slot — collapses to the newest.
+        row(hash: 3, name: 'Reissued Helm', itemType: 2, itemSubType: 26, classType: 0, index: 1),
+        row(hash: 4, name: 'Reissued Helm', itemType: 2, itemSubType: 26, classType: 0, index: 9),
+      ]);
+
+      final rows = repo.listGear(const GearFilter(kind: GearKind.armor));
+      // Both "Set Boots" survive (Titan + Warlock legs).
+      expect(rows.where((r) => r.name == 'Set Boots').map((r) => r.classType),
+          unorderedEquals([0, 2]));
+      // The reissue collapses to the newest (index 9 → hash 4).
+      final reissue =
+          rows.where((r) => r.name == 'Reissued Helm').toList();
+      expect(reissue.single.itemHash, 4);
+    });
   });
 
   group('listGear facet filters', () {
@@ -110,6 +132,17 @@ void main() {
       final rows = repo
           .listGear(const GearFilter(kind: GearKind.weapon, tierType: 6));
       expect(rows.map((r) => r.name), ['ExoticSolarHC']);
+    });
+
+    test('minTierType drops everything below the floor (Legendary and up)', () {
+      when(() => manifest.queryGearSummaries(GearKind.weapon)).thenReturn([
+        row(hash: 1, name: 'RareHC', tierType: 4),
+        row(hash: 2, name: 'LegendaryHC', tierType: 5),
+        row(hash: 3, name: 'ExoticHC', tierType: 6),
+      ]);
+      final rows = repo
+          .listGear(const GearFilter(kind: GearKind.weapon, minTierType: 5));
+      expect(rows.map((r) => r.name).toSet(), {'LegendaryHC', 'ExoticHC'});
     });
 
     test('subtype filter keeps only the matching weapon type', () {
@@ -497,6 +530,10 @@ void main() {
     const perk4Hash = 681117219;
 
     setUp(() {
+      // No armor gear rows: the legacy name-grouping pass has nothing to add,
+      // leaving only the manifest-defined set these tests assert on.
+      when(() => manifest.queryGearSummaries(GearKind.armor))
+          .thenReturn(const []);
       when(() => manifest.allEquipableItemSets()).thenReturn([
         {
           'hash': setHash,
@@ -555,6 +592,130 @@ void main() {
       repo.armorSetForItem(memberB);
       repo.armorSetByHash(setHash);
       verify(() => manifest.allEquipableItemSets()).called(1);
+    });
+  });
+
+  group('armor sets — legacy name grouping', () {
+    // Armor bucket for the row() helper's itemType=2 armor rows.
+    const helmet = 3448274439;
+
+    Map<String, Object?> armorRow(int hash, String name, int sub) => row(
+        hash: hash,
+        name: name,
+        itemType: 2,
+        itemSubType: sub,
+        classType: 0)
+      ..['bucketHash'] = helmet;
+
+    setUp(() {
+      // No manifest-defined sets — force the legacy name-grouping path.
+      when(() => manifest.allEquipableItemSets()).thenReturn(const []);
+    });
+
+    test('older armor with a shared name prefix spanning 2+ slots collapses '
+        'into one legacy set (cross-class same-slot variants included)', () {
+      when(() => manifest.queryGearSummaries(GearKind.armor)).thenReturn([
+        // Bulletsmith's Ire: helm (two class variants), gauntlets, greaves.
+        armorRow(1, "Bulletsmith's Ire Helm", 26),
+        armorRow(2, "Bulletsmith's Ire Gauntlets", 27),
+        armorRow(3, "Bulletsmith's Ire Greaves", 29),
+        // A lone piece whose prefix appears on only one slot → not a set.
+        armorRow(4, 'Solo Circlet', 26),
+      ]);
+
+      // All Bulletsmith's Ire pieces map to one legacy set.
+      final set = repo.armorSetForItem(1);
+      expect(set, isNotNull);
+      expect(set!.name, "Bulletsmith's Ire");
+      expect(set.isLegacy, isTrue);
+      expect(set.perks, isEmpty); // legacy: no defined bonuses
+      expect(set.memberHashes, containsAll([1, 2, 3]));
+      expect(repo.armorSetForItem(2)!.hash, set.hash);
+      expect(repo.armorSetForItem(3)!.hash, set.hash);
+
+      // The single-slot lone piece is NOT grouped.
+      expect(repo.armorSetForItem(4), isNull);
+    });
+
+    test('any trailing piece word works — the set name is name-minus-last-word '
+        '(no enumerated noun list), so unusual nouns still group', () {
+      when(() => manifest.queryGearSummaries(GearKind.armor)).thenReturn([
+        // "Guard" / "Vestment" / "Handguards" are not in any fixed noun list,
+        // yet the pieces group because the set name is just the prefix.
+        armorRow(30, 'Annihilating Helm', 26),
+        armorRow(31, 'Annihilating Guard', 27),
+        armorRow(32, 'Annihilating Vestment', 28),
+        armorRow(33, 'Eidolon Pursuant Handguards', 27),
+        armorRow(34, 'Eidolon Pursuant Legguards', 29),
+      ]);
+      expect(repo.armorSetForItem(31)!.name, 'Annihilating');
+      expect(repo.armorSetForItem(31)!.memberHashes, containsAll([30, 31, 32]));
+      expect(repo.armorSetForItem(33)!.name, 'Eidolon Pursuant');
+      expect(repo.armorSetForItem(33)!.memberHashes, containsAll([33, 34]));
+    });
+
+    test('exotics are never grouped, even when they share a name template', () {
+      when(() => manifest.queryGearSummaries(GearKind.armor)).thenReturn([
+        // Exotic helmets sharing "Mask of" across classes — not a set.
+        armorRow(40, 'Mask of Bakris', 26)
+          ..['tierType'] = 6
+          ..['classType'] = 1,
+        armorRow(41, 'Mask of the Quiet One', 26)
+          ..['tierType'] = 6
+          ..['classType'] = 0,
+      ]);
+      expect(repo.armorSetForItem(40), isNull);
+      expect(repo.armorSetForItem(41), isNull);
+    });
+
+    test('legendary "X of [the] Y" template families are not grouped '
+        '(single slot, of-template name)', () {
+      when(() => manifest.queryGearSummaries(GearKind.armor)).thenReturn([
+        // Unrelated legendary boots sharing "Boots of" across classes.
+        armorRow(50, 'Boots of Trepidation', 29)..['classType'] = 1,
+        armorRow(51, 'Boots of Sekris', 29)..['classType'] = 2,
+        armorRow(52, 'Boots of Detestation', 29)..['classType'] = 0,
+      ]);
+      expect(repo.armorSetForItem(50), isNull);
+      expect(repo.armorSetForItem(51), isNull);
+    });
+
+    test('a single-slot one-piece-per-class set (Shieldbreaker Robes/Plate/'
+        'Vest) groups', () {
+      when(() => manifest.queryGearSummaries(GearKind.armor)).thenReturn([
+        // Three chest pieces (slot 28), one per class — the class-specific
+        // names of a single-slot set.
+        armorRow(60, 'Shieldbreaker Robes', 28)..['classType'] = 2,
+        armorRow(61, 'Shieldbreaker Plate', 28)..['classType'] = 0,
+        armorRow(62, 'Shieldbreaker Vest', 28)..['classType'] = 1,
+      ]);
+      final set = repo.armorSetForItem(60);
+      expect(set, isNotNull);
+      expect(set!.name, 'Shieldbreaker');
+      expect(set.memberHashes, containsAll([60, 61, 62]));
+    });
+
+    test('a class-item-only set (Mark/Bond/Cloak, one per class) groups even '
+        'though all three share the class-item slot', () {
+      when(() => manifest.queryGearSummaries(GearKind.armor)).thenReturn([
+        // "All-Star": three class items, one per character class (slot 30).
+        armorRow(20, 'All-Star Mark', 30)..['classType'] = 0, // Titan
+        armorRow(21, 'All-Star Bond', 30)..['classType'] = 2, // Warlock
+        armorRow(22, 'All-Star Cloak', 30)..['classType'] = 1, // Hunter
+        // A lone class item (single slot AND single class) is not a set.
+        armorRow(23, 'Loner Cloak', 30)..['classType'] = 1,
+      ]);
+
+      final set = repo.armorSetForItem(20);
+      expect(set, isNotNull);
+      expect(set!.name, 'All-Star');
+      expect(set.isLegacy, isTrue);
+      expect(set.memberHashes, containsAll([20, 21, 22]));
+      expect(repo.armorSetForItem(21)!.hash, set.hash);
+      expect(repo.armorSetForItem(22)!.hash, set.hash);
+
+      // The lone class item stays a piece (one slot, one class).
+      expect(repo.armorSetForItem(23), isNull);
     });
   });
 }

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/destiny/destiny_enums.dart';
+import '../../../domain/models/armor_set.dart';
 import '../../../domain/models/item_detail.dart';
 import '../../providers/database_provider.dart';
 import '../../theme/armory_palette.dart';
@@ -72,6 +73,52 @@ class _FilterBar extends ConsumerWidget {
                 onChanged: notifier.setClassType),
           ],
           const SizedBox(width: 12),
+          // The view/filter toggles, grouped together. Rarity is on both tabs;
+          // Sets and Modern-sets are armor-only.
+          Wrap(
+            spacing: 6,
+            children: [
+              // Sets leads (armor only). The remaining toggles are framed as the
+              // non-default action (both hide by default), so each reads as what
+              // turning it on does.
+              if (filter.kind == GearKind.armor) ...[
+                _ChipToggle(
+                  icon: Icons.dns,
+                  label: 'Sets',
+                  tooltipOn: 'Collapsing armor into sets',
+                  tooltipOff: 'Showing armor piece by piece',
+                  selected: filter.collapseSets,
+                  onChanged: notifier.setCollapseSets,
+                ),
+                _ChipToggle(
+                  icon: Icons.star,
+                  label: 'Exotics',
+                  tooltipOn: 'Showing Exotic gear only',
+                  tooltipOff: 'Showing all rarities',
+                  selected: filter.exoticsOnly,
+                  onChanged: notifier.setExoticsOnly,
+                ),
+              ],
+              _ChipToggle(
+                icon: Icons.visibility,
+                label: 'Low Rarity',
+                tooltipOn: 'Showing all rarities',
+                tooltipOff: 'Showing Legendary and Exotic only',
+                selected: !filter.hideBelowLegendary,
+                onChanged: (show) => notifier.setHideBelowLegendary(!show),
+              ),
+              if (filter.kind == GearKind.armor)
+                _ChipToggle(
+                  icon: Icons.history,
+                  label: 'Legacy gear',
+                  tooltipOn: 'Showing legacy gear (no set bonus)',
+                  tooltipOff: 'Hiding legacy gear (no set bonus)',
+                  selected: !filter.hideLegacy,
+                  onChanged: (show) => notifier.setHideLegacy(!show),
+                ),
+            ],
+          ),
+          const SizedBox(width: 12),
           const Expanded(child: _DatabaseSearchField()),
         ],
       ),
@@ -101,6 +148,50 @@ class _ClassFilter extends StatelessWidget {
       selected: {classType},
       showSelectedIcon: false,
       onSelectionChanged: (s) => onChanged(s.first),
+    );
+  }
+}
+
+/// A compact on/off filter-bar chip: a leading [icon] avatar (filled when on,
+/// its outlined variant when off — no checkmark) plus a [label], with a tooltip
+/// describing the current state. Used for all of the view/filter toggles so
+/// they read as one consistent group.
+class _ChipToggle extends StatelessWidget {
+  const _ChipToggle({
+    required this.icon,
+    required this.label,
+    required this.tooltipOn,
+    required this.tooltipOff,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final String tooltipOn;
+  final String tooltipOff;
+  final bool selected;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: selected ? tooltipOn : tooltipOff,
+      child: FilterChip(
+        visualDensity: VisualDensity.compact,
+        showCheckmark: false,
+        selected: selected,
+        // Bronze accent when on, so an active (non-default) filter stands out.
+        selectedColor: ArmoryPalette.accent500,
+        avatar: Icon(icon,
+            size: 18,
+            color: selected ? ArmoryPalette.onAccent : null),
+        label: Text(label,
+            style: selected
+                ? const TextStyle(color: ArmoryPalette.onAccent)
+                : null),
+        onSelected: onChanged,
+      ),
     );
   }
 }
@@ -163,7 +254,7 @@ class _GearList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(databaseResultsProvider);
+    final async = ref.watch(databaseRowsProvider);
     final selected = ref.watch(selectedDatabaseItemProvider);
 
     return async.when(
@@ -173,13 +264,13 @@ class _GearList extends ConsumerWidget {
             style:
                 TextStyle(color: Theme.of(context).colorScheme.error)),
       ),
-      data: (results) => _buildList(context, ref, results, selected),
+      data: (rows) => _buildList(context, ref, rows, selected),
     );
   }
 
   Widget _buildList(BuildContext context, WidgetRef ref,
-      List<GearSummary> results, int? selected) {
-    if (results.isEmpty) {
+      List<DatabaseRow> rows, int? selected) {
+    if (rows.isEmpty) {
       return Center(
         child: Text(
           'No gear matches the current filters.',
@@ -188,6 +279,15 @@ class _GearList extends ConsumerWidget {
       );
     }
 
+    final setCount = rows.where((r) => r.isSet).length;
+    final pieceCount = rows.length - setCount;
+    // Show only the parts that apply — the set view is all sets (0 pieces), the
+    // flat view all pieces (0 sets); a mixed view shows both.
+    final label = [
+      if (pieceCount > 0 || setCount == 0) '$pieceCount items',
+      if (setCount > 0) '$setCount sets',
+    ].join(' · ');
+
     return Column(
       children: [
         Padding(
@@ -195,7 +295,7 @@ class _GearList extends ConsumerWidget {
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              '${results.length} items',
+              label,
               style: TextStyle(
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -205,18 +305,36 @@ class _GearList extends ConsumerWidget {
         ),
         Expanded(
           // Virtualised: only visible rows build, so thousands of items scroll
-          // without jank and without resolving each row's full detail.
+          // without jank and without resolving each row's full detail. Set rows
+          // are taller (two lines of bonus badges), so extent varies per row.
           child: ListView.builder(
-            itemCount: results.length,
-            itemExtent: 56,
+            itemCount: rows.length,
             itemBuilder: (context, i) {
-              final gear = results[i];
-              return _GearRow(
-                gear: gear,
-                selected: gear.itemHash == selected,
-                onTap: () => ref
-                    .read(selectedDatabaseItemProvider.notifier)
-                    .toggle(gear.itemHash),
+              final row = rows[i];
+              if (row.isSet) {
+                // Sets usually have no icon of their own; fall back to a member.
+                final iconUrl = row.members
+                    .map((m) => m.iconUrl)
+                    .firstWhere((u) => u != null, orElse: () => null);
+                return _SetRow(
+                  set: row.set!,
+                  memberCount: row.members.length,
+                  iconUrl: iconUrl,
+                  onTap: () => ref
+                      .read(selectedArmorSetProvider.notifier)
+                      .toggle(row.set!.hash),
+                );
+              }
+              final gear = row.piece!;
+              return SizedBox(
+                height: 56,
+                child: _GearRow(
+                  gear: gear,
+                  selected: gear.itemHash == selected,
+                  onTap: () => ref
+                      .read(selectedDatabaseItemProvider.notifier)
+                      .toggle(gear.itemHash),
+                ),
               );
             },
           ),
@@ -341,6 +459,125 @@ class _GearRow extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A collapsed armor-set row: the set name, its piece count, and small
+/// 2-piece / 4-piece bonus-name badges. Tapping it opens the set detail modal.
+class _SetRow extends StatelessWidget {
+  const _SetRow({
+    required this.set,
+    required this.memberCount,
+    required this.iconUrl,
+    required this.onTap,
+  });
+
+  final ArmorSet set;
+  final int memberCount;
+  final String? iconUrl;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              // Set accent bar (bronze, distinct from a piece's rarity bar).
+              Container(width: 3, height: 44, color: ArmoryPalette.accent500),
+              const SizedBox(width: 10),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  borderRadius: ArmoryRadius.sm,
+                  border: Border.all(color: ArmoryPalette.borderStronger),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: iconUrl == null
+                    ? const Icon(Icons.dns, size: 22)
+                    : CachedNetworkImage(
+                        imageUrl: iconUrl!,
+                        fit: BoxFit.cover,
+                        fadeInDuration: Duration.zero,
+                        errorWidget: (_, _, _) => const Icon(Icons.dns, size: 22),
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            set.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '$memberCount pieces',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: theme.colorScheme.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                    if (set.perks.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 2,
+                        children: [
+                          for (final perk in set.perks)
+                            _SetPerkBadge(perk: perk),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A small "Npc: Name" badge for a set bonus on a collapsed set row.
+class _SetPerkBadge extends StatelessWidget {
+  const _SetPerkBadge({required this.perk});
+
+  final SetPerk perk;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: ArmoryPalette.scrim26,
+        borderRadius: ArmoryRadius.sm,
+        border: Border.all(color: ArmoryPalette.borderStrong),
+      ),
+      child: Text(
+        '${perk.requiredSetCount}pc: ${perk.name}',
+        style: TextStyle(
+            fontSize: 10, color: theme.colorScheme.onSurfaceVariant),
       ),
     );
   }

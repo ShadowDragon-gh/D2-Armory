@@ -117,17 +117,19 @@ Verified: unit tests assert a member resolves to its set with both perks (sorted
 
 ---
 
-## Phase 4 — Collapse-into-sets view mode (Database list)
+## Phase 4 — Collapse-into-sets view mode (Database list) — **DONE**
 
-Files: `lib/presentation/providers/database_provider.dart`, `lib/presentation/screens/database/database_screen.dart`.
+Files changed: `lib/presentation/providers/database_provider.dart`, `lib/presentation/screens/database/database_screen.dart`, `test/database_screen_test.dart`.
 
-- [ ] Add `collapseSets` bool to `DatabaseFilter` (default **true**), armor-only. Add the toggle to `_FilterBar` (armor-only, beside the class filter).
-- [ ] New derived provider that, when armor + collapseSets, groups the filtered `GearSummary` list: pieces whose hash is in a set collapse to one **set row** (per set); setless pieces stay as individual rows. Interleave and sort alphabetically by display name (set name vs. item name).
-- [ ] `_GearList` renders a heterogeneous list: reuse `_GearRow` for pieces; new `_SetRow` for sets (set name, member count, small 2pc/4pc perk badges, set icon if any — sets often have `iconHash: 0`, so fall back to a representative member icon).
-- [ ] Tapping a set row opens the **set detail modal** (Phase 5); tapping a piece row opens the existing `DatabaseDetailModal` (unchanged).
-- [ ] When class filter is active, a set row shows only if it has member(s) for that class (sets span classes; filter member view accordingly).
+- [x] Added `collapseSets` bool to `DatabaseFilter` (default **true**) with `setCollapseSets`; preserved across kind switches. Added the `_CollapseSetsToggle` ("Sets" filter chip) to `_FilterBar`, armor-only, beside the class filter.
+- [x] `databaseRowsProvider` transforms the flat `databaseResultsProvider` into `List<DatabaseRow>` (piece or set). For armor + collapse, set members group into one `DatabaseRow.set` (carrying the members that passed the filter); setless pieces stay `DatabaseRow.piece`. Interleaved and sorted alphabetically by display name. Weapons / collapse-off are all piece rows.
+- [x] `_GearList` renders the heterogeneous list: `_GearRow` for pieces, new `_SetRow` for sets (set name, "N pieces", small 2pc/4pc `_SetPerkBadge`s, a representative member icon since sets usually have `iconHash: 0`). Count label reads "N items · M sets".
+- [x] Tapping a set row sets `selectedArmorSetProvider` (the set-detail modal in Phase 5 reads it); piece rows still open `DatabaseDetailModal`.
+- [x] Class filter × collapse: the grouped provider builds from the already class-filtered flat results, so a set row only holds members of the active class, its count reflects the filter, and a set with no matching members produces no row.
 
-Success: armor list defaults to collapsed sets; toggling off restores the flat per-piece list; weapons list is unaffected. Class filter + collapse interact correctly.
+- [x] **Legacy (pre-set) armor grouping.** Older armor (Bulletsmith's Ire, Eidolon Pursuant, Iron Will, Kit Fox, …) has no `DestinyEquipableItemSetDefinition` — the only link is the shared name. `_addLegacyNameSets` derives a set name by stripping the item name's **final word** (the piece noun — unbounded, so stripped by position, not from an enumerated list; an enumerated list proved to be endless whack-a-mole), then groups non-exotic setless armor by that name. **Exotics are excluded** (always single pieces). A group qualifies as a set when it (a) spans **2+ armor slots** (`itemSubType`) — an ordinary set — or (b) sits in one slot but is **one-piece-per-class** (member count == distinct real class count, 2+ classes) and its name is not an `<Noun> of [the] …` template — a class-specific single-slot set (class-item Mark/Bond/Cloak trios, and single-slot sets like Shieldbreaker Robes/Plate/Vest), while rejecting templated families (Mask of X, Boots of the X). Synthetic sets carry `isLegacy: true` and no `perks`. Verified against the manifest: Eidolon Pursuant / Pathfinder's / Iron Will (15 each), Kit Fox / Farseeker's / Hardcase (4), Shieldbreaker / Gearhead / All-Star / Allstar (single-slot 3-piece) all group; Mask of / Boots of / "The …" exotics-and-templates correctly stay individual.
+
+Verified: widget tests cover collapse-on-by-default grouping (set row + bonus badges, setless piece stays), the Sets toggle flattening back to pieces, tapping a set selecting it, and the class filter interacting correctly (it toggles collapse off to test flat filtering); repository tests cover the legacy multi-slot grouping and its guards. `flutter analyze` clean; full suite green (346 tests).
 
 ---
 

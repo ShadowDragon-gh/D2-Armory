@@ -28,10 +28,16 @@ class ArmorSet {
     required this.name,
     required this.memberHashes,
     required this.perks,
+    this.isLegacy = false,
   });
 
   final int hash;
   final String name;
   final List<int> memberHashes;
   final List<SetPerk> perks;
+
+  /// True for a set grouped only by shared name (older armor with no
+  /// `DestinyEquipableItemSetDefinition`): it collapses in the list but has no
+  /// defined set bonuses ([perks] is empty).
+  final bool isLegacy;
 }
