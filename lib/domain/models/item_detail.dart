@@ -156,6 +156,7 @@ class ItemPlug {
     required this.category,
     this.description = '',
     this.note = '',
+    this.energyCost = 0,
     this.isEnabled = true,
     this.isEnhanced = false,
     this.statEffects = const [],
@@ -172,6 +173,11 @@ class ItemPlug {
   /// below the effect — e.g. an armor mod's "Multiple copies of this mod can be
   /// stacked…" stacking note. Empty when the plug has none.
   final String note;
+
+  /// The armor energy this mod costs to install (its "Any Energy Type Cost" /
+  /// "Mod Cost" stat), shown as a small badge on the mod icon. 0 for plugs with
+  /// no energy cost (weapon mods, perks, empty sockets).
+  final int energyCost;
 
   final bool isEnabled;
 
@@ -345,6 +351,15 @@ class GearDetail {
       : '${AppConfig.bungieBaseUrl}$screenshotPath';
 }
 
+/// An armor piece's energy meter: the total [capacity] and how much its
+/// installed mods [used]. Shown above the stats like the in-game armor display.
+class ArmorEnergy {
+  const ArmorEnergy({required this.capacity, required this.used});
+
+  final int capacity;
+  final int used;
+}
+
 /// Everything the detail panel shows for a single item: the base [item] plus
 /// resolved stats, sockets (grouped by category), champion breaker, and the
 /// masterwork kill tracker.
@@ -358,6 +373,7 @@ class ItemDetail {
     this.breaker,
     this.killTracker,
     this.catalyst,
+    this.armorEnergy,
   });
 
   final DestinyItem item;
@@ -378,6 +394,10 @@ class ItemDetail {
   final BreakerType? breaker;
   final KillTracker? killTracker;
   final CatalystProgress? catalyst;
+
+  /// The armor energy meter (capacity + used), or null for weapons and for
+  /// armor with no energy data.
+  final ArmorEnergy? armorEnergy;
 
   Iterable<ItemPlug> plugsOf(PlugCategory c) =>
       plugs.where((p) => p.category == c);

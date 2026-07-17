@@ -1458,7 +1458,12 @@ void main() {
           'itemComponents': {
             'instances': {
               'data': {
-                '999': {'primaryStat': {'value': 1800}}
+                // Capacity comes from the instance's energy component; omitting
+                // energyUsed exercises the mod-cost-sum fallback for `used`.
+                '999': {
+                  'primaryStat': {'value': 1800},
+                  'energy': {'energyCapacity': 11},
+                }
               }
             },
             'stats': {'data': {}},
@@ -1501,6 +1506,10 @@ void main() {
     // The stacking note is carried, separately from the effect.
     expect(voidMod.note, contains('Multiple copies of this mod can be stacked'));
 
+    // The mod's energy cost is carried (for the icon badge), sourced from the
+    // cost stat that is excluded from the stat effects.
+    expect(voidMod.energyCost, 2);
+
     // The equipped chip (read-only side-panel path) resolves the same way.
     final equippedChip =
         detail.plugsOf(PlugCategory.mod).firstWhere((p) => p.name == 'Void Resistance');
@@ -1508,6 +1517,13 @@ void main() {
         'Reduces incoming Void damage from combatants.');
     expect(equippedChip.statEffects, isEmpty);
     expect(equippedChip.note, contains('Multiple copies of this mod'));
+    expect(equippedChip.energyCost, 2);
+
+    // The armor energy meter: capacity from the instance, used from the summed
+    // mod costs (the instance omitted energyUsed).
+    expect(detail.armorEnergy, isNotNull);
+    expect(detail.armorEnergy!.capacity, 11);
+    expect(detail.armorEnergy!.used, 2);
   });
 
   test('patchSocketPlug applies then reverses a plug + stat change, so an '

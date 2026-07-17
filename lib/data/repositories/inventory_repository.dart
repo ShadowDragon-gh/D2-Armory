@@ -29,6 +29,10 @@ class InventoryRepository {
   // computed from the definition + socket investment (the DIM model), not the
   // ItemStats (304) component, so only sockets/reusable-plugs are retained.
   Map<String, dynamic> _sockets = const {};
+  // Instance-keyed ItemInstances (300) component from the last fetch, retained
+  // for the armor energy meter (its `energy` holds capacity/used). Power and
+  // damage are read off it at decode time, so only armor energy needs it later.
+  Map<String, dynamic> _instances = const {};
   // Instance-keyed rolled plug options per socket (component 310). A weapon's
   // trait sockets list all the perks that copy can roll to, so `perk1:`/`perk2:`
   // search matches any of a column's options, not just the equipped one.
@@ -140,6 +144,7 @@ class InventoryRepository {
 
     final itemComponents = profile['itemComponents'];
     final instances = _dataMap(itemComponents?['instances']);
+    _instances = instances;
     _sockets = _dataMap(itemComponents?['sockets']);
     _reusablePlugs = _dataMap(itemComponents?['reusablePlugs']);
     _plugObjectives = _dataMap(itemComponents?['plugObjectives']);
@@ -245,7 +250,26 @@ class InventoryRepository {
       breaker: _resolveBreaker(item, socketsData),
       killTracker: _resolveKillTracker(socketsData, objectivesData),
       catalyst: catalyst,
+      armorEnergy: _resolveArmorEnergy(item, plugs),
     );
+  }
+
+  /// The armor energy meter for [item]: its total capacity from the instance's
+  /// ItemInstances (300) `energy` component, and the energy its mods use. Null
+  /// for weapons and for armor whose instance reports no energy. Capacity comes
+  /// from the instance; `used` prefers the instance's `energyUsed` but falls
+  /// back to summing the equipped mods' [ItemPlug.energyCost] when absent.
+  ArmorEnergy? _resolveArmorEnergy(DestinyItem item, List<ItemPlug> plugs) {
+    if (item.itemType != DestinyEnums.typeArmor) return null;
+    final id = item.itemInstanceId;
+    if (id == null) return null;
+    final energy = (_instances[id] as Map<String, dynamic>?)?['energy'];
+    if (energy is! Map) return null;
+    final capacity = (energy['energyCapacity'] as num?)?.toInt();
+    if (capacity == null) return null;
+    final used = (energy['energyUsed'] as num?)?.toInt() ??
+        plugs.fold<int>(0, (sum, p) => sum + p.energyCost);
+    return ArmorEnergy(capacity: capacity, used: used);
   }
 
   // The WEAPON PERKS socket category (a stable game constant); its sockets
@@ -516,6 +540,7 @@ class InventoryRepository {
       iconPath: (display?['icon'] as String?) ?? '',
       description: _plugDescription(def, display, hasStatEffects: statEffects.isNotEmpty),
       note: _plugNote(def),
+      energyCost: _plugEnergyCost(def),
       category: classifyPlug(plugCategory),
       isEnabled: isEnabled,
       isEnhanced: isEnhancedPlugDef(def),
@@ -538,6 +563,21 @@ class InventoryRepository {
       }
     }
     return '';
+  }
+
+  /// The armor energy a plug costs to install: its "Any Energy Type Cost" /
+  /// "Mod Cost" investment stat ([_modCostStats]), or 0 when it has none.
+  int _plugEnergyCost(Map<String, dynamic> def) {
+    final invStats = def['investmentStats'];
+    if (invStats is! List) return 0;
+    for (final s in invStats) {
+      final st = s as Map<String, dynamic>;
+      final statHash = (st['statTypeHash'] as num?)?.toInt();
+      if (statHash != null && _modCostStats.contains(statHash)) {
+        return (st['value'] as num?)?.toInt() ?? 0;
+      }
+    }
+    return 0;
   }
 
   /// A plug's effect description: the plug's own `displayProperties.description`
@@ -1435,6 +1475,7 @@ class InventoryRepository {
         description:
             _plugDescription(def, display, hasStatEffects: statEffects.isNotEmpty),
         note: _plugNote(def),
+        energyCost: _plugEnergyCost(def),
         category: category,
         isEnabled: s['isEnabled'] != false,
         isEnhanced: enhanced,

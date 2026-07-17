@@ -550,15 +550,67 @@ class _StatArea extends ConsumerWidget {
     }
     final showRoll = rolled != null &&
         ref.watch(gearModalViewProvider) == GearModalView.rolled;
+    // The armor energy meter sits above the stats, like the in-game armor
+    // display; shown only for a roll that carries energy data.
+    final energy = showRoll ? rolled.armorEnergy : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (energy != null) ...[
+          _ArmorEnergyMeter(energy: energy),
+          const SizedBox(height: 12),
+        ],
         const _SectionLabel('Stats'),
         const SizedBox(height: 6),
         if (showRoll)
           _RolledStats(stats: rolled.stats)
         else
           _StatBlock(stats: detail.stats),
+      ],
+    );
+  }
+}
+
+/// The armor energy readout shown above the stats: "Energy  used / total" with
+/// a slim capacity bar, matching the in-game armor display.
+class _ArmorEnergyMeter extends StatelessWidget {
+  const _ArmorEnergyMeter({required this.energy});
+
+  final ArmorEnergy energy;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final capacity = energy.capacity;
+    final fraction =
+        capacity > 0 ? (energy.used / capacity).clamp(0.0, 1.0) : 0.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const _SectionLabel('Energy'),
+            const Spacer(),
+            Text(
+              '${energy.used} / $capacity',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: LinearProgressIndicator(
+            value: fraction,
+            minHeight: 5,
+            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+            color: theme.colorScheme.primary,
+          ),
+        ),
       ],
     );
   }
@@ -1791,11 +1843,15 @@ class _PerkIcon extends StatelessWidget {
         : plug.isEnhanced
             ? ArmoryPalette.masterworkGold
             : ArmoryPalette.borderStronger;
-    return Container(
+    // Mod icons are square-ish, so mods get a rounded-rect background; perks
+    // (round icons) keep the circle.
+    final isMod = plug.category == PlugCategory.mod;
+    final icon = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
+        shape: isMod ? BoxShape.rectangle : BoxShape.circle,
+        borderRadius: isMod ? ArmoryRadius.sm : null,
         color: ArmoryPalette.scrim26,
         border: Border.all(
           color: borderColor,
@@ -1812,6 +1868,51 @@ class _PerkIcon extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: image,
+    );
+    // A mod's energy cost sits as a small badge in the top-right corner,
+    // mirroring the in-game mod icon. The stack is sized to the icon so the
+    // badge can overflow slightly past its corner without shifting layout.
+    if (plug.energyCost <= 0) return icon;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        icon,
+        Positioned(
+          top: -3,
+          right: -3,
+          child: _EnergyCostBadge(cost: plug.energyCost),
+        ),
+      ],
+    );
+  }
+}
+
+/// The small energy-cost badge shown in the top-right corner of a mod icon.
+class _EnergyCostBadge extends StatelessWidget {
+  const _EnergyCostBadge({required this.cost});
+
+  final int cost;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      decoration: BoxDecoration(
+        color: ArmoryPalette.scrim87,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: ArmoryPalette.borderStronger),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '$cost',
+        style: const TextStyle(
+          fontSize: 9,
+          height: 1,
+          fontWeight: FontWeight.bold,
+          color: ArmoryPalette.textPrimary,
+        ),
+      ),
     );
   }
 }
