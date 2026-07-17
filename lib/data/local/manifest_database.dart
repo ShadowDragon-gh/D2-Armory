@@ -65,6 +65,23 @@ class ManifestDatabase implements FacetSource {
   Map<String, dynamic>? getPlugSet(int hash) =>
       getDefinition('DestinyPlugSetDefinition', hash);
 
+  /// An armor-set definition (its member item hashes and set-bonus perks).
+  Map<String, dynamic>? getEquipableItemSet(int hash) =>
+      getDefinition('DestinyEquipableItemSetDefinition', hash);
+
+  /// Every armor-set definition's decoded JSON. Small table (~dozens of sets),
+  /// read once to build the reverse item → set index. Fixed table name, no
+  /// bound parameters, so there is no SQL-injection surface.
+  @override
+  List<Map<String, dynamic>> allEquipableItemSets() {
+    final rows =
+        _db.select('SELECT json FROM DestinyEquipableItemSetDefinition');
+    return [
+      for (final r in rows)
+        jsonDecode(r['json'] as String) as Map<String, dynamic>,
+    ];
+  }
+
   /// The layered icon definition (`foreground`/`background`/watermark paths)
   /// referenced by an item's `displayProperties.iconHash`.
   Map<String, dynamic>? getIcon(int hash) =>

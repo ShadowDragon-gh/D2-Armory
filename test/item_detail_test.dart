@@ -3,6 +3,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:d2_armory/core/destiny/destiny_buckets.dart';
 import 'package:d2_armory/core/destiny/plug_category.dart';
+import 'package:d2_armory/domain/models/destiny_item.dart';
 import 'package:d2_armory/domain/models/item_detail.dart';
 import 'package:d2_armory/data/remote/bungie_api.dart';
 import 'package:d2_armory/data/repositories/inventory_repository.dart';
@@ -1151,6 +1152,1103 @@ void main() {
     final backup = modColumn.plugs.firstWhere((p) => p.name == 'Backup Mag');
     expect(backup.statEffects, isEmpty);
     expect(backup.description, 'Adds a small amount of reserve ammo.');
+  });
+
+  test('resolveDetail(withPerkColumns) makes only modern ARMOR MODS sockets '
+      '(enhancements.* whitelist) editable — dropping the masterwork socket, '
+      'the legacy 1.0-mods socket, and the fixed ARMOR PERKS socket', () async {
+    const armorHash = 9001;
+    const armorModsCategory = 590099826; // ARMOR MODS
+    const legacyPerksCategory = 2518356196; // legacy "ARMOR PERKS" (1.0 mods)
+    const fixedPerksCategory = 3154740035; // built-in, non-swappable
+
+    // Socket type hashes → distinct plug whitelists (what gates editability).
+    const modHeadType = 968742181; // whitelist enhancements.v2_head → editable
+    const masterworkType = 1843767421; // v460.plugs.armor.masterworks → dropped
+    const legacyModType = 4076485920; // whitelist "mods" (1.0) → NOT editable
+    const fixedType = 3154740036; // intrinsics-ish → not a mod socket
+
+    // Socket 0: a modern ARMOR MODS slot with two swappable mods → a column.
+    const equippedMod = 9101; // Recovery Mod (equipped)
+    const altMod = 9102; // Resilience Mod (alternative)
+    // Socket 2: the masterwork/tier socket → dropped (non-enhancements.*).
+    const tierPlug = 9301; // Upgrade Armor
+    // Socket 1: a legacy ARMOR PERKS 1.0-mods slot with two options — the free
+    // socket-insert endpoint cannot edit these, so they must NOT be a column.
+    const equippedLegacy = 9201; // Plasteel Reinforcement (equipped)
+    const altLegacy = 9202; // Restorative (alternative)
+    // Socket 3: a fixed (built-in) armor perk → never a mod column.
+    const fixedPerk = 9401;
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Helm', 'icon': '/i/helm.jpg'},
+      'itemType': 2,
+      'itemSubType': 26,
+      'itemTypeDisplayName': 'Helmet',
+      'inventory': {'bucketTypeHash': EquipmentBucket.helmet.hash},
+      'sockets': {
+        'socketCategories': [
+          {
+            'socketCategoryHash': armorModsCategory,
+            'socketIndexes': [0, 2],
+          },
+          {
+            'socketCategoryHash': legacyPerksCategory,
+            'socketIndexes': [1],
+          },
+          {
+            'socketCategoryHash': fixedPerksCategory,
+            'socketIndexes': [3],
+          },
+        ],
+        'socketEntries': [
+          {'singleInitialItemHash': equippedMod, 'socketTypeHash': modHeadType},
+          {
+            'singleInitialItemHash': equippedLegacy,
+            'socketTypeHash': legacyModType
+          },
+          {'singleInitialItemHash': tierPlug, 'socketTypeHash': masterworkType},
+          {'singleInitialItemHash': fixedPerk, 'socketTypeHash': fixedType},
+        ],
+      },
+    });
+    // Socket-type whitelists: the enhancements.* family is what makes a socket
+    // an editable modern mod slot; the others are excluded.
+    when(() => manifest.getSocketType(modHeadType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'enhancements.v2_head'}
+      ],
+    });
+    when(() => manifest.getSocketType(masterworkType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'v460.plugs.armor.masterworks'}
+      ],
+    });
+    when(() => manifest.getSocketType(legacyModType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'mods'}
+      ],
+    });
+    when(() => manifest.getSocketType(fixedType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'intrinsics'}
+      ],
+    });
+    when(() => manifest.getInventoryItem(equippedMod)).thenReturn({
+      'displayProperties': {'name': 'Recovery Mod', 'icon': '/i/rec.jpg'},
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_head'},
+    });
+    when(() => manifest.getInventoryItem(altMod)).thenReturn({
+      'displayProperties': {'name': 'Resilience Mod', 'icon': '/i/res.jpg'},
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_head'},
+    });
+    when(() => manifest.getInventoryItem(equippedLegacy)).thenReturn({
+      'displayProperties': {
+        'name': 'Plasteel Reinforcement Mod',
+        'icon': '/i/pl.jpg'
+      },
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_general'},
+    });
+    when(() => manifest.getInventoryItem(altLegacy)).thenReturn({
+      'displayProperties': {'name': 'Restorative Mod', 'icon': '/i/rt.jpg'},
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_general'},
+    });
+    // The masterwork "Upgrade Armor" plug is not a mod-category plug, so even
+    // if it had alternatives it would be excluded; here it is a lone option.
+    when(() => manifest.getInventoryItem(tierPlug)).thenReturn({
+      'displayProperties': {'name': 'Upgrade Armor', 'icon': '/i/up.jpg'},
+      'plug': {'plugCategoryIdentifier': 'v460.plugs.armor.masterworks'},
+    });
+    when(() => manifest.getInventoryItem(fixedPerk)).thenReturn({
+      'displayProperties': {'name': 'Intrinsic Boost', 'icon': '/i/in.jpg'},
+      'plug': {'plugCategoryIdentifier': 'intrinsics'},
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': '888',
+                    'bucketHash': EquipmentBucket.helmet.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                '888': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                '888': {
+                  'sockets': [
+                    {'plugHash': equippedMod, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': equippedLegacy, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': tierPlug, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': fixedPerk, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {
+              'data': {
+                '888': {
+                  'plugs': {
+                    '0': [
+                      {'plugItemHash': equippedMod},
+                      {'plugItemHash': altMod},
+                    ],
+                    '1': [
+                      {'plugItemHash': equippedLegacy},
+                      {'plugItemHash': altLegacy},
+                    ],
+                    // The masterwork socket lists only its single tier plug.
+                    '2': [
+                      {'plugItemHash': tierPlug},
+                    ],
+                  }
+                }
+              }
+            },
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.helmet.hash).single;
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+
+    // Only the modern ARMOR MODS socket (0) is editable. The legacy 1.0-mods
+    // socket (1), the masterwork socket (2), and the fixed-perk socket (3) are
+    // all excluded — the free socket-insert endpoint cannot edit them.
+    final bySocket = {for (final c in detail.modColumns) c.socketIndex: c};
+    expect(bySocket.keys, unorderedEquals([0]));
+
+    final armorModColumn = bySocket[0]!;
+    expect(armorModColumn.plugs.map((p) => p.name),
+        containsAll(['Recovery Mod', 'Resilience Mod']));
+    expect(armorModColumn.plugs[armorModColumn.activeIndex!].name,
+        'Recovery Mod');
+    expect(
+        armorModColumn.plugs.firstWhere((p) => p.name == 'Resilience Mod')
+            .plugHash,
+        altMod);
+
+    // Armor never builds weapon-style perk columns.
+    expect(detail.perkColumns, isEmpty);
+  });
+
+  test('an armor mod shows its real effect and stacking note, not its energy '
+      'cost — the cost stat is not a stat effect', () async {
+    const armorHash = 9501;
+    const armorModsCategory = 590099826;
+    const modChestType = 4015518015; // whitelist enhancements.chest → editable
+    const equippedMod = 9601; // Void Resistance (equipped)
+    const altMod = 9602; // Solar Resistance (alternative)
+    const energyCostStat = 3578062600; // "Any Energy Type Cost"
+    const voidResistPerk = 20057580;
+    const solarResistPerk = 20057581;
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Chest', 'icon': '/i/chest.jpg'},
+      'itemType': 2,
+      'itemSubType': 28,
+      'itemTypeDisplayName': 'Chest Armor',
+      'inventory': {'bucketTypeHash': EquipmentBucket.chestArmor.hash},
+      'sockets': {
+        'socketCategories': [
+          {
+            'socketCategoryHash': armorModsCategory,
+            'socketIndexes': [0],
+          },
+        ],
+        'socketEntries': [
+          {'singleInitialItemHash': equippedMod, 'socketTypeHash': modChestType},
+        ],
+      },
+    });
+    when(() => manifest.getSocketType(modChestType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'enhancements.chest'}
+      ],
+    });
+    // Void Resistance, mirroring the real manifest shape: an empty own
+    // description, an energy-cost investment stat, the real effect on a sandbox
+    // perk, and a perk-info stacking note.
+    when(() => manifest.getInventoryItem(equippedMod)).thenReturn({
+      'displayProperties': {
+        'name': 'Void Resistance',
+        'icon': '/i/vr.jpg',
+        'description': '',
+      },
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_chest'},
+      'investmentStats': [
+        {'statTypeHash': energyCostStat, 'value': 2},
+      ],
+      'perks': [
+        {'perkHash': voidResistPerk}
+      ],
+      'tooltipNotifications': [
+        {
+          'displayString':
+              'Multiple copies of this mod can be stacked to increase the '
+                  'potency of its effect, with diminishing returns for each '
+                  'additional copy of the mod.',
+          'displayStyle': 'ui_display_style_perk_info',
+        }
+      ],
+    });
+    when(() => manifest.getSandboxPerk(voidResistPerk)).thenReturn({
+      'isDisplayable': true,
+      'displayProperties': {
+        'description': 'Reduces incoming Void damage from combatants.',
+      },
+    });
+    when(() => manifest.getInventoryItem(altMod)).thenReturn({
+      'displayProperties': {
+        'name': 'Solar Resistance',
+        'icon': '/i/sr.jpg',
+        'description': '',
+      },
+      'plug': {'plugCategoryIdentifier': 'enhancements.v2_chest'},
+      'investmentStats': [
+        {'statTypeHash': energyCostStat, 'value': 2},
+      ],
+      'perks': [
+        {'perkHash': solarResistPerk}
+      ],
+    });
+    when(() => manifest.getSandboxPerk(solarResistPerk)).thenReturn({
+      'isDisplayable': true,
+      'displayProperties': {
+        'description': 'Reduces incoming Solar damage from combatants.',
+      },
+    });
+    // The energy-cost stat must resolve to a name (so it would otherwise render
+    // as a stat effect) — proving it is excluded by hash, not by a missing def.
+    when(() => manifest.getStat(energyCostStat)).thenReturn({
+      'displayProperties': {'name': 'Any Energy Type Cost'},
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': '999',
+                    'bucketHash': EquipmentBucket.chestArmor.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                // Capacity comes from the instance's energy component. The
+                // instance's own energyUsed is deliberately wrong (99) to prove
+                // `used` is derived from the equipped mods' costs, not the stale
+                // instance field — which is what lets the meter track an
+                // optimistic swap before the profile refetches.
+                '999': {
+                  'primaryStat': {'value': 1800},
+                  'energy': {'energyCapacity': 11, 'energyUsed': 99},
+                }
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                '999': {
+                  'sockets': [
+                    {'plugHash': equippedMod, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {
+              'data': {
+                '999': {
+                  'plugs': {
+                    '0': [
+                      {'plugItemHash': equippedMod},
+                      {'plugItemHash': altMod},
+                    ],
+                  }
+                }
+              }
+            },
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.chestArmor.hash).single;
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+
+    final voidMod = detail.modColumns.single.plugs
+        .firstWhere((p) => p.name == 'Void Resistance');
+    // The real gameplay effect surfaces (from the sandbox perk), not the empty
+    // own description and not the energy cost.
+    expect(voidMod.description, 'Reduces incoming Void damage from combatants.');
+    // The energy cost is NOT rendered as a stat effect.
+    expect(voidMod.statEffects, isEmpty);
+    // The stacking note is carried, separately from the effect.
+    expect(voidMod.note, contains('Multiple copies of this mod can be stacked'));
+
+    // The mod's energy cost is carried (for the icon badge), sourced from the
+    // cost stat that is excluded from the stat effects.
+    expect(voidMod.energyCost, 2);
+
+    // The equipped chip (read-only side-panel path) resolves the same way.
+    final equippedChip =
+        detail.plugsOf(PlugCategory.mod).firstWhere((p) => p.name == 'Void Resistance');
+    expect(equippedChip.description,
+        'Reduces incoming Void damage from combatants.');
+    expect(equippedChip.statEffects, isEmpty);
+    expect(equippedChip.note, contains('Multiple copies of this mod'));
+    expect(equippedChip.energyCost, 2);
+
+    // The armor energy meter: capacity from the instance, used from the summed
+    // mod costs (the single cost-2 mod) — NOT the instance's stale energyUsed
+    // (99), so an optimistic swap moves the meter before the refetch.
+    expect(detail.armorEnergy, isNotNull);
+    expect(detail.armorEnergy!.capacity, 11);
+    expect(detail.armorEnergy!.used, 2);
+  });
+
+  test('armor mod options exclude artifact-gated, locked, and duplicate-empty '
+      'placeholder plugs — keeping the real, insertable mods only', () async {
+    const armorHash = 9701;
+    const armorModsCategory = 590099826;
+    const modHeadType = 968742181; // whitelist enhancements.v2_head
+    const setHash = 5555; // the definition reusable plug set for the socket
+
+    // The socket has no live 310 options (as real armor does), so the resolver
+    // draws from the definition plug set below.
+    const equippedMod = 9805; // Empty Mod Socket (equipped — the real empty)
+    const realDup = 9802; // "Hands-On" cost 3 — real, insertable
+    const artifactDup = 9803; // "Hands-On" cost 1 — artifact-discounted, gated
+    const artifactOnly = 9804; // "Kinetic Charge Siphon" — artifact-only, gated
+    const realMod = 9801; // Recovery Mod — a real selectable mod
+    const lockedMod = 9806; // "Locked Armor Mod" — rank placeholder, excluded
+    const dupEmpty = 9807; // a second "Empty Mod Socket" from the set — collapsed
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Helm', 'icon': '/i/h.jpg'},
+      'itemType': 2,
+      'itemSubType': 26,
+      'itemTypeDisplayName': 'Helmet',
+      'inventory': {'bucketTypeHash': EquipmentBucket.helmet.hash},
+      'sockets': {
+        'socketCategories': [
+          {'socketCategoryHash': armorModsCategory, 'socketIndexes': [0]},
+        ],
+        'socketEntries': [
+          {
+            'singleInitialItemHash': equippedMod,
+            'socketTypeHash': modHeadType,
+            'reusablePlugSetHash': setHash,
+          },
+        ],
+      },
+    });
+    when(() => manifest.getSocketType(modHeadType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'enhancements.v2_head'}
+      ],
+    });
+    when(() => manifest.getPlugSet(setHash)).thenReturn({
+      'reusablePlugItems': [
+        {'plugItemHash': dupEmpty}, // duplicate empty (from the set) → collapsed
+        {'plugItemHash': realMod},
+        {'plugItemHash': realDup},
+        {'plugItemHash': artifactDup},
+        {'plugItemHash': artifactOnly},
+        {'plugItemHash': lockedMod}, // rank placeholder → excluded
+      ],
+    });
+
+    // A plug def with the given name and insertion rules.
+    Map<String, dynamic> modDef(String name, List<String> failureMessages) => {
+          'displayProperties': {'name': name, 'icon': '/i/$name.jpg'},
+          'plug': {
+            'plugCategoryIdentifier': 'enhancements.v2_head',
+            'insertionRules': [
+              for (final m in failureMessages) {'failureMessage': m},
+            ],
+          },
+        };
+
+    // The equipped plug is the real "Empty Mod Socket" (no insertion rules).
+    when(() => manifest.getInventoryItem(equippedMod))
+        .thenReturn(modDef('Empty Mod Socket', const []));
+    // A second empty from the definition pool — same name, must collapse away.
+    when(() => manifest.getInventoryItem(dupEmpty))
+        .thenReturn(modDef('Empty Mod Socket', const ['']));
+    when(() => manifest.getInventoryItem(realMod))
+        .thenReturn(modDef('Recovery Mod', const ['Requires Guardian Rank 3']));
+    when(() => manifest.getInventoryItem(lockedMod)).thenReturn(modDef(
+        'Locked Armor Mod',
+        const ['Requires Guardian Rank 7: Threats and Surges']));
+    when(() => manifest.getInventoryItem(realDup))
+        .thenReturn(modDef('Hands-On', const ['Requires Guardian Rank 3']));
+    // The discounted duplicate carries the extra artifact rule → excluded.
+    when(() => manifest.getInventoryItem(artifactDup)).thenReturn(modDef(
+        'Hands-On', const [
+      'Requires Guardian Rank 3',
+      'Must Be Selected in the Seasonal Artifact'
+    ]));
+    // An artifact-only mod (single variant) → also excluded.
+    when(() => manifest.getInventoryItem(artifactOnly)).thenReturn(modDef(
+        'Kinetic Charge Siphon',
+        const ['Must Be Selected in the Seasonal Artifact']));
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': '1000',
+                    'bucketHash': EquipmentBucket.helmet.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                '1000': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                '1000': {
+                  'sockets': [
+                    {'plugHash': equippedMod, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            // No 310 options for the socket — armor draws from the plug set.
+            'reusablePlugs': {'data': {'1000': {'plugs': {}}}},
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.helmet.hash).single;
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+
+    final names = detail.modColumns.single.plugs.map((p) => p.name).toList();
+    // Survivors: the equipped empty socket, the real Recovery Mod, and the real
+    // (non-artifact) Hands-On.
+    expect(names, containsAll(['Empty Mod Socket', 'Recovery Mod', 'Hands-On']));
+    // The artifact-discounted Hands-On duplicate is dropped → only one Hands-On.
+    expect(names.where((n) => n == 'Hands-On').length, 1);
+    // The duplicate empty socket collapses → only one Empty Mod Socket.
+    expect(names.where((n) => n == 'Empty Mod Socket').length, 1);
+    // Artifact-only and locked placeholders are excluded entirely.
+    expect(names, isNot(contains('Kinetic Charge Siphon')));
+    expect(names, isNot(contains('Locked Armor Mod')));
+  });
+
+  test('ArmorEnergy.canAffordSwap gates a mod swap on remaining capacity', () {
+    // 9 of 11 used, so 2 free. The current socket holds a cost-1 mod.
+    const energy = ArmorEnergy(capacity: 11, used: 9);
+
+    // Swap cost-1 → cost-3: net +2 → 11 used, exactly at capacity → allowed.
+    expect(
+        energy.canAffordSwap(equippedCost: 1, candidateCost: 3), isTrue);
+    // Swap cost-1 → cost-4: net +3 → 12 used, over capacity → blocked.
+    expect(
+        energy.canAffordSwap(equippedCost: 1, candidateCost: 4), isFalse);
+    // Swapping for a cheaper mod always fits.
+    expect(
+        energy.canAffordSwap(equippedCost: 3, candidateCost: 1), isTrue);
+    // Re-selecting the same-cost mod is always affordable.
+    expect(
+        energy.canAffordSwap(equippedCost: 2, candidateCost: 2), isTrue);
+  });
+
+  test('rapid swaps on two sockets both persist through an edge-lagged refetch '
+      '— a later fetch that has not propagated a swap does not revert it',
+      () async {
+    // A weapon with two swappable mod sockets (0 and 1).
+    const gunHash = 8801;
+    const modsCategory = 2685412949;
+    // socket 0: 8810 → 8811, socket 1: 8820 → 8821.
+    Map<String, dynamic> modDef(int h) => {
+          'displayProperties': {'name': 'Mod$h', 'icon': '/i/$h.jpg'},
+          'plug': {'plugCategoryIdentifier': 'v400.plugs.weapons.mods'},
+        };
+    for (final h in [8810, 8811, 8820, 8821]) {
+      when(() => manifest.getInventoryItem(h)).thenReturn(modDef(h));
+    }
+    when(() => manifest.getInventoryItem(gunHash)).thenReturn({
+      'displayProperties': {'name': 'Test Gun', 'icon': '/i/g.jpg'},
+      'itemType': 3,
+      'itemSubType': 9,
+      'itemTypeDisplayName': 'Hand Cannon',
+      'inventory': {'bucketTypeHash': EquipmentBucket.kineticWeapons.hash},
+      'sockets': {
+        'socketCategories': [
+          {'socketCategoryHash': modsCategory, 'socketIndexes': [0, 1]},
+        ],
+        'socketEntries': [
+          {'singleInitialItemHash': 8810, 'reusablePlugSetHash': 8800},
+          {'singleInitialItemHash': 8820, 'reusablePlugSetHash': 8802},
+        ],
+      },
+    });
+    when(() => manifest.getPlugSet(8800)).thenReturn({
+      'reusablePlugItems': [
+        {'plugItemHash': 8810},
+        {'plugItemHash': 8811},
+      ],
+    });
+    when(() => manifest.getPlugSet(8802)).thenReturn({
+      'reusablePlugItems': [
+        {'plugItemHash': 8820},
+        {'plugItemHash': 8821},
+      ],
+    });
+
+    Map<String, dynamic> profile(int s0, int s1, String minted) => {
+          'responseMintedTimestamp': minted,
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': gunHash,
+                    'itemInstanceId': 'w1',
+                    'bucketHash': EquipmentBucket.kineticWeapons.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                'w1': {'damageType': 1, 'primaryStat': {'value': 540}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                'w1': {
+                  'sockets': [
+                    {'plugHash': s0, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': s1, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {'data': {}},
+          },
+        };
+
+    // 1) initial (T0). 2) after swap A: profile has socket0=8811 but not yet
+    // socket1's change, minted T1. 3) after swap B: edge LAGS, same T1 profile
+    // (socket1 still 8820) — the swap B optimistic edit must survive it.
+    final responses = [
+      profile(8810, 8820, '2026-07-01T00:00:00Z'),
+      profile(8811, 8820, '2026-07-01T00:00:01Z'),
+      profile(8811, 8820, '2026-07-01T00:00:01Z'),
+    ];
+    var call = 0;
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async =>
+        responses[call < responses.length ? call++ : responses.length - 1]);
+
+    final grid = await repo.fetchInventory();
+    final gun =
+        grid.owners.first.itemsFor(EquipmentBucket.kineticWeapons.hash).single;
+
+    // Swap A on socket 0, then a refetch (as insertPlug does).
+    repo.patchSocketPlug(gun, 0, 8811);
+    await repo.fetchInventory(reuseDecoded: true);
+    // Swap B on socket 1, then an edge-lagged refetch (no B yet).
+    repo.patchSocketPlug(gun, 1, 8821);
+    await repo.fetchInventory(reuseDecoded: true);
+
+    final detail = repo.resolveDetail(gun, withPerkColumns: true);
+    final active = {
+      for (final c in detail.modColumns)
+        c.socketIndex: c.plugs[c.activeIndex!].name
+    };
+    // Both swaps hold: A propagated in the profile, B held by the pending edit.
+    expect(active[0], 'Mod8811');
+    expect(active[1], 'Mod8821');
+  });
+
+  test('the armor stat-tuning trade-off socket is editable, and its equipped '
+      '+X/-Y tags the affected stat rows', () async {
+    const armorHash = 8901;
+    const armorModsCategory = 590099826;
+    const tuningType = 2581339086; // whitelist ...tuning.mods
+    const tuningSet = 8900;
+    const superStat = 1000; // arbitrary test stat hashes
+    const healthStat = 1001;
+    const equippedTuning = 8910; // +Super / -Health (equipped)
+    const altTuning = 8911; // +Health / -Super (alternative)
+    const emptyTuning = 8912; // Empty Tuning Mod Socket
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Legs', 'icon': '/i/l.jpg'},
+      'itemType': 2,
+      'itemSubType': 29,
+      'itemTypeDisplayName': 'Leg Armor',
+      'inventory': {'bucketTypeHash': EquipmentBucket.legArmor.hash},
+      'stats': {
+        'stats': {
+          '$superStat': {'statHash': superStat},
+          '$healthStat': {'statHash': healthStat},
+        }
+      },
+      'sockets': {
+        'socketCategories': [
+          {'socketCategoryHash': armorModsCategory, 'socketIndexes': [0]},
+        ],
+        'socketEntries': [
+          {'singleInitialItemHash': equippedTuning, 'socketTypeHash': tuningType,
+            'reusablePlugSetHash': tuningSet},
+        ],
+      },
+    });
+    when(() => manifest.getSocketType(tuningType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'core.gear_systems.armor_tiering.plugs.tuning.mods'}
+      ],
+    });
+    when(() => manifest.getPlugSet(tuningSet)).thenReturn({
+      'reusablePlugItems': [
+        {'plugItemHash': equippedTuning},
+        {'plugItemHash': altTuning},
+        {'plugItemHash': emptyTuning},
+      ],
+    });
+    when(() => manifest.getStat(superStat)).thenReturn({
+      'displayProperties': {'name': 'Super'}
+    });
+    when(() => manifest.getStat(healthStat)).thenReturn({
+      'displayProperties': {'name': 'Health'}
+    });
+    Map<String, dynamic> tuningDef(String name, int plus, int minus,
+            {List<String> rules = const ['Requires Guardian Rank 3']}) =>
+        {
+          'displayProperties': {'name': name, 'icon': '/i/tune.jpg'},
+          'plug': {
+            'plugCategoryIdentifier':
+                'core.gear_systems.armor_tiering.plugs.tuning.mods',
+            'insertionRules': [for (final m in rules) {'failureMessage': m}],
+          },
+          'investmentStats': [
+            {'statTypeHash': plus, 'value': 5, 'isConditionallyActive': false},
+            {'statTypeHash': minus, 'value': -5, 'isConditionallyActive': false},
+          ],
+        };
+    when(() => manifest.getInventoryItem(equippedTuning))
+        .thenReturn(tuningDef('+Super / -Health', superStat, healthStat));
+    when(() => manifest.getInventoryItem(altTuning))
+        .thenReturn(tuningDef('+Health / -Super', healthStat, superStat));
+    when(() => manifest.getInventoryItem(emptyTuning)).thenReturn({
+      'displayProperties': {'name': 'Empty Tuning Mod Socket', 'icon': '/i/e.jpg'},
+      'plug': {
+        'plugCategoryIdentifier':
+            'core.gear_systems.armor_tiering.plugs.tuning.mods',
+        'insertionRules': const [],
+      },
+    });
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': 'a9',
+                    'bucketHash': EquipmentBucket.legArmor.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                'a9': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                'a9': {
+                  'sockets': [
+                    {'plugHash': equippedTuning, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {'data': {}},
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.legArmor.hash).single;
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+
+    // The tuning socket is an editable mod column with the +X/-Y options.
+    final col = detail.modColumns.single;
+    expect(col.plugs.map((p) => p.name),
+        containsAll(['+Super / -Health', '+Health / -Super']));
+    expect(col.plugs[col.activeIndex!].name, '+Super / -Health');
+
+    // The equipped tuning plug is flagged so the mods row can order it second.
+    final equipped = detail
+        .plugsOf(PlugCategory.mod)
+        .firstWhere((p) => p.name == '+Super / -Health');
+    expect(equipped.isTuning, isTrue);
+
+    // Only the boosted stat (Super) is flagged; the reduced stat (Health) and
+    // untouched stats are not — the game marks only the boosted side.
+    final bySt = {for (final s in detail.stats) s.name: s};
+    expect(bySt['Super']!.tuningBoosted, isTrue);
+    expect(bySt['Health']!.tuningBoosted, isFalse);
+  });
+
+  test('an armor piece exposes its equipped gear archetype (name + icon)',
+      () async {
+    const armorHash = 9901;
+    const archetypePlug = 9910; // "Powerhouse" (armor_archetypes)
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Chest', 'icon': '/i/c.jpg'},
+      'itemType': 2,
+      'itemSubType': 28,
+      'itemTypeDisplayName': 'Chest Armor',
+      'inventory': {'bucketTypeHash': EquipmentBucket.chestArmor.hash},
+      'sockets': {
+        'socketCategories': const [],
+        'socketEntries': [
+          {'singleInitialItemHash': archetypePlug},
+        ],
+      },
+    });
+    when(() => manifest.getInventoryItem(archetypePlug)).thenReturn({
+      'displayProperties': {'name': 'Powerhouse', 'icon': '/i/powerhouse.png'},
+      'plug': {'plugCategoryIdentifier': 'armor_archetypes'},
+    });
+    when(() => manifest.getBreakerType(any())).thenReturn(null);
+    when(() => manifest.getStat(any())).thenReturn(null);
+    when(() => manifest.getSocketType(any())).thenReturn(null);
+    when(() => manifest.getSandboxPerk(any())).thenReturn(null);
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': 'arch1',
+                    'bucketHash': EquipmentBucket.chestArmor.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                'arch1': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                'arch1': {
+                  'sockets': [
+                    // The archetype socket is non-visible in-game, yet its
+                    // archetype must still resolve.
+                    {'plugHash': archetypePlug, 'isEnabled': true, 'isVisible': false},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {'data': {}},
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.chestArmor.hash).single;
+    final detail = repo.resolveDetail(armor);
+
+    expect(detail.archetype, isNotNull);
+    expect(detail.archetype!.name, 'Powerhouse');
+    expect(detail.archetype!.iconUrl, contains('/i/powerhouse.png'));
+  });
+
+  test('an instanced item wearing an ornament exposes the ornament art, and '
+      'its cosmetic plugs resolve into the Cosmetics category', () async {
+    const armorHash = 8701;
+    const shaderPlug = 8710; // a shader (cosmetic)
+    const ornamentPlug = 8711; // an applied ornament (icon + screenshot)
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Base Helm', 'icon': '/i/base_icon.jpg'},
+      'itemType': 2,
+      'itemSubType': 26,
+      'itemTypeDisplayName': 'Helmet',
+      'inventory': {'bucketTypeHash': EquipmentBucket.helmet.hash},
+      'sockets': {
+        'socketCategories': const [],
+        'socketEntries': [
+          {'singleInitialItemHash': shaderPlug},
+          {'singleInitialItemHash': ornamentPlug},
+        ],
+      },
+    });
+    when(() => manifest.getInventoryItem(shaderPlug)).thenReturn({
+      'displayProperties': {'name': 'Cool Shader', 'icon': '/i/shader.jpg'},
+      'plug': {'plugCategoryIdentifier': 'shader'},
+    });
+    // An applied armor ornament: itemSubType 21, skins category, with its own
+    // icon and screenshot.
+    when(() => manifest.getInventoryItem(ornamentPlug)).thenReturn({
+      'displayProperties': {'name': 'Snazzy Ornament', 'icon': '/i/orn_icon.jpg'},
+      'itemSubType': 21,
+      'screenshot': '/i/orn_shot.jpg',
+      'plug': {'plugCategoryIdentifier': 'armor_skins_titan_head'},
+    });
+    when(() => manifest.getBreakerType(any())).thenReturn(null);
+    when(() => manifest.getStat(any())).thenReturn(null);
+    when(() => manifest.getSocketType(any())).thenReturn(null);
+    when(() => manifest.getSandboxPerk(any())).thenReturn(null);
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': 'orn1',
+                    'bucketHash': EquipmentBucket.helmet.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                'orn1': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                'orn1': {
+                  'sockets': [
+                    {'plugHash': shaderPlug, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': ornamentPlug, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {'data': {}},
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.helmet.hash).single;
+
+    // The applied ornament's art is exposed for the modal to overlay.
+    final art = repo.appliedOrnamentArt(armor);
+    expect(art, isNotNull);
+    expect(art!.screenshot, '/i/orn_shot.jpg');
+    expect(art.icon, '/i/orn_icon.jpg');
+
+    // Both the shader and the ornament resolve into the Cosmetics category.
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+    final cosmeticNames =
+        detail.plugsOf(PlugCategory.cosmetic).map((p) => p.name).toList();
+    expect(cosmeticNames, containsAll(['Cool Shader', 'Snazzy Ornament']));
+  });
+
+  test('GearDetail prefers the ornament art over base art when present', () {
+    const base = GearDetail(
+      item: DestinyItem(
+        itemHash: 1,
+        bucketHash: 3448274439,
+        name: 'Helm',
+        iconPath: '/i/base_icon.jpg',
+        itemInstanceId: 'x',
+      ),
+      stats: [],
+      perkColumns: [],
+      screenshotPath: '/i/base_shot.jpg',
+    );
+    // Without an ornament the base art shows.
+    expect(base.iconUrl, contains('/i/base_icon.jpg'));
+    expect(base.screenshotUrl, contains('/i/base_shot.jpg'));
+    // With ornament art the overlay wins.
+    final orn = base.withOrnamentArt(
+        screenshot: '/i/orn_shot.jpg', icon: '/i/orn_icon.jpg');
+    expect(orn.iconUrl, contains('/i/orn_icon.jpg'));
+    expect(orn.screenshotUrl, contains('/i/orn_shot.jpg'));
   });
 
   test('patchSocketPlug applies then reverses a plug + stat change, so an '

@@ -3,15 +3,18 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/destiny/destiny_enums.dart';
 import '../../../core/destiny/plug_category.dart';
+import '../../../domain/models/destiny_item.dart';
 import '../../../domain/models/item_detail.dart';
 import '../../providers/database_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../providers/search_provider.dart';
 import '../../theme/armory_palette.dart';
+import 'armor_set_detail_modal.dart' show SetBonusSection;
 
 /// The Database tab's purpose-built detail view: a centered modal, rendered
 /// over the dimmed list, that shows the full "all-options" nature of a
@@ -86,8 +89,15 @@ class _ModalBodyState extends ConsumerState<_ModalBody> {
   Widget build(BuildContext context) {
     final detail = widget.detail;
     final rolled = _rolledFor(ref, detail);
-    final showRoll = rolled != null &&
-        ref.watch(gearModalViewProvider) == GearModalView.rolled;
+    final isArmor = detail.item.itemType == DestinyEnums.typeArmor;
+    // Armor has no perk grid / roll-vs-definition distinction to toggle: it
+    // simply shows the instance when one backs the modal (Inventory) or the
+    // definition otherwise (Database). Weapons keep the This Roll/Definition
+    // toggle.
+    final showRoll = isArmor
+        ? rolled != null
+        : rolled != null &&
+            ref.watch(gearModalViewProvider) == GearModalView.rolled;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -119,6 +129,7 @@ class _ModalBodyState extends ConsumerState<_ModalBody> {
                               const SizedBox(height: 16),
                             ],
                             _StatArea(detail: detail),
+                            if (isArmor) _ArmorSetBonus(item: detail.item),
                           ],
                         ),
                       ),
@@ -146,16 +157,18 @@ class _ModalBodyState extends ConsumerState<_ModalBody> {
               ),
               // Right: effects — the roll's perks, or the grid selection — in a
               // full-height panel that collapses to a thin rail to free grid
-              // space.
-              _EffectsPanel(
-                collapsed: _effectsCollapsed,
-                onToggle: () => setState(
-                    () => _effectsCollapsed = !_effectsCollapsed),
-                child: showRoll
-                    ? _RolledEffects(
-                        perks: rolled.plugsOf(PlugCategory.perk).toList())
-                    : const _SelectedEffects(),
-              ),
+              // space. Armor has no perk effects to show, so the panel is
+              // omitted entirely.
+              if (!isArmor)
+                _EffectsPanel(
+                  collapsed: _effectsCollapsed,
+                  onToggle: () => setState(
+                      () => _effectsCollapsed = !_effectsCollapsed),
+                  child: showRoll
+                      ? _RolledEffects(
+                          perks: rolled.plugsOf(PlugCategory.perk).toList())
+                      : const _SelectedEffects(),
+                ),
             ],
           ),
         ),
@@ -314,8 +327,8 @@ class _Header extends ConsumerWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Item icon.
-          if (item.iconUrl != null)
+          // Item icon (the applied ornament's when an instance wears one).
+          if (detail.iconUrl != null)
             Container(
               width: 56,
               height: 56,
@@ -326,7 +339,7 @@ class _Header extends ConsumerWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: CachedNetworkImage(
-                imageUrl: item.iconUrl!,
+                imageUrl: detail.iconUrl!,
                 fit: BoxFit.cover,
                 fadeInDuration: Duration.zero,
                 errorWidget: (_, _, _) =>
@@ -421,7 +434,10 @@ class _Header extends ConsumerWidget {
               ],
             ),
           ),
-          if (_rolledFor(ref, detail) != null)
+          // Armor has no roll-vs-definition distinction, so it shows no toggle
+          // (it simply displays the instance when one backs the modal).
+          if (detail.item.itemType != DestinyEnums.typeArmor &&
+              _rolledFor(ref, detail) != null)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _ViewToggle(view: ref.watch(gearModalViewProvider)),
@@ -550,15 +566,142 @@ class _StatArea extends ConsumerWidget {
     }
     final showRoll = rolled != null &&
         ref.watch(gearModalViewProvider) == GearModalView.rolled;
+    // The gear archetype and energy meter sit above the stats, like the in-game
+    // armor display; both come from the roll (instance) only.
+    final archetype = showRoll ? rolled.archetype : null;
+    final energy = showRoll ? rolled.armorEnergy : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (energy != null) ...[
+          _ArmorEnergyMeter(energy: energy),
+          const SizedBox(height: 12),
+        ],
+        if (archetype != null) ...[
+          _ArchetypeRow(archetype: archetype),
+          const SizedBox(height: 12),
+        ],
         const _SectionLabel('Stats'),
         const SizedBox(height: 6),
         if (showRoll)
           _RolledStats(stats: rolled.stats)
         else
           _StatBlock(stats: detail.stats),
+      ],
+    );
+  }
+}
+
+/// The armor energy readout shown above the stats: "Energy  used / total" over
+/// a segmented capacity bar — one segment per energy point, filled up to [used]
+/// in steel grey — matching the in-game armor display.
+/// The set-bonus block for an armor piece that belongs to a set with defined
+/// bonuses — shown in the single-piece detail modal (both the roll and
+/// definition views, since it keys off the item's set, not its instance).
+/// Renders nothing when the piece is in no set or its set has no bonus.
+class _ArmorSetBonus extends ConsumerWidget {
+  const _ArmorSetBonus({required this.item});
+
+  final DestinyItem item;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final set =
+        ref.watch(databaseRepositoryProvider).armorSetForItem(item.itemHash);
+    if (set == null || set.perks.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: SetBonusSection(perks: set.perks),
+    );
+  }
+}
+
+/// The armor gear archetype header (Powerhouse, Reaver, …): its icon and name,
+/// shown at the top of the stat section for an instanced armor roll.
+class _ArchetypeRow extends StatelessWidget {
+  const _ArchetypeRow({required this.archetype});
+
+  final ArmorArchetype archetype;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        SizedBox(
+          width: 24,
+          height: 24,
+          child: archetype.iconUrl == null
+              ? const Icon(Icons.shield_outlined, size: 20)
+              : CachedNetworkImage(
+                  imageUrl: archetype.iconUrl!,
+                  errorWidget: (_, _, _) =>
+                      const Icon(Icons.shield_outlined, size: 20),
+                ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          archetype.name,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          'Archetype',
+          style: theme.textTheme.labelSmall
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+class _ArmorEnergyMeter extends StatelessWidget {
+  const _ArmorEnergyMeter({required this.energy});
+
+  final ArmorEnergy energy;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final capacity = energy.capacity;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const _SectionLabel('Energy'),
+            const Spacer(),
+            Text(
+              '${energy.used} / $capacity',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        // One segment per energy point; the first  [used] segments are filled.
+        Row(
+          children: [
+            for (var i = 0; i < capacity; i++) ...[
+              if (i > 0) const SizedBox(width: 3),
+              Expanded(
+                child: Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: i < energy.used
+                        ? ArmoryPalette.borderStronger
+                        : ArmoryPalette.surface1,
+                    borderRadius: BorderRadius.circular(2),
+                    border: Border.all(color: ArmoryPalette.borderStrong),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ],
     );
   }
@@ -601,12 +744,25 @@ class _RolledPlugArea extends StatelessWidget {
 
   final ItemDetail instance;
 
+  /// Order the mods for display: the stat-tuning ("+X / -Y") chip sits second —
+  /// right after the primary mod — rather than last (its socket index is the
+  /// highest). Everything else keeps its socket order.
+  static List<ItemPlug> _orderMods(List<ItemPlug> mods) {
+    final tuningIndex = mods.indexWhere((m) => m.isTuning);
+    if (tuningIndex <= 1) return mods; // absent, or already first/second
+    final reordered = [...mods];
+    final tuning = reordered.removeAt(tuningIndex);
+    reordered.insert(1, tuning);
+    return reordered;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final perks = instance.plugsOf(PlugCategory.perk).toList();
-    final mods = instance.plugsOf(PlugCategory.mod).toList();
+    final mods = _orderMods(instance.plugsOf(PlugCategory.mod).toList());
     final masterwork = instance.plugsOf(PlugCategory.masterwork).toList();
+    final cosmetics = instance.plugsOf(PlugCategory.cosmetic).toList();
     final catalyst = instance.catalyst;
     // Objectives show while the catalyst is acquired but not yet complete.
     final objectives =
@@ -690,6 +846,12 @@ class _RolledPlugArea extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(height: 16),
+        ],
+        if (cosmetics.isNotEmpty) ...[
+          const _SectionLabel('Cosmetics'),
+          const SizedBox(height: 8),
+          chips(cosmetics),
           const SizedBox(height: 16),
         ],
         if (catalyst != null) _CatalystInfo(catalyst: catalyst),
@@ -857,6 +1019,18 @@ class _ModPickerState extends ConsumerState<_ModPicker> {
   static const _gridColumns = 6;
   static const _cellSize = 40.0;
 
+  /// Whether the armor can afford to swap this socket's mod for [option].
+  /// Swapping changes used energy by (option − currently-equipped), so the
+  /// result must fit within capacity. Always true when there is no energy meter
+  /// (weapon mods, or armor without energy data) — nothing to constrain.
+  bool _canAfford(ItemPlug option) {
+    final energy = widget.instance.armorEnergy;
+    if (energy == null) return true;
+    return energy.canAffordSwap(
+        equippedCost: widget.equipped.energyCost,
+        candidateCost: option.energyCost);
+  }
+
   @override
   Widget build(BuildContext context) {
     final column = widget.column;
@@ -889,7 +1063,13 @@ class _ModPickerState extends ConsumerState<_ModPicker> {
                   plug: option,
                   size: _cellSize,
                   selected: option.plugHash == equipped.plugHash,
-                  onTap: option.plugHash == equipped.plugHash
+                  // Disable an option the armor cannot afford: swapping this
+                  // socket's mod changes used energy by (option − equipped), so
+                  // it must fit within capacity. Only armor has an energy meter;
+                  // weapon mods have no cost, so nothing is ever blocked there.
+                  disabled: !_canAfford(option),
+                  onTap: option.plugHash == equipped.plugHash ||
+                          !_canAfford(option)
                       ? null
                       : () {
                           _controller.close();
@@ -911,18 +1091,21 @@ class _ModPickerState extends ConsumerState<_ModPicker> {
 
 /// One cell in the mod-options grid: the mod's circular icon, hoverable for its
 /// details ([_PerkTooltip]) and clickable to select it. The equipped option is
-/// ringed; clicking it is a no-op (null [onTap]).
+/// ringed; clicking it is a no-op (null [onTap]). A [disabled] option (e.g. not
+/// enough armor energy to swap it in) is greyed and not selectable.
 class _ModOptionIcon extends StatelessWidget {
   const _ModOptionIcon({
     required this.plug,
     required this.size,
     required this.selected,
+    this.disabled = false,
     this.onTap,
   });
 
   final ItemPlug plug;
   final double size;
   final bool selected;
+  final bool disabled;
   final VoidCallback? onTap;
 
   @override
@@ -938,7 +1121,7 @@ class _ModOptionIcon extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(4),
             child: Opacity(
-              opacity: plug.isEnabled ? 1 : 0.4,
+              opacity: disabled || !plug.isEnabled ? 0.4 : 1,
               child: _PerkIcon(
                   plug: plug, size: size - 8, selected: selected),
             ),
@@ -1049,9 +1232,19 @@ class _RolledStats extends StatelessWidget {
               children: [
                 SizedBox(
                   width: 130,
-                  child: Text(stat.name,
-                      style: const TextStyle(fontSize: 13),
-                      overflow: TextOverflow.ellipsis),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(stat.name,
+                            style: const TextStyle(fontSize: 13),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                      if (stat.tuningBoosted) ...[
+                        const SizedBox(width: 5),
+                        const _TuningGlyph(),
+                      ],
+                    ],
+                  ),
                 ),
                 SizedBox(
                   width: 34,
@@ -1080,6 +1273,33 @@ class _RolledStats extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// The stat-tuning glyph the game shows next to the stat an equipped "+X / -Y"
+/// trade-off boosts: a horizontal bar with an up-chevron on the left and a
+/// down-chevron on the right. Shown on the boosted stat only. The path is
+/// DIM's `TunedStat` icon (32×32 viewBox), which matches the in-game mark.
+class _TuningGlyph extends StatelessWidget {
+  const _TuningGlyph();
+
+  static const _path =
+      'M2,14.25 h28 v3.5 h-28zM2,10.5 l7,-7 l7,7 h-4.5 l-2.5,-2.5 l-2.5,2.5 z'
+      'M30,21.5 l-7,7 l-7,-7 h4.5 l2.5,2.5 l2.5,-2.5 z';
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Tooltip(
+      message: 'Boosted by stat tuning',
+      child: SvgPicture.string(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+        '<path d="$_path" fill="currentColor"/></svg>',
+        width: 14,
+        height: 14,
+        colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      ),
     );
   }
 }
@@ -1791,11 +2011,18 @@ class _PerkIcon extends StatelessWidget {
         : plug.isEnhanced
             ? ArmoryPalette.masterworkGold
             : ArmoryPalette.borderStronger;
-    return Container(
+    // Mods, masterwork, and cosmetic (shader/ornament/memento) plugs all have
+    // square-ish artwork, so they get a rounded-rect background; perks and
+    // frames (round icons) keep the circle.
+    final square = plug.category == PlugCategory.mod ||
+        plug.category == PlugCategory.masterwork ||
+        plug.category == PlugCategory.cosmetic;
+    final icon = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
+        shape: square ? BoxShape.rectangle : BoxShape.circle,
+        borderRadius: square ? ArmoryRadius.sm : null,
         color: ArmoryPalette.scrim26,
         border: Border.all(
           color: borderColor,
@@ -1812,6 +2039,51 @@ class _PerkIcon extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: image,
+    );
+    // A mod's energy cost sits as a small badge in the top-right corner,
+    // mirroring the in-game mod icon. The stack is sized to the icon so the
+    // badge can overflow slightly past its corner without shifting layout.
+    if (plug.energyCost <= 0) return icon;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        icon,
+        Positioned(
+          top: -3,
+          right: -3,
+          child: _EnergyCostBadge(cost: plug.energyCost),
+        ),
+      ],
+    );
+  }
+}
+
+/// The small energy-cost badge shown in the top-right corner of a mod icon.
+class _EnergyCostBadge extends StatelessWidget {
+  const _EnergyCostBadge({required this.cost});
+
+  final int cost;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      decoration: BoxDecoration(
+        color: ArmoryPalette.scrim87,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: ArmoryPalette.borderStronger),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '$cost',
+        style: const TextStyle(
+          fontSize: 9,
+          height: 1,
+          fontWeight: FontWeight.bold,
+          color: ArmoryPalette.textPrimary,
+        ),
+      ),
     );
   }
 }
@@ -1882,6 +2154,17 @@ class _PerkTooltip extends StatelessWidget {
                             ? ArmoryPalette.masterworkGold
                             : ArmoryPalette.statPenaltyRed),
                   ),
+              ],
+              // A secondary info note (e.g. an armor mod's stacking note),
+              // smaller and dimmer than the effect, matching the game.
+              if (plug.note.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(plug.note,
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontStyle: FontStyle.italic,
+                        color: ArmoryPalette.textPrimary
+                            .withValues(alpha: 0.55))),
               ],
               // Clarity community-research block goes here once wired.
             ],

@@ -1,6 +1,8 @@
 import '../../core/destiny/destiny_buckets.dart';
+import '../../core/destiny/destiny_enums.dart';
 import '../../core/destiny/plug_category.dart';
 import '../../core/search/item_filter.dart';
+import '../../domain/models/armor_set.dart';
 import '../../domain/models/destiny_character.dart';
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/inventory_grid.dart';
@@ -28,6 +30,19 @@ class InventoryRepository {
   // computed from the definition + socket investment (the DIM model), not the
   // ItemStats (304) component, so only sockets/reusable-plugs are retained.
   Map<String, dynamic> _sockets = const {};
+  // Optimistic socket edits not yet confirmed by a fetched profile, keyed by
+  // instance id → socket index → the plug hash the user selected. A fetch
+  // overwrites [_sockets] wholesale, and Bungie's edge cache can serve a
+  // profile that lags a just-made write (newer timestamp, older sockets) — so
+  // these edits are re-applied over every fetched profile until one actually
+  // reports the selected plug, then dropped. Without this, a swap made while an
+  // edge-lagged refetch lands is silently reverted (and the stale state sticks
+  // until app restart).
+  final Map<String, Map<int, int>> _pendingSocketEdits = {};
+  // Instance-keyed ItemInstances (300) component from the last fetch, retained
+  // for the armor energy meter (its `energy` holds capacity/used). Power and
+  // damage are read off it at decode time, so only armor energy needs it later.
+  Map<String, dynamic> _instances = const {};
   // Instance-keyed rolled plug options per socket (component 310). A weapon's
   // trait sockets list all the perks that copy can roll to, so `perk1:`/`perk2:`
   // search matches any of a column's options, not just the equipped one.
@@ -56,8 +71,10 @@ class InventoryRepository {
   /// this cache would otherwise stay stale until a genuinely newer snapshot).
   /// Stats derive from the socket plugs' investment, so swapping the plug hash
   /// alone shifts the recomputed stat bars — no separate stat patch is needed.
-  /// The next fresh [fetchInventory] overwrites the component, so this is a
-  /// stop-gap a real refresh supersedes.
+  /// The edit is also recorded in [_pendingSocketEdits] and re-applied over
+  /// every later [fetchInventory] until a fetched profile reports it, so an
+  /// edge-lagged refetch cannot silently revert it (only a failed insert, via
+  /// [clearPendingSocketEdit], or genuine propagation drops it).
   ///
   /// Returns the plug hash previously in the socket, so a failed insert can be
   /// rolled back by patching it back; null when the instance or socket is not
@@ -75,7 +92,45 @@ class InventoryRepository {
     if (socket is! Map<String, dynamic>) return null;
     final oldHash = (socket['plugHash'] as num?)?.toInt();
     socket['plugHash'] = plugHash;
+    // Remember the edit so it survives a refetch that has not yet propagated it
+    // (see [_pendingSocketEdits] / [_reapplyPendingSocketEdits]).
+    (_pendingSocketEdits[instanceId] ??= {})[socketIndex] = plugHash;
     return oldHash;
+  }
+
+  /// Forget the pending optimistic edit for [item]'s [socketIndex] — called
+  /// when an insert fails and its optimistic patch is rolled back, so the edit
+  /// is not re-applied over later fetches.
+  void clearPendingSocketEdit(DestinyItem item, int socketIndex) {
+    final instanceId = item.itemInstanceId;
+    if (instanceId == null) return;
+    final edits = _pendingSocketEdits[instanceId];
+    if (edits == null) return;
+    edits.remove(socketIndex);
+    if (edits.isEmpty) _pendingSocketEdits.remove(instanceId);
+  }
+
+  /// Re-apply the pending optimistic socket edits over the freshly-fetched
+  /// [_sockets]. A fetch overwrites the sockets wholesale, so an edit the
+  /// fetched profile has not yet propagated would be lost; re-applying keeps it
+  /// visible. An edit the profile now reports (the socket already holds the
+  /// selected plug) has propagated and is dropped.
+  void _reapplyPendingSocketEdits() {
+    if (_pendingSocketEdits.isEmpty) return;
+    _pendingSocketEdits.removeWhere((instanceId, edits) {
+      final sockets = (_sockets[instanceId] as Map<String, dynamic>?)?['sockets'];
+      if (sockets is! List) return true; // instance gone — drop its edits
+      edits.removeWhere((socketIndex, plugHash) {
+        if (socketIndex < 0 || socketIndex >= sockets.length) return true;
+        final socket = sockets[socketIndex];
+        if (socket is! Map<String, dynamic>) return true;
+        final current = (socket['plugHash'] as num?)?.toInt();
+        if (current == plugHash) return true; // propagated — stop tracking
+        socket['plugHash'] = plugHash; // not yet propagated — re-apply
+        return false;
+      });
+      return edits.isEmpty;
+    });
   }
 
   // Search facets per item instance id, resolved lazily by [inventoryFacetsFor]
@@ -139,7 +194,13 @@ class InventoryRepository {
 
     final itemComponents = profile['itemComponents'];
     final instances = _dataMap(itemComponents?['instances']);
+    _instances = instances;
     _sockets = _dataMap(itemComponents?['sockets']);
+    // Re-apply optimistic socket edits the fetched profile has not yet caught
+    // up to (Bungie's edge cache can lag a just-made write), before decoding —
+    // so decode signatures and resolved detail reflect the edits, not a stale
+    // profile that would silently revert them.
+    _reapplyPendingSocketEdits();
     _reusablePlugs = _dataMap(itemComponents?['reusablePlugs']);
     _plugObjectives = _dataMap(itemComponents?['plugObjectives']);
     _records = _mergeRecords(profile);
@@ -244,7 +305,58 @@ class InventoryRepository {
       breaker: _resolveBreaker(item, socketsData),
       killTracker: _resolveKillTracker(socketsData, objectivesData),
       catalyst: catalyst,
+      armorEnergy: _resolveArmorEnergy(item, plugs),
+      archetype: _resolveArchetype(item, socketsData),
     );
+  }
+
+  /// The armor piece's gear archetype (Powerhouse, Reaver, …): the equipped
+  /// plug whose `plugCategoryIdentifier` is `armor_archetypes`. Null for
+  /// weapons and armor with no archetype socketed. The archetype socket is
+  /// marked non-visible (defaultVisible: false), so — unlike the mod/perk
+  /// walks — the `isVisible` flag is not a filter here; the `armor_archetypes`
+  /// category alone identifies the plug.
+  ArmorArchetype? _resolveArchetype(
+      DestinyItem item, Map<String, dynamic>? socketsData) {
+    if (item.itemType != DestinyEnums.typeArmor) return null;
+    final sockets = socketsData?['sockets'];
+    if (sockets is! List) return null;
+    for (final socket in sockets) {
+      final s = socket as Map<String, dynamic>;
+      final plugHash = (s['plugHash'] as num?)?.toInt();
+      if (plugHash == null || plugHash == 0) continue;
+      final def = _manifest.getInventoryItem(plugHash);
+      final pci = (def?['plug'] as Map?)?['plugCategoryIdentifier'] as String?;
+      if (pci != 'armor_archetypes') continue;
+      final display = def?['displayProperties'] as Map<String, dynamic>?;
+      final name = (display?['name'] as String?) ?? '';
+      if (name.isEmpty) continue;
+      return ArmorArchetype(
+          name: name, iconPath: (display?['icon'] as String?) ?? '');
+    }
+    return null;
+  }
+
+  /// The armor energy meter for [item]: its total capacity from the instance's
+  /// ItemInstances (300) `energy` component, and the energy its mods use. Null
+  /// for weapons and for armor whose instance reports no energy.
+  ///
+  /// `used` is the sum of the current [plugs]' [ItemPlug.energyCost] rather than
+  /// the instance's `energyUsed`: only real mods carry a cost (masterwork/tier
+  /// and cosmetic plugs are 0), so the sum equals the total. Deriving it from
+  /// the plugs means the meter tracks an optimistic mod swap live — the swap
+  /// patches the socket (see [patchSocketPlug]) and the plugs recompute here —
+  /// where the stale `energyUsed` would not move until the next profile fetch.
+  ArmorEnergy? _resolveArmorEnergy(DestinyItem item, List<ItemPlug> plugs) {
+    if (item.itemType != DestinyEnums.typeArmor) return null;
+    final id = item.itemInstanceId;
+    if (id == null) return null;
+    final energy = (_instances[id] as Map<String, dynamic>?)?['energy'];
+    if (energy is! Map) return null;
+    final capacity = (energy['energyCapacity'] as num?)?.toInt();
+    if (capacity == null) return null;
+    final used = plugs.fold<int>(0, (sum, p) => sum + p.energyCost);
+    return ArmorEnergy(capacity: capacity, used: used);
   }
 
   // The WEAPON PERKS socket category (a stable game constant); its sockets
@@ -381,12 +493,37 @@ class InventoryRepository {
   // the weapon's mod slots (e.g. Backup Mag, Freehand Grip, Boss Spec).
   static const _weaponModsCategory = 2685412949;
 
-  /// This roll's weapon *mod* sockets as columns of selectable options: the
-  /// definition's WEAPON MODS sockets, each holding the copy's available mod
-  /// plugs (from ItemReusablePlugs (310), falling back to the definition's
-  /// reusable plug set) with the equipped plug from ItemSockets (305) flagged
-  /// ([PerkColumn.activeIndex]). Empty for uninstanced items and non-weapons, or
-  /// when the mod socket offers no alternatives.
+  // The ARMOR MODS socket category (a stable game constant). It holds the
+  // modern mod slots (General/slot mods) plus the masterwork "Upgrade Armor"
+  // socket. Only the sockets whose plug whitelist is a modern `enhancements.*`
+  // mod family are editable via InsertSocketPlugFree — see [_armorModWhitelist].
+  // (The legacy "ARMOR PERKS" category 2518356196 is deliberately excluded: its
+  // sockets are Armor 1.0 mods, randomized build/ammo perks, and intrinsics,
+  // none of which the free socket-insert endpoint accepts.)
+  static const _armorModsCategory = 590099826;
+
+  // A socket in [_armorModsCategory] is a user-editable mod slot only when its
+  // plug whitelist names a modern armor mod family: an `enhancements.*`
+  // identifier (v2_general, v2_head, chest, universal, …) or the stat-tuning
+  // trade-off socket (`…armor_tiering.plugs.tuning.mods`, the "+X / -Y" plugs).
+  // This excludes the masterwork/"Upgrade Armor" socket
+  // (v460.plugs.armor.masterworks) and any legacy 1.0 `mods` socket, which
+  // InsertSocketPlugFree rejects.
+  static bool _armorModWhitelist(String id) =>
+      id.startsWith('enhancements.') || id.contains('.tuning.');
+
+  // Armor-mod install-cost stats (stable game constants): "Any Energy Type
+  // Cost" and "Mod Cost". These are the mod's energy cost, not a gameplay stat
+  // change, so they are excluded from a plug's stat effects. Confirmed to
+  // appear only on armor mods, never on weapon mods.
+  static const _modCostStats = {3578062600, 514071887};
+
+  /// This roll's *mod* sockets as columns of selectable options: for weapons the
+  /// definition's WEAPON MODS sockets, for armor the ARMOR MODS/legacy-perk
+  /// sockets — each holding the copy's available mod plugs (from ItemReusablePlugs
+  /// (310), falling back to the definition's reusable plug set) with the equipped
+  /// plug from ItemSockets (305) flagged ([PerkColumn.activeIndex]). Empty for
+  /// uninstanced items, or when no mod socket offers alternatives.
   List<PerkColumn> _resolveInstanceModColumns(DestinyItem item,
       Map<String, dynamic>? socketsData, _StatInterpolator interpolator) {
     final id = item.itemInstanceId;
@@ -398,11 +535,14 @@ class InventoryRepository {
     final entries = sockets['socketEntries'];
     if (categories is! List || entries is! List) return const [];
 
-    List indexes = const [];
+    final isArmor = item.itemType == DestinyEnums.typeArmor;
+    final wantCategory = isArmor ? _armorModsCategory : _weaponModsCategory;
+    final indexes = <int>[];
     for (final c in categories) {
-      if ((c as Map)['socketCategoryHash'] == _weaponModsCategory) {
-        indexes = c['socketIndexes'] as List? ?? const [];
-        break;
+      if ((c as Map)['socketCategoryHash'] == wantCategory) {
+        for (final i in (c['socketIndexes'] as List? ?? const [])) {
+          if (i is int) indexes.add(i);
+        }
       }
     }
     if (indexes.isEmpty) return const [];
@@ -412,7 +552,23 @@ class InventoryRepository {
 
     final columns = <PerkColumn>[];
     for (final index in indexes) {
-      if (index is! int || index < 0 || index >= entries.length) continue;
+      if (index < 0 || index >= entries.length) continue;
+
+      // For armor, keep only true modern mod sockets — those whose plug
+      // whitelist is an `enhancements.*` family. This drops the masterwork
+      // socket and any legacy/1.0 socket, none of which InsertSocketPlugFree
+      // can edit (they would fail the insert). Weapons are not gated here.
+      if (isArmor) {
+        final typeHash =
+            ((entries[index] as Map)['socketTypeHash'] as num?)?.toInt();
+        final whitelist = typeHash == null
+            ? null
+            : _manifest.getSocketType(typeHash)?['plugWhitelist'];
+        final isModSocket = whitelist is List &&
+            whitelist.any((w) => _armorModWhitelist(
+                ((w as Map)['categoryIdentifier'] as String?) ?? ''));
+        if (!isModSocket) continue;
+      }
 
       // The equipped mod on this socket (305).
       int? activeHash;
@@ -452,14 +608,35 @@ class InventoryRepository {
       }
       if (activeHash != null && activeHash != 0) addOption(activeHash);
 
+      // Resolve the equipped plug first so it wins any de-duplication below —
+      // the definition pool can list a placeholder variant that shares a name
+      // with the equipped one (e.g. a second "Empty Mod Socket"), and the
+      // equipped plug is the real, insertable state.
       final plugs = <ItemPlug>[];
+      final seenNames = <String>{};
       int? activeIndex;
-      for (final hash in optionHashes) {
+      final ordered = <int>[
+        if (activeHash != null && activeHash != 0) activeHash,
+        for (final h in optionHashes) if (h != activeHash) h,
+      ];
+      for (final hash in ordered) {
+        // Armor mod pools (drawn from the definition plug set — armor sockets
+        // carry no live 310 options) include entries the free socket-insert
+        // endpoint rejects: artifact-gated variants (the seasonal-artifact
+        // discounted copy of a mod, and artifact-only mods) and "Locked Armor
+        // Mod" rank placeholders. Drop them — except the equipped plug, which
+        // stays so the picker shows what is on the item.
+        if (hash != activeHash && _isArtifactGatedPlug(hash)) continue;
         final plug = _columnPlugOf(hash, interpolator,
             isEnabled: hash == activeHash ? enabled : true,
             socketIndex: index);
         // Only real mod plugs (the socket may list an empty placeholder).
         if (plug == null || plug.category != PlugCategory.mod) continue;
+        // Rank-locked placeholders are not selectable mods.
+        if (hash != activeHash && plug.name == 'Locked Armor Mod') continue;
+        // Collapse duplicate-named variants (the equipped plug, resolved first,
+        // is the one kept on a collision).
+        if (!seenNames.add(plug.name)) continue;
         if (hash == activeHash) activeIndex = plugs.length;
         plugs.add(plug);
       }
@@ -496,6 +673,8 @@ class InventoryRepository {
       name: name,
       iconPath: (display?['icon'] as String?) ?? '',
       description: _plugDescription(def, display, hasStatEffects: statEffects.isNotEmpty),
+      note: _plugNote(def),
+      energyCost: _plugEnergyCost(def),
       category: classifyPlug(plugCategory),
       isEnabled: isEnabled,
       isEnhanced: isEnhancedPlugDef(def),
@@ -503,6 +682,53 @@ class InventoryRepository {
       socketIndex: socketIndex,
       statEffects: statEffects,
     );
+  }
+
+  /// A plug's informational note: the game's `ui_display_style_perk_info`
+  /// tooltip notification (e.g. an armor mod's stacking note), or empty when it
+  /// has none. Distinct from the effect [description] — the game renders it in
+  /// smaller, dimmer text below the effect.
+  String _plugNote(Map<String, dynamic> def) {
+    final tips = def['tooltipNotifications'];
+    if (tips is! List) return '';
+    for (final t in tips) {
+      if ((t as Map)['displayStyle'] == 'ui_display_style_perk_info') {
+        return (t['displayString'] as String?) ?? '';
+      }
+    }
+    return '';
+  }
+
+  /// Whether the armor mod [plugHash] is gated behind the seasonal artifact —
+  /// either a seasonal-artifact-discounted copy of a mod or an artifact-only
+  /// mod. Its plug `insertionRules` carry a failure message naming the artifact
+  /// ("Must Be Selected in the Seasonal Artifact"). The free socket-insert
+  /// endpoint cannot satisfy that rule, so such plugs are not offered as
+  /// swappable options (they would fail with DestinyFailedPlugInsertionRules).
+  bool _isArtifactGatedPlug(int plugHash) {
+    final rules = (_manifest.getInventoryItem(plugHash)?['plug']
+        as Map<String, dynamic>?)?['insertionRules'];
+    if (rules is! List) return false;
+    for (final r in rules) {
+      final msg = ((r as Map)['failureMessage'] as String?) ?? '';
+      if (msg.toLowerCase().contains('artifact')) return true;
+    }
+    return false;
+  }
+
+  /// The armor energy a plug costs to install: its "Any Energy Type Cost" /
+  /// "Mod Cost" investment stat ([_modCostStats]), or 0 when it has none.
+  int _plugEnergyCost(Map<String, dynamic> def) {
+    final invStats = def['investmentStats'];
+    if (invStats is! List) return 0;
+    for (final s in invStats) {
+      final st = s as Map<String, dynamic>;
+      final statHash = (st['statTypeHash'] as num?)?.toInt();
+      if (statHash != null && _modCostStats.contains(statHash)) {
+        return (st['value'] as num?)?.toInt() ?? 0;
+      }
+    }
+    return 0;
   }
 
   /// A plug's effect description: the plug's own `displayProperties.description`
@@ -552,6 +778,11 @@ class InventoryRepository {
       final statHash = (st['statTypeHash'] as num?)?.toInt();
       final raw = (st['value'] as num?)?.toInt() ?? 0;
       if (statHash == null || raw == 0) continue;
+      // An armor mod's energy/mod cost is its install cost, not a gameplay stat
+      // change — the game shows it as the "Energy Cost" header, not a bonus
+      // line. Skip it so the tooltip surfaces the mod's real effect (its
+      // sandbox-perk description) instead of "+1 Any Energy Type Cost".
+      if (_modCostStats.contains(statHash)) continue;
       final statDef = _manifest.getStat(statHash);
       final name = (statDef?['displayProperties']?['name'] as String?) ?? '';
       if (name.isEmpty) continue;
@@ -603,6 +834,7 @@ class InventoryRepository {
 
     final def = _manifest.getInventoryItem(item.itemHash);
 
+    final set = _setFacetsFor(item.itemHash);
     final facets = SearchFacets(
       perks: perks,
       perkColumns: def == null ? const [] : _perkColumnsFor(item, def),
@@ -611,9 +843,27 @@ class InventoryRepository {
       sources: def == null ? const {} : _sourceStringsOf(def),
       description: def == null ? '' : _descriptionOf(def),
       catalyst: _catalystStateOf(detail.catalyst),
+      setName: set?.name,
+      setPerksByCount: set?.perks ?? const {},
     );
     if (id != null) _facetsByInstance[id] = facets;
     return facets;
+  }
+
+  // Reverse item → set facets (set name + effect names by piece count), built
+  // once from every set definition to back the `set:`/`set2:`/`set4:` inventory
+  // search. Null until first built.
+  Map<int, SetSearchFacets>? _setFacetsByItem;
+
+  /// The set facets for [itemHash] (set name + effect names by piece count), or
+  /// null when it is in no set. Lazily builds the reverse index once.
+  SetSearchFacets? _setFacetsFor(int itemHash) {
+    final index = _setFacetsByItem ??= buildSetSearchIndex(
+      _manifest.allEquipableItemSets(),
+      (h) =>
+          _manifest.getSandboxPerk(h)?['displayProperties']?['name'] as String?,
+    );
+    return index[itemHash];
   }
 
   /// The rolled perk options for each random *trait* column of this weapon
@@ -1292,6 +1542,10 @@ class InventoryRepository {
             ? [for (final k in statMap.keys) int.tryParse(k as String) ?? -1]
             : const <int>[]);
 
+    // The stat the equipped stat-tuning trade-off boosts (if any), so that row
+    // can show the tuning glyph.
+    final tuningBoostedStat = _tuningBoostedStat(socketsData);
+
     final result = <ItemStat>[];
     for (final statHash in statHashes) {
       if (statHash < 0) continue;
@@ -1342,9 +1596,37 @@ class InventoryRepository {
         masterworkBonus: mwSeg > 0 ? mwSeg : 0,
         reduction: reduction,
         inverted: interpolator.isInverted(statHash),
+        tuningBoosted: statHash == tuningBoostedStat,
       ));
     }
     return sortStatsForDisplay(result);
+  }
+
+  /// The stat hash the equipped stat-tuning trade-off *boosts*, or null when no
+  /// tuning plug is socketed. A tuning mod grants +N to one stat and -N to
+  /// another; the game marks only the boosted stat (with the up/down glyph), so
+  /// only that stat is returned.
+  int? _tuningBoostedStat(Map<String, dynamic>? socketsData) {
+    final sockets = socketsData?['sockets'];
+    if (sockets is! List) return null;
+    for (final socket in sockets) {
+      final s = socket as Map<String, dynamic>;
+      if (s['isVisible'] == false) continue;
+      final plugHash = (s['plugHash'] as num?)?.toInt();
+      if (plugHash == null || plugHash == 0) continue;
+      final def = _manifest.getInventoryItem(plugHash);
+      final pci = (def?['plug'] as Map?)?['plugCategoryIdentifier'] as String?;
+      if (pci == null || !pci.contains('.tuning.')) continue;
+      final invStats = def?['investmentStats'];
+      if (invStats is! List) return null;
+      for (final st in invStats) {
+        final statHash = ((st as Map)['statTypeHash'] as num?)?.toInt();
+        final value = (st['value'] as num?)?.toInt() ?? 0;
+        if (statHash != null && value > 0) return statHash; // the boosted stat
+      }
+      return null; // one tuning socket per piece
+    }
+    return null;
   }
 
   List<ItemPlug> _resolvePlugs(
@@ -1394,6 +1676,9 @@ class InventoryRepository {
         iconPath: (display?['icon'] as String?) ?? '',
         description:
             _plugDescription(def, display, hasStatEffects: statEffects.isNotEmpty),
+        note: _plugNote(def),
+        energyCost: _plugEnergyCost(def),
+        isTuning: plugCategory != null && plugCategory.contains('.tuning.'),
         category: category,
         isEnabled: s['isEnabled'] != false,
         isEnhanced: enhanced,
@@ -1576,6 +1861,24 @@ class InventoryRepository {
     }
     return '$itemHash|$bucketHash|$state|$equipped|$power|$damageType|'
         '$damageTypeHash|$gearTier|$plugs';
+  }
+
+  /// The applied ornament's art for [item] — its `screenshot` and `icon` paths
+  /// — or null when the item is uninstanced or wears no (non-default) ornament.
+  /// Lets the detail modal show the ornamented look (screenshot + icon) an
+  /// owned instance actually displays, rather than the base definition art.
+  ({String? screenshot, String? icon})? appliedOrnamentArt(DestinyItem item) {
+    final instanceId = item.itemInstanceId;
+    if (instanceId == null) return null;
+    final def = _appliedOrnamentDef(instanceId);
+    if (def == null) return null;
+    final screenshot = def['screenshot'] as String?;
+    final icon = def['displayProperties']?['icon'] as String?;
+    if ((screenshot == null || screenshot.isEmpty) &&
+        (icon == null || icon.isEmpty)) {
+      return null;
+    }
+    return (screenshot: screenshot, icon: icon);
   }
 
   /// The applied ornament's plug definition for an instance, or null when none

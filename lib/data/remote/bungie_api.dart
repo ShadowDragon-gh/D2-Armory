@@ -153,10 +153,17 @@ class BungieApi {
         e.type == DioExceptionType.receiveTimeout) {
       return NetworkFailure('Network error reaching $path.', cause: e);
     }
+    // A non-2xx from an action endpoint still carries Bungie's platform
+    // envelope (ErrorCode + a human Message like "This plug cannot be inserted
+    // right now."). Surface that message rather than a generic path string, so
+    // the failure toast says *why* Bungie rejected it (rule: fail visibly).
     final data = e.response?.data;
     final errorCode = data is Map ? (data['ErrorCode'] as num?)?.toInt() : null;
+    final message = data is Map ? (data['Message'] as String?) : null;
     return ApiFailure(
-      'Bungie request to $path failed.',
+      message != null && message.isNotEmpty
+          ? message
+          : 'Bungie request to $path failed.',
       statusCode: e.response?.statusCode,
       errorCode: errorCode,
       cause: e,

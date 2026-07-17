@@ -4,31 +4,116 @@ import '../../core/destiny/destiny_buckets.dart';
 import '../../core/search/item_filter.dart';
 import '../../core/search/search_suggestions.dart';
 import '../../data/repositories/database_repository.dart';
+import '../../domain/models/armor_set.dart';
 import '../../domain/models/item_detail.dart';
+import 'inventory_provider.dart';
 import 'manifest_provider.dart';
 
 final databaseRepositoryProvider = Provider<DatabaseRepository>((ref) {
   return DatabaseRepository(manifest: ref.watch(manifestRepositoryProvider));
 });
 
-/// Which gear family the Database is browsing (the Weapons/Armor toggle). This
-/// is the only structured facet left: it selects which per-kind index and
-/// facet cache the list and search read. Every other facet (rarity, type,
-/// element, ammo, breaker, frame…) is expressed through the search bar
+/// Which gear family the Database is browsing (the Weapons/Armor toggle) and,
+/// for armor, an optional class constraint. The kind selects which per-kind
+/// index and facet cache the list and search read. Every other facet (rarity,
+/// type, element, ammo, breaker, frame…) is expressed through the search bar
 /// ([databaseSearchProvider]) and evaluated by the shared search grammar.
 class DatabaseFilter {
-  const DatabaseFilter({this.kind = GearKind.weapon});
+  const DatabaseFilter({
+    this.kind = GearKind.weapon,
+    this.classType,
+    this.collapseSets = true,
+    this.hideBelowLegendary = true,
+    this.hideLegacy = true,
+    this.exoticsOnly = false,
+  });
 
   final GearKind kind;
 
-  GearFilter toGearFilter() => GearFilter(kind: kind);
+  /// DestinyClass (0=Titan, 1=Hunter, 2=Warlock) to restrict armor to, or null
+  /// for all classes. Only meaningful for armor; cleared when browsing weapons.
+  final int? classType;
+
+  /// Whether armor is collapsed into set rows (on by default). Armor-only —
+  /// weapons have no sets, so it never affects them.
+  final bool collapseSets;
+
+  /// Whether to hide gear below Legendary rarity (on by default). Applies to
+  /// both tabs.
+  final bool hideBelowLegendary;
+
+  /// Whether to hide legacy armor — sets with no modern set bonus and their
+  /// pieces (on by default). Armor-only.
+  final bool hideLegacy;
+
+  /// Whether to show only Exotic gear (off by default). Mutually exclusive with
+  /// [collapseSets] — exotics are single pieces, never part of a set.
+  final bool exoticsOnly;
+
+  GearFilter toGearFilter() => GearFilter(
+        kind: kind,
+        classType: classType,
+        // Exotics-only pins the tier to Exotic; otherwise the Legendary floor
+        // applies when hiding lower rarity.
+        tierType: exoticsOnly ? 6 : null, // 6 = Exotic
+        minTierType:
+            (!exoticsOnly && hideBelowLegendary) ? 5 : null, // 5 = Legendary
+      );
 }
 
 class DatabaseFilterNotifier extends Notifier<DatabaseFilter> {
   @override
   DatabaseFilter build() => const DatabaseFilter();
 
-  void setKind(GearKind kind) => state = DatabaseFilter(kind: kind);
+  /// Switch the browsed family. Weapons carry no class constraint, so the class
+  /// filter is dropped when leaving armor; the other preferences are kept.
+  void setKind(GearKind kind) => state = DatabaseFilter(
+        kind: kind,
+        classType: kind == GearKind.armor ? state.classType : null,
+        collapseSets: state.collapseSets,
+        hideBelowLegendary: state.hideBelowLegendary,
+        hideLegacy: state.hideLegacy,
+        exoticsOnly: state.exoticsOnly,
+      );
+
+  /// Set (or clear, with null) the armor class constraint.
+  void setClassType(int? classType) =>
+      state = _copyWith(classType: classType, clearClass: classType == null);
+
+  /// Toggle collapsing armor into set rows. Turning it on turns off
+  /// exotics-only (exotics are single pieces, never in a set); turning it off
+  /// leaves exotics-only untouched.
+  void setCollapseSets(bool collapse) => state = _copyWith(
+      collapseSets: collapse, exoticsOnly: collapse ? false : null);
+
+  /// Toggle hiding gear below Legendary rarity.
+  void setHideBelowLegendary(bool hide) =>
+      state = _copyWith(hideBelowLegendary: hide);
+
+  /// Toggle hiding legacy armor (sets with no modern bonus + their pieces).
+  void setHideLegacy(bool hide) => state = _copyWith(hideLegacy: hide);
+
+  /// Toggle showing only Exotic gear. Turning it on turns off set collapsing
+  /// (they are mutually exclusive); turning it off leaves collapsing untouched.
+  void setExoticsOnly(bool only) => state =
+      _copyWith(exoticsOnly: only, collapseSets: only ? false : null);
+
+  DatabaseFilter _copyWith({
+    int? classType,
+    bool clearClass = false,
+    bool? collapseSets,
+    bool? hideBelowLegendary,
+    bool? hideLegacy,
+    bool? exoticsOnly,
+  }) =>
+      DatabaseFilter(
+        kind: state.kind,
+        classType: clearClass ? classType : (classType ?? state.classType),
+        collapseSets: collapseSets ?? state.collapseSets,
+        hideBelowLegendary: hideBelowLegendary ?? state.hideBelowLegendary,
+        hideLegacy: hideLegacy ?? state.hideLegacy,
+        exoticsOnly: exoticsOnly ?? state.exoticsOnly,
+      );
 }
 
 final databaseFilterProvider =
@@ -114,6 +199,73 @@ final databaseResultsProvider = Provider<AsyncValue<List<GearSummary>>>((ref) {
   });
 });
 
+/// One row in the Database list: either a single gear [piece] or a collapsed
+/// armor [set] (with the member summaries that survived the current filter).
+/// Exactly one of [piece] / [set] is non-null.
+class DatabaseRow {
+  const DatabaseRow.piece(GearSummary this.piece)
+      : set = null,
+        members = const [];
+  const DatabaseRow.set(ArmorSet this.set, this.members) : piece = null;
+
+  final GearSummary? piece;
+  final ArmorSet? set;
+
+  /// For a set row, the member summaries present in the current (filtered)
+  /// result — so the row's piece count reflects the active class filter.
+  final List<GearSummary> members;
+
+  bool get isSet => set != null;
+
+  /// The name this row sorts and displays by (set name or item name).
+  String get sortName => (set?.name ?? piece?.name ?? '').toLowerCase();
+}
+
+/// The Database list as display rows.
+///
+/// Weapons (and armor with collapse-sets off) are all piece rows. For armor
+/// with collapse-sets on, the list shows **only** set rows — gear in a set
+/// collapses to one [DatabaseRow.set] (holding the members that passed the
+/// filter) and gear in no set is hidden. When [DatabaseFilter.hideLegacy] is
+/// on, legacy sets (no modern bonus) and their pieces are dropped entirely.
+/// Rows are sorted alphabetically by display name.
+final databaseRowsProvider = Provider<AsyncValue<List<DatabaseRow>>>((ref) {
+  final filter = ref.watch(databaseFilterProvider);
+  final collapse = filter.kind == GearKind.armor && filter.collapseSets;
+  final hideLegacy = filter.kind == GearKind.armor && filter.hideLegacy;
+  return ref.watch(databaseResultsProvider).whenData((results) {
+    final repo = ref.watch(databaseRepositoryProvider);
+
+    if (!collapse) {
+      // Flat per-piece view. Hiding legacy still drops legacy-set members.
+      final rows = <DatabaseRow>[];
+      for (final g in results) {
+        if (hideLegacy && (repo.armorSetForItem(g.itemHash)?.isLegacy ?? false)) {
+          continue;
+        }
+        rows.add(DatabaseRow.piece(g));
+      }
+      return rows;
+    }
+
+    // Collapsed view: only set rows; setless gear is hidden.
+    final setMembers = <int, List<GearSummary>>{};
+    final setById = <int, ArmorSet>{};
+    for (final g in results) {
+      final set = repo.armorSetForItem(g.itemHash);
+      if (set == null) continue; // loose piece — hidden in the collapsed view
+      if (hideLegacy && set.isLegacy) continue; // legacy set — hidden
+      (setMembers[set.hash] ??= []).add(g);
+      setById[set.hash] = set;
+    }
+    final rows = [
+      for (final entry in setMembers.entries)
+        DatabaseRow.set(setById[entry.key]!, entry.value),
+    ]..sort((a, b) => a.sortName.compareTo(b.sortName));
+    return rows;
+  });
+});
+
 /// `is:` keywords/terms typed into the Database search that cannot apply to a
 /// definition (they need instance data: power, equipped, masterwork, locked).
 /// Surfaced in the UI so the filter never silently ignores them (rule 12).
@@ -140,6 +292,13 @@ final frameCatalogProvider = Provider<List<PerkOption>>((ref) {
   return ref.watch(databaseRepositoryProvider).frameOptions();
 });
 
+/// The set-effect catalog (name + icon) offered as `set:`/`set2:`/`set4:` value
+/// autocomplete on both tabs. Built from the armor-set definitions (game-wide,
+/// not account-scoped) and available as soon as the manifest is open.
+final setEffectCatalogProvider = Provider<List<PerkOption>>((ref) {
+  return ref.watch(databaseRepositoryProvider).setEffectOptions();
+});
+
 /// Gear names for the Database search field's `name:"..."` autocomplete, taken
 /// from the current kind's loaded facet results. Empty until the list loads.
 final databaseItemNamesProvider = Provider<List<String>>((ref) {
@@ -161,6 +320,56 @@ class SelectedDatabaseItemNotifier extends Notifier<int?> {
 final selectedDatabaseItemProvider =
     NotifierProvider<SelectedDatabaseItemNotifier, int?>(
         SelectedDatabaseItemNotifier.new);
+
+/// The hash of the armor set whose detail modal is open, or null when none is
+/// selected. Set when a collapsed set row is tapped; the set-detail modal reads
+/// it and clears it on close.
+class SelectedArmorSetNotifier extends Notifier<int?> {
+  @override
+  int? build() => null;
+  void select(int setHash) => state = setHash;
+  void clear() => state = null;
+  void toggle(int setHash) => state = state == setHash ? null : setHash;
+}
+
+final selectedArmorSetProvider =
+    NotifierProvider<SelectedArmorSetNotifier, int?>(
+        SelectedArmorSetNotifier.new);
+
+/// Whether the armor-set detail modal is up, so `showArmorSetDetailModal` can
+/// let the first open win (parallel to [gearModalOpenProvider] for the item
+/// modal).
+class ArmorSetModalOpenNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool value) => state = value;
+}
+
+final armorSetModalOpenProvider =
+    NotifierProvider<ArmorSetModalOpenNotifier, bool>(
+        ArmorSetModalOpenNotifier.new);
+
+/// The selected armor set plus its members' resolved detail (for the set-detail
+/// modal's screenshot gallery), or null when no set is selected. Members are
+/// resolved from their definitions and kept in the set's member order.
+class ArmorSetDetail {
+  const ArmorSetDetail({required this.set, required this.members});
+  final ArmorSet set;
+  final List<GearDetail> members;
+}
+
+final selectedArmorSetDetailProvider =
+    Provider.autoDispose<ArmorSetDetail?>((ref) {
+  final setHash = ref.watch(selectedArmorSetProvider);
+  if (setHash == null) return null;
+  final repo = ref.watch(databaseRepositoryProvider);
+  final set = repo.armorSetByHash(setHash);
+  if (set == null) return null;
+  final members = [
+    for (final hash in set.memberHashes) repo.resolveGearDetail(hash),
+  ].whereType<GearDetail>().toList();
+  return ArmorSetDetail(set: set, members: members);
+});
 
 /// Whether the shared gear-detail modal is currently up. Both the Database
 /// list and the Inventory grid react to [selectedDatabaseItemProvider] (both
@@ -187,7 +396,22 @@ final gearModalOpenProvider =
 final databaseItemDetailProvider = Provider.autoDispose<GearDetail?>((ref) {
   final hash = ref.watch(selectedDatabaseItemProvider);
   if (hash == null) return null;
-  return ref.watch(databaseRepositoryProvider).resolveGearDetail(hash);
+  final detail = ref.watch(databaseRepositoryProvider).resolveGearDetail(hash);
+  if (detail == null) return null;
+  // When an owned instance backs the modal (opened from Inventory), show the
+  // ornamented look it actually wears — the applied ornament's screenshot and
+  // icon — over the base definition art. Database-tab (definition-only) detail
+  // keeps the base art.
+  final instance = ref.watch(gearModalInstanceProvider);
+  if (instance != null) {
+    final art =
+        ref.watch(inventoryRepositoryProvider).appliedOrnamentArt(instance);
+    if (art != null) {
+      return detail.withOrnamentArt(
+          screenshot: art.screenshot, icon: art.icon);
+    }
+  }
+  return detail;
 });
 
 /// Which view the gear-detail modal shows when an owned item backs it (opened

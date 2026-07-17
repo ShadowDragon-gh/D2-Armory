@@ -87,6 +87,7 @@ class ItemStat {
     this.masterworkBonus = 0,
     this.reduction = 0,
     this.inverted = false,
+    this.tuningBoosted = false,
   });
 
   /// The stat's definition hash, so a selected perk's [PerkStatEffect] can be
@@ -108,6 +109,11 @@ class ItemStat {
   /// so a [reduction] is beneficial rather than a penalty — the UI colours the
   /// net effect by this.
   final bool inverted;
+
+  /// Whether the equipped armor stat-tuning ("+X / -Y") trade-off boosts this
+  /// stat — the game shows a small up/down glyph on the boosted stat only. The
+  /// tuning's value itself is already folded into [value]/[modBonus].
+  final bool tuningBoosted;
 
   /// The combined mod + masterwork gain (for callers that don't distinguish
   /// the two).
@@ -155,6 +161,9 @@ class ItemPlug {
     required this.iconPath,
     required this.category,
     this.description = '',
+    this.note = '',
+    this.energyCost = 0,
+    this.isTuning = false,
     this.isEnabled = true,
     this.isEnhanced = false,
     this.statEffects = const [],
@@ -166,6 +175,21 @@ class ItemPlug {
   final String iconPath;
   final PlugCategory category;
   final String description;
+
+  /// A secondary informational note the game shows in smaller, dimmer text
+  /// below the effect — e.g. an armor mod's "Multiple copies of this mod can be
+  /// stacked…" stacking note. Empty when the plug has none.
+  final String note;
+
+  /// The armor energy this mod costs to install (its "Any Energy Type Cost" /
+  /// "Mod Cost" stat), shown as a small badge on the mod icon. 0 for plugs with
+  /// no energy cost (weapon mods, perks, empty sockets).
+  final int energyCost;
+
+  /// Whether this is an armor stat-tuning ("+X / -Y") plug. The mods row orders
+  /// the tuning chip right after the primary mod rather than by socket index.
+  final bool isTuning;
+
   final bool isEnabled;
 
   /// The plug's own item hash — the plug to insert when selecting this option
@@ -321,6 +345,8 @@ class GearDetail {
     this.breaker,
     this.flavorText = '',
     this.screenshotPath = '',
+    this.ornamentScreenshotPath,
+    this.ornamentIconPath,
   });
 
   final DestinyItem item;
@@ -333,14 +359,73 @@ class GearDetail {
   final String flavorText;
   final String screenshotPath;
 
-  String? get screenshotUrl => screenshotPath.isEmpty
-      ? null
-      : '${AppConfig.bungieBaseUrl}$screenshotPath';
+  /// When an owned instance wears an ornament, its screenshot / icon paths —
+  /// so the modal shows the ornamented look the instance actually displays.
+  /// Null for definition-only detail (Database tab) or an un-ornamented item.
+  final String? ornamentScreenshotPath;
+  final String? ornamentIconPath;
+
+  /// The screenshot to show: the applied ornament's when present, else the
+  /// base definition's.
+  String? get screenshotUrl {
+    final path = (ornamentScreenshotPath != null &&
+            ornamentScreenshotPath!.isNotEmpty)
+        ? ornamentScreenshotPath!
+        : screenshotPath;
+    return path.isEmpty ? null : '${AppConfig.bungieBaseUrl}$path';
+  }
+
+  /// The item icon to show: the applied ornament's when present, else the
+  /// base item's own icon.
+  String? get iconUrl =>
+      (ornamentIconPath != null && ornamentIconPath!.isNotEmpty)
+          ? '${AppConfig.bungieBaseUrl}$ornamentIconPath'
+          : item.iconUrl;
+
+  GearDetail withOrnamentArt({String? screenshot, String? icon}) => GearDetail(
+        item: item,
+        stats: stats,
+        perkColumns: perkColumns,
+        frame: frame,
+        breaker: breaker,
+        flavorText: flavorText,
+        screenshotPath: screenshotPath,
+        ornamentScreenshotPath: screenshot,
+        ornamentIconPath: icon,
+      );
+}
+
+/// An armor piece's energy meter: the total [capacity] and how much its
+/// installed mods [used]. Shown above the stats like the in-game armor display.
+class ArmorEnergy {
+  const ArmorEnergy({required this.capacity, required this.used});
+
+  final int capacity;
+  final int used;
+
+  /// Whether swapping the mod currently in a socket (costing [equippedCost])
+  /// for one costing [candidateCost] keeps used energy within [capacity].
+  /// [used] already includes the equipped mod, so the swap changes it by
+  /// (candidate − equipped).
+  bool canAffordSwap({required int equippedCost, required int candidateCost}) =>
+      used - equippedCost + candidateCost <= capacity;
 }
 
 /// Everything the detail panel shows for a single item: the base [item] plus
 /// resolved stats, sockets (grouped by category), champion breaker, and the
 /// masterwork kill tracker.
+/// An armor piece's gear archetype (Powerhouse, Reaver, Bulwark, …): the name
+/// and icon of its equipped `armor_archetypes` plug.
+class ArmorArchetype {
+  const ArmorArchetype({required this.name, required this.iconPath});
+
+  final String name;
+  final String iconPath;
+
+  String? get iconUrl =>
+      iconPath.isEmpty ? null : '${AppConfig.bungieBaseUrl}$iconPath';
+}
+
 class ItemDetail {
   const ItemDetail({
     required this.item,
@@ -351,6 +436,8 @@ class ItemDetail {
     this.breaker,
     this.killTracker,
     this.catalyst,
+    this.armorEnergy,
+    this.archetype,
   });
 
   final DestinyItem item;
@@ -371,6 +458,14 @@ class ItemDetail {
   final BreakerType? breaker;
   final KillTracker? killTracker;
   final CatalystProgress? catalyst;
+
+  /// The armor energy meter (capacity + used), or null for weapons and for
+  /// armor with no energy data.
+  final ArmorEnergy? armorEnergy;
+
+  /// The armor piece's gear archetype (its equipped `armor_archetypes` plug),
+  /// or null for weapons and armor with no archetype socketed.
+  final ArmorArchetype? archetype;
 
   Iterable<ItemPlug> plugsOf(PlugCategory c) =>
       plugs.where((p) => p.category == c);

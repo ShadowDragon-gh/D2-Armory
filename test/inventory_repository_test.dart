@@ -52,6 +52,10 @@ void main() {
     // Any other damage-type hash resolves to nothing.
     when(() => manifest.getDamageType(any(that: isNot(1847026933))))
         .thenReturn(null);
+    // No armor sets by default (the set-facet reverse index is empty), and no
+    // sandbox perks — tests that exercise set facets stub these explicitly.
+    when(() => manifest.allEquipableItemSets()).thenReturn(const []);
+    when(() => manifest.getSandboxPerk(any())).thenReturn(null);
   });
 
   test('groups equipped + inventory items into buckets, equipped first', () async {
@@ -372,6 +376,47 @@ void main() {
       final first = repo.inventoryFacetsFor(item);
       final second = repo.inventoryFacetsFor(item);
       expect(identical(first, second), isTrue);
+    });
+
+    test('resolves set facets so set:/set2:/set4: match on the Inventory tab',
+        () async {
+      // Put the loaded item in a set with a 2-piece and 4-piece bonus. This is
+      // the Inventory-tab half of the plan's "both tabs" criterion (the Database
+      // tab is covered by buildSetSearchIndex / setEffectOptions tests).
+      const perk2 = 9101;
+      const perk4 = 9102;
+      when(() => manifest.allEquipableItemSets()).thenReturn([
+        {
+          'hash': 9100,
+          'displayProperties': {'name': 'Thriving Survivor'},
+          'setItems': [kineticHash],
+          'setPerks': [
+            {'requiredSetCount': 2, 'sandboxPerkHash': perk2},
+            {'requiredSetCount': 4, 'sandboxPerkHash': perk4},
+          ],
+        },
+      ]);
+      when(() => manifest.getSandboxPerk(perk2)).thenReturn({
+        'displayProperties': {'name': 'Opening Act'}
+      });
+      when(() => manifest.getSandboxPerk(perk4)).thenReturn({
+        'displayProperties': {'name': 'Radiant Orbs'}
+      });
+
+      final grid = await repo.fetchInventory();
+      final item =
+          grid.owners.first.itemsFor(EquipmentBucket.kineticWeapons.hash).single;
+      SearchFacets? facetsOf(i) => repo.inventoryFacetsFor(i);
+
+      expect(compileQuery('set:thriving', facetsOf: facetsOf).matches(item),
+          isTrue);
+      expect(compileQuery('set2:"opening act"', facetsOf: facetsOf).matches(item),
+          isTrue);
+      expect(compileQuery('set4:"radiant orbs"', facetsOf: facetsOf).matches(item),
+          isTrue);
+      // Cross-count: the 4-piece name must not match set2:.
+      expect(compileQuery('set2:"radiant orbs"', facetsOf: facetsOf).matches(item),
+          isFalse);
     });
 
     test('warmFacets pre-populates the cache so later lookups do no work',

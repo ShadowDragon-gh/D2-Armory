@@ -1,6 +1,7 @@
 import '../../core/destiny/destiny_buckets.dart';
 import '../../core/destiny/plug_category.dart';
 import '../../core/search/item_filter.dart';
+import '../../domain/models/armor_set.dart';
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/item_detail.dart';
 import '../../core/search/search_suggestions.dart';
@@ -15,6 +16,7 @@ class GearFilter {
   const GearFilter({
     required this.kind,
     this.tierType,
+    this.minTierType,
     this.classType,
     this.itemSubType,
     this.damageType,
@@ -26,6 +28,10 @@ class GearFilter {
 
   /// DestinyTierType (5=Legendary, 6=Exotic, …).
   final int? tierType;
+
+  /// Minimum DestinyTierType to keep (inclusive), e.g. 5 to drop everything
+  /// below Legendary. Null for no floor.
+  final int? minTierType;
 
   /// DestinyClass (0=Titan, 1=Hunter, 2=Warlock). 3/any is not a filter value.
   final int? classType;
@@ -74,6 +80,14 @@ class DatabaseRepository {
   // the `frame:` autocomplete. Also merged from the facet warm.
   final Map<String, String> _frameIconByName = {};
 
+  // The armor-set reverse index, built once from every
+  // DestinyEquipableItemSetDefinition: item hash -> the set that lists it as a
+  // member (armor items carry no back-reference, so membership is resolved by
+  // inverting each set's `setItems`), and set hash -> the resolved [ArmorSet].
+  // Null until first built by [_ensureSetsBuilt].
+  Map<int, ArmorSet>? _setByItemHash;
+  Map<int, ArmorSet>? _setByHash;
+
   // The stable WEAPON PERKS socket-category hash (like the bucket hashes in
   // EquipmentBucket, a game constant, not a per-launch lookup). Its sockets are
   // the perk columns destiny.report shows.
@@ -104,6 +118,9 @@ class DatabaseRepository {
       if (filter.tierType != null && g.tierType != filter.tierType) {
         return false;
       }
+      if (filter.minTierType != null && g.tierType < filter.minTierType!) {
+        return false;
+      }
       if (filter.classType != null && g.classType != filter.classType) {
         return false;
       }
@@ -120,25 +137,171 @@ class DatabaseRepository {
     }).toList();
   }
 
+  /// The armor set an item belongs to, or null when it is in no set. Membership
+  /// is reverse-resolved from every set's member list (built once, cached).
+  ArmorSet? armorSetForItem(int itemHash) {
+    _ensureSetsBuilt();
+    return _setByItemHash![itemHash];
+  }
+
+  /// A set by its own hash, or null when unknown. Built once, cached.
+  ArmorSet? armorSetByHash(int setHash) {
+    _ensureSetsBuilt();
+    return _setByHash![setHash];
+  }
+
+  /// Build the armor-set reverse index once: read every set definition, resolve
+  /// its perks' display data (name/description/icon via the sandbox perks), and
+  /// invert each set's `setItems` into an item-hash → set map. Idempotent.
+  void _ensureSetsBuilt() {
+    if (_setByHash != null) return;
+    final byHash = <int, ArmorSet>{};
+    final byItem = <int, ArmorSet>{};
+    for (final def in _manifest.allEquipableItemSets()) {
+      if (def['redacted'] == true) continue;
+      final hash = (def['hash'] as num?)?.toInt();
+      if (hash == null) continue;
+      final name =
+          (def['displayProperties']?['name'] as String?)?.trim() ?? '';
+      final members = <int>[
+        for (final m in (def['setItems'] as List? ?? const []))
+          if ((m as num?)?.toInt() case final int h) h,
+      ];
+      final perks = <SetPerk>[
+        for (final p in (def['setPerks'] as List? ?? const []))
+          _resolveSetPerk(p as Map<String, dynamic>),
+      ]..sort((a, b) => a.requiredSetCount.compareTo(b.requiredSetCount));
+      final set = ArmorSet(
+          hash: hash, name: name, memberHashes: members, perks: perks);
+      byHash[hash] = set;
+      for (final m in members) {
+        byItem[m] = set;
+      }
+    }
+    _addLegacyNameSets(byHash, byItem);
+    _setByHash = byHash;
+    _setByItemHash = byItem;
+  }
+
+  // Rarity tier for Exotic armor, which is always a single piece and never
+  // part of a set — excluded from name-based grouping (see [_addLegacyNameSets]).
+  static const _exoticTierType = 6;
+
+  /// The set name for an armor piece: its display name minus the final
+  /// whitespace-delimited word (the piece noun — Destiny names armor
+  /// `<Set> <Piece>`, and the piece word is unbounded, so it is stripped by
+  /// position rather than from a list). A trailing variant tag (e.g.
+  /// " (Unkindled)") is dropped first. Null for a single-word name.
+  String? _legacySetName(String itemName) {
+    final base = itemName.replaceAll(RegExp(r'\s*\([^)]*\)\s*$'), '').trim();
+    final cut = base.lastIndexOf(' ');
+    if (cut <= 0) return null;
+    final prefix = base.substring(0, cut).trim();
+    return prefix.isEmpty ? null : prefix;
+  }
+
+  // A derived set name matching `<Noun> of [the] …` (e.g. "Mask of", "Boots of
+  // the", "Grips of the"). Such names are the leftover of an "X of Subject"
+  // item family — unrelated exotics/legendaries sharing a template, not a set —
+  // so a single-slot group with such a name is rejected below.
+  static final _ofTemplateName = RegExp(r' of( the)?$');
+
+  /// Group non-exotic armor that is in no manifest set into synthetic legacy
+  /// [ArmorSet]s by shared name (older armor with no
+  /// DestinyEquipableItemSetDefinition, so grouped by name — [_legacySetName]).
+  /// Exotics are excluded (always single pieces). A group is a set when it
+  ///  • spans 2+ armor slots ([GearSummary.itemSubType]) — an ordinary set; or
+  ///  • sits in one slot but is one-piece-per-class (member count == distinct
+  ///    real class count, 2+ classes) and its name is not an `<Noun> of …`
+  ///    template — a class-specific single-slot set (class items, or a
+  ///    chest/arms/… set with a per-class piece name like Shieldbreaker
+  ///    Robes/Plate/Vest), as distinct from a template family (Mask of …).
+  void _addLegacyNameSets(
+      Map<int, ArmorSet> byHash, Map<int, ArmorSet> byItem) {
+    final byPrefix = <String, List<GearSummary>>{};
+    for (final g in _indexFor(GearKind.armor)) {
+      if (byItem.containsKey(g.itemHash)) continue; // already in a manifest set
+      if (g.tierType == _exoticTierType) continue; // exotics are never sets
+      final prefix = _legacySetName(g.name);
+      if (prefix == null) continue;
+      (byPrefix[prefix] ??= []).add(g);
+    }
+    byPrefix.forEach((prefix, members) {
+      if (!_isLegacySet(prefix, members)) return;
+      // A stable synthetic hash from the name (negative to avoid colliding with
+      // real set hashes; the value is only an in-memory key).
+      final hash = -(prefix.hashCode & 0x7FFFFFFF) - 1;
+      final set = ArmorSet(
+        hash: hash,
+        name: prefix,
+        memberHashes: [for (final m in members) m.itemHash],
+        perks: const [],
+        isLegacy: true,
+      );
+      byHash[hash] = set;
+      for (final m in members) {
+        byItem[m.itemHash] = set;
+      }
+    });
+  }
+
+  /// Whether a name-grouped [members] set qualifies as a legacy set (see
+  /// [_addLegacyNameSets] for the rule).
+  bool _isLegacySet(String name, List<GearSummary> members) {
+    final slots = {for (final m in members) m.itemSubType};
+    if (slots.length >= 2) return true; // spans multiple armor slots
+    // Single slot: accept only a one-piece-per-class set whose name is not an
+    // "X of [the] …" template.
+    if (_ofTemplateName.hasMatch(name)) return false;
+    final classes = {
+      for (final m in members)
+        if (m.classType >= 0 && m.classType <= 2) m.classType
+    };
+    return classes.length >= 2 && members.length == classes.length;
+  }
+
+  /// Resolve one set-perk entry (`{requiredSetCount, sandboxPerkHash}`) to its
+  /// display data via the sandbox perk definition.
+  SetPerk _resolveSetPerk(Map<String, dynamic> entry) {
+    final count = (entry['requiredSetCount'] as num?)?.toInt() ?? 0;
+    final perkHash = (entry['sandboxPerkHash'] as num?)?.toInt();
+    final perkDef =
+        perkHash == null ? null : _manifest.getSandboxPerk(perkHash);
+    final display = perkDef?['displayProperties'] as Map<String, dynamic>?;
+    return SetPerk(
+      requiredSetCount: count,
+      name: (display?['name'] as String?) ?? '',
+      description: (display?['description'] as String?) ?? '',
+      iconPath: (display?['icon'] as String?) ?? '',
+    );
+  }
+
   /// The full deduped [GearSummary] index for [kind], built once and cached.
   /// Reissued definitions share a name; per the product decision they collapse
-  /// to one row per name, keeping the newest (highest manifest `index`).
+  /// to one row, keeping the newest (highest manifest `index`). The dedupe key
+  /// is the name plus, for armor, its class and slot — so two genuinely
+  /// different pieces that share a display name (e.g. a set's "Techsec Boots"
+  /// for the Titan and the Warlock, both legs) are kept, while true reissues
+  /// (same name, class, and slot) still collapse. Weapons dedupe by name alone.
   List<GearSummary> _indexFor(GearKind kind) {
     final cached = _indexByKind[kind];
     if (cached != null) return cached;
 
     final rows = _manifest.queryGearSummaries(kind);
-    final byName = <String, GearSummary>{};
+    final byKey = <String, GearSummary>{};
     for (final row in rows) {
       final summary = _summaryOf(row);
       if (summary == null) continue;
-      final existing = byName[summary.name];
+      final key = kind == GearKind.armor
+          ? '${summary.name}|${summary.classType}|${summary.itemSubType}'
+          : summary.name;
+      final existing = byKey[key];
       if (existing == null || summary.index > existing.index) {
-        byName[summary.name] = summary;
+        byKey[key] = summary;
       }
     }
 
-    final index = byName.values.toList();
+    final index = byKey.values.toList();
     _indexByKind[kind] = index;
     _summariesByHash[kind] = {for (final s in index) s.itemHash: s};
     _facetsByKind[kind] = {};
@@ -219,6 +382,23 @@ class DatabaseRepository {
   List<PerkOption> frameOptions() {
     final byName = {..._frameIconByName};
     _lazyBuilder?.frameIcons.forEach((name, icon) => byName[name] ??= icon);
+    final names = byName.keys.toList()..sort();
+    return [for (final name in names) PerkOption(name, byName[name]!)];
+  }
+
+  /// The set-effect catalog (name + icon) for the `set:`/`set2:`/`set4:`
+  /// autocomplete, sorted by name. Every set-bonus perk from every armor set,
+  /// deduped by name (first icon wins). Game-wide, so it works on both tabs;
+  /// built from the already-cached set index.
+  List<PerkOption> setEffectOptions() {
+    _ensureSetsBuilt();
+    final byName = <String, String>{};
+    for (final set in _setByHash!.values) {
+      for (final perk in set.perks) {
+        if (perk.name.isEmpty) continue;
+        byName[perk.name] ??= perk.iconPath;
+      }
+    }
     final names = byName.keys.toList()..sort();
     return [for (final name in names) PerkOption(name, byName[name]!)];
   }

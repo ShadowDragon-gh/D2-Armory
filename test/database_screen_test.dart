@@ -7,9 +7,23 @@ import 'package:d2_armory/core/destiny/plug_category.dart';
 import 'package:d2_armory/core/search/item_filter.dart';
 import 'package:d2_armory/core/search/search_suggestions.dart';
 import 'package:d2_armory/data/repositories/database_repository.dart';
+import 'package:d2_armory/domain/models/armor_set.dart';
 import 'package:d2_armory/domain/models/item_detail.dart';
 import 'package:d2_armory/presentation/providers/database_provider.dart';
+import 'package:d2_armory/presentation/screens/database/armor_set_detail_modal.dart';
 import 'package:d2_armory/presentation/screens/database/database_screen.dart';
+
+/// A set whose members are Titan Helm (11) and Warlock Cowl (13); Hunter Hood
+/// (12) is setless. Used by the collapse-into-sets test.
+const _aegisSet = ArmorSet(
+  hash: 777,
+  name: 'Aegis Set',
+  memberHashes: [11, 13],
+  perks: [
+    SetPerk(requiredSetCount: 2, name: 'Guarded'),
+    SetPerk(requiredSetCount: 4, name: 'Bulwark'),
+  ],
+);
 
 /// A hand-built DatabaseRepository with a fixed in-memory gear set, so the
 /// widget test exercises the real screen + modal + providers without a manifest.
@@ -19,6 +33,16 @@ class _FakeRepo implements DatabaseRepository {
     _summary(2, 'The Messenger', tier: 5, sub: 13),
     _summary(3, 'Palindrome', tier: 5, sub: 9),
   ];
+
+  // Armor pieces spanning the three classes, for the class-filter test.
+  // Titan Helm (11) and Warlock Cowl (13) belong to one set ("Aegis Set");
+  // Hunter Hood (12) is setless — so collapse yields one set row + one piece.
+  final _armor = <GearSummary>[
+    _armorSummary(11, 'Titan Helm', cls: 0),
+    _armorSummary(12, 'Hunter Hood', cls: 1),
+    _armorSummary(13, 'Warlock Cowl', cls: 2),
+  ];
+
 
   static GearSummary _summary(int hash, String name,
           {int tier = 5, int sub = 9}) =>
@@ -37,10 +61,30 @@ class _FakeRepo implements DatabaseRepository {
         index: hash,
       );
 
+  static GearSummary _armorSummary(int hash, String name, {required int cls}) =>
+      GearSummary(
+        itemHash: hash,
+        name: name,
+        iconPath: '',
+        tierType: 5,
+        itemType: 2,
+        itemSubType: 26,
+        itemTypeDisplayName: 'Helmet',
+        classType: cls,
+        damageType: 0,
+        ammoType: 0,
+        bucketHash: 3448274439,
+        index: hash,
+      );
+
   @override
   List<GearSummary> listGear(GearFilter filter) {
-    return _weapons.where((g) {
+    final source = filter.kind == GearKind.armor ? _armor : _weapons;
+    return source.where((g) {
       if (filter.tierType != null && g.tierType != filter.tierType) {
+        return false;
+      }
+      if (filter.classType != null && g.classType != filter.classType) {
         return false;
       }
       if (filter.itemSubType != null && g.itemSubType != filter.itemSubType) {
@@ -52,7 +96,11 @@ class _FakeRepo implements DatabaseRepository {
 
   @override
   GearDetail? resolveGearDetail(int itemHash) {
-    final g = _weapons.firstWhere((w) => w.itemHash == itemHash);
+    // Search both kinds so armor set members (and weapons) resolve.
+    final all = [..._weapons, ..._armor];
+    final match = all.where((g) => g.itemHash == itemHash);
+    if (match.isEmpty) return null;
+    final g = match.first;
     return GearDetail(
       item: g.toDestinyItem(),
       stats: const [ItemStat(statHash: 7, name: 'Range', value: 60)],
@@ -92,6 +140,12 @@ class _FakeRepo implements DatabaseRepository {
 
   @override
   BreakerType? rowBreaker(int itemHash) => null;
+  @override
+  ArmorSet? armorSetForItem(int itemHash) =>
+      _aegisSet.memberHashes.contains(itemHash) ? _aegisSet : null;
+  @override
+  ArmorSet? armorSetByHash(int setHash) =>
+      setHash == _aegisSet.hash ? _aegisSet : null;
 
   @override
   bool isIndexWarm(GearKind kind) => true;
@@ -104,6 +158,8 @@ class _FakeRepo implements DatabaseRepository {
   List<PerkOption> perkOptions() => const [];
   @override
   List<PerkOption> frameOptions() => const [];
+  @override
+  List<PerkOption> setEffectOptions() => const [];
 }
 
 Widget _app() => ProviderScope(
@@ -305,6 +361,130 @@ void main() {
     expect(find.text('The Messenger'), findsNothing); // pulse filtered out
   });
 
+  testWidgets(
+      'the class filter is armor-only and narrows the list by class',
+      (tester) async {
+    // The filter bar carries the kind toggle, the class control, and the search
+    // field — give it the desktop width the app runs at so they lay out without
+    // overflow.
+    _useWideSurface(tester);
+    final container = ProviderContainer(overrides: [
+      databaseRepositoryProvider.overrideWithValue(_FakeRepo()),
+    ]);
+    addTearDown(container.dispose);
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: Scaffold(body: DatabaseScreen())),
+    ));
+    await tester.pumpAndSettle();
+
+    // Weapons are the default kind: no class control, weapons listed.
+    expect(find.text('Titan'), findsNothing);
+    expect(find.text('Fatebringer'), findsOneWidget);
+
+    // Switch to Armor: the class control appears. Collapse-into-sets is on by
+    // default (Titan Helm + Warlock Cowl are one set), so turn it off first to
+    // test class filtering against the flat per-piece list.
+    await tester.tap(find.text('Armor'));
+    await tester.pumpAndSettle();
+    expect(find.text('Titan'), findsOneWidget); // class control now shown
+    await tester.tap(find.text('Sets')); // toggle collapse off
+    await tester.pumpAndSettle();
+    expect(find.text('Titan Helm'), findsOneWidget);
+    expect(find.text('Hunter Hood'), findsOneWidget);
+    expect(find.text('Warlock Cowl'), findsOneWidget);
+
+    // Pick Hunter: only the Hunter piece remains.
+    await tester.tap(find.text('Hunter'));
+    await tester.pumpAndSettle();
+    expect(container.read(databaseFilterProvider).classType, 1);
+    expect(find.text('Hunter Hood'), findsOneWidget);
+    expect(find.text('Titan Helm'), findsNothing);
+    expect(find.text('Warlock Cowl'), findsNothing);
+
+    // Switching back to Weapons hides the control and drops the class
+    // constraint (so returning to Armor would show all classes again).
+    await tester.tap(find.text('Weapons'));
+    await tester.pumpAndSettle();
+    expect(find.text('Hunter'), findsNothing); // control hidden
+    expect(container.read(databaseFilterProvider).classType, isNull);
+    expect(find.text('Fatebringer'), findsOneWidget);
+  });
+
+  testWidgets(
+      'armor collapses into set rows by default; toggling Sets off flattens it',
+      (tester) async {
+    _useWideSurface(tester);
+    final container = ProviderContainer(overrides: [
+      databaseRepositoryProvider.overrideWithValue(_FakeRepo()),
+    ]);
+    addTearDown(container.dispose);
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: Scaffold(body: DatabaseScreen())),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Armor'));
+    await tester.pumpAndSettle();
+
+    // Collapse on by default (set view): ONLY set rows show — the two members
+    // collapse to "Aegis Set" (with its bonus badges), and the setless Hunter
+    // Hood is hidden.
+    expect(find.text('Aegis Set'), findsOneWidget);
+    expect(find.text('2pc: Guarded'), findsOneWidget);
+    expect(find.text('4pc: Bulwark'), findsOneWidget);
+    expect(find.text('Titan Helm'), findsNothing); // collapsed into the set
+    expect(find.text('Warlock Cowl'), findsNothing);
+    expect(find.text('Hunter Hood'), findsNothing); // setless — hidden in sets
+
+    // Toggle Sets off: the flat per-piece list shows every piece.
+    await tester.tap(find.text('Sets'));
+    await tester.pumpAndSettle();
+    expect(find.text('Aegis Set'), findsNothing);
+    expect(find.text('Titan Helm'), findsOneWidget);
+    expect(find.text('Warlock Cowl'), findsOneWidget);
+    expect(find.text('Hunter Hood'), findsOneWidget);
+
+    // Tapping a set row (collapse back on first) selects the set and opens the
+    // set-detail modal: it shows the set bonus and each member's screenshot.
+    await tester.tap(find.text('Sets'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Aegis Set'));
+    await tester.pumpAndSettle();
+    expect(container.read(selectedArmorSetProvider), 777);
+    expect(find.byType(ArmorSetDetailModal), findsOneWidget);
+    expect(find.text('SET BONUS'), findsOneWidget);
+    expect(find.text('2 Piece: Guarded'), findsOneWidget);
+    expect(find.text('4 Piece: Bulwark'), findsOneWidget);
+    // The member pieces are shown in the gallery.
+    expect(find.text('Titan Helm'), findsOneWidget);
+    expect(find.text('Warlock Cowl'), findsOneWidget);
+  });
+
+  testWidgets("a single armor piece's detail modal shows its set bonus",
+      (tester) async {
+    _useWideSurface(tester);
+    final container = ProviderContainer(overrides: [
+      databaseRepositoryProvider.overrideWithValue(_FakeRepo()),
+    ]);
+    addTearDown(container.dispose);
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: Scaffold(body: DatabaseScreen())),
+    ));
+    await tester.pumpAndSettle();
+
+    // Open the detail modal for an Aegis Set member (Titan Helm, hash 11).
+    container.read(selectedDatabaseItemProvider.notifier).select(11);
+    await tester.pumpAndSettle();
+
+    // The single-piece modal shows the set's bonus.
+    expect(find.text('SET BONUS'), findsOneWidget);
+    expect(find.text('2 Piece: Guarded'), findsOneWidget);
+    expect(find.text('4 Piece: Bulwark'), findsOneWidget);
+  });
+
   testWidgets('the enhanced/regular toggle filters the perk grid',
       (tester) async {
     _useWideSurface(tester);
@@ -343,6 +523,52 @@ void main() {
     await tester.tap(find.text('Enhanced'));
     await tester.pumpAndSettle();
     expect(find.text('85'), findsOneWidget);
+  });
+
+  group('Sets vs Exotics exclusivity', () {
+    late ProviderContainer c;
+    setUp(() => c = ProviderContainer());
+    tearDown(() => c.dispose());
+
+    DatabaseFilter read() => c.read(databaseFilterProvider);
+    DatabaseFilterNotifier notifier() =>
+        c.read(databaseFilterProvider.notifier);
+
+    test('turning Exotics on turns Sets off', () {
+      // Sets is on by default.
+      expect(read().collapseSets, isTrue);
+      notifier().setExoticsOnly(true);
+      expect(read().exoticsOnly, isTrue);
+      expect(read().collapseSets, isFalse); // exclusivity: Sets forced off
+    });
+
+    test('turning Sets on turns Exotics off', () {
+      notifier().setExoticsOnly(true);
+      expect(read().exoticsOnly, isTrue);
+      notifier().setCollapseSets(true);
+      expect(read().collapseSets, isTrue);
+      expect(read().exoticsOnly, isFalse); // exclusivity: Exotics forced off
+    });
+
+    test('turning one OFF does not force the other on', () {
+      // Both off → toggling Exotics off leaves Sets off (not forced on).
+      notifier().setCollapseSets(false);
+      notifier().setExoticsOnly(false);
+      expect(read().collapseSets, isFalse);
+      expect(read().exoticsOnly, isFalse);
+      // Turning Sets off while Exotics is on leaves Exotics on.
+      notifier().setExoticsOnly(true);
+      notifier().setCollapseSets(false);
+      expect(read().exoticsOnly, isTrue);
+    });
+
+    test('exoticsOnly pins the tier filter to Exotic (overrides the floor)',
+        () {
+      notifier().setExoticsOnly(true);
+      final f = read().toGearFilter();
+      expect(f.tierType, 6); // Exotic
+      expect(f.minTierType, isNull); // floor suppressed while exotics-only
+    });
   });
 }
 
@@ -399,6 +625,12 @@ class _ToggleFakeRepo implements DatabaseRepository {
 
   @override
   BreakerType? rowBreaker(int itemHash) => null;
+  @override
+  ArmorSet? armorSetForItem(int itemHash) =>
+      _aegisSet.memberHashes.contains(itemHash) ? _aegisSet : null;
+  @override
+  ArmorSet? armorSetByHash(int setHash) =>
+      setHash == _aegisSet.hash ? _aegisSet : null;
 
   @override
   bool isIndexWarm(GearKind kind) => true;
@@ -411,4 +643,6 @@ class _ToggleFakeRepo implements DatabaseRepository {
   List<PerkOption> perkOptions() => const [];
   @override
   List<PerkOption> frameOptions() => const [];
+  @override
+  List<PerkOption> setEffectOptions() => const [];
 }

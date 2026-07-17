@@ -7,6 +7,7 @@ import 'package:d2_armory/core/destiny/plug_category.dart';
 import 'package:d2_armory/core/search/item_filter.dart';
 import 'package:d2_armory/core/search/search_suggestions.dart';
 import 'package:d2_armory/data/repositories/database_repository.dart';
+import 'package:d2_armory/domain/models/armor_set.dart';
 import 'package:d2_armory/domain/models/item_detail.dart';
 import 'package:d2_armory/presentation/providers/database_provider.dart';
 import 'package:d2_armory/presentation/screens/database/database_screen.dart';
@@ -86,6 +87,10 @@ class _Repo implements DatabaseRepository {
   @override
   BreakerType? rowBreaker(int itemHash) => null;
   @override
+  ArmorSet? armorSetForItem(int itemHash) => null;
+  @override
+  ArmorSet? armorSetByHash(int setHash) => null;
+  @override
   bool isIndexWarm(GearKind kind) => true;
   @override
   Future<List<GearSummary>> warmIndex(GearKind kind) async =>
@@ -96,6 +101,8 @@ class _Repo implements DatabaseRepository {
   List<PerkOption> perkOptions() => const [];
   @override
   List<PerkOption> frameOptions() => const [];
+  @override
+  List<PerkOption> setEffectOptions() => const [];
 }
 
 void main() {
