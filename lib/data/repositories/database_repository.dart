@@ -1,6 +1,7 @@
 import '../../core/destiny/destiny_buckets.dart';
 import '../../core/destiny/plug_category.dart';
 import '../../core/search/item_filter.dart';
+import '../../domain/models/armor_set.dart';
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/item_detail.dart';
 import '../../core/search/search_suggestions.dart';
@@ -74,6 +75,14 @@ class DatabaseRepository {
   // the `frame:` autocomplete. Also merged from the facet warm.
   final Map<String, String> _frameIconByName = {};
 
+  // The armor-set reverse index, built once from every
+  // DestinyEquipableItemSetDefinition: item hash -> the set that lists it as a
+  // member (armor items carry no back-reference, so membership is resolved by
+  // inverting each set's `setItems`), and set hash -> the resolved [ArmorSet].
+  // Null until first built by [_ensureSetsBuilt].
+  Map<int, ArmorSet>? _setByItemHash;
+  Map<int, ArmorSet>? _setByHash;
+
   // The stable WEAPON PERKS socket-category hash (like the bucket hashes in
   // EquipmentBucket, a game constant, not a per-launch lookup). Its sockets are
   // the perk columns destiny.report shows.
@@ -118,6 +127,67 @@ class DatabaseRepository {
       }
       return true;
     }).toList();
+  }
+
+  /// The armor set an item belongs to, or null when it is in no set. Membership
+  /// is reverse-resolved from every set's member list (built once, cached).
+  ArmorSet? armorSetForItem(int itemHash) {
+    _ensureSetsBuilt();
+    return _setByItemHash![itemHash];
+  }
+
+  /// A set by its own hash, or null when unknown. Built once, cached.
+  ArmorSet? armorSetByHash(int setHash) {
+    _ensureSetsBuilt();
+    return _setByHash![setHash];
+  }
+
+  /// Build the armor-set reverse index once: read every set definition, resolve
+  /// its perks' display data (name/description/icon via the sandbox perks), and
+  /// invert each set's `setItems` into an item-hash → set map. Idempotent.
+  void _ensureSetsBuilt() {
+    if (_setByHash != null) return;
+    final byHash = <int, ArmorSet>{};
+    final byItem = <int, ArmorSet>{};
+    for (final def in _manifest.allEquipableItemSets()) {
+      if (def['redacted'] == true) continue;
+      final hash = (def['hash'] as num?)?.toInt();
+      if (hash == null) continue;
+      final name =
+          (def['displayProperties']?['name'] as String?)?.trim() ?? '';
+      final members = <int>[
+        for (final m in (def['setItems'] as List? ?? const []))
+          if ((m as num?)?.toInt() case final int h) h,
+      ];
+      final perks = <SetPerk>[
+        for (final p in (def['setPerks'] as List? ?? const []))
+          _resolveSetPerk(p as Map<String, dynamic>),
+      ]..sort((a, b) => a.requiredSetCount.compareTo(b.requiredSetCount));
+      final set = ArmorSet(
+          hash: hash, name: name, memberHashes: members, perks: perks);
+      byHash[hash] = set;
+      for (final m in members) {
+        byItem[m] = set;
+      }
+    }
+    _setByHash = byHash;
+    _setByItemHash = byItem;
+  }
+
+  /// Resolve one set-perk entry (`{requiredSetCount, sandboxPerkHash}`) to its
+  /// display data via the sandbox perk definition.
+  SetPerk _resolveSetPerk(Map<String, dynamic> entry) {
+    final count = (entry['requiredSetCount'] as num?)?.toInt() ?? 0;
+    final perkHash = (entry['sandboxPerkHash'] as num?)?.toInt();
+    final perkDef =
+        perkHash == null ? null : _manifest.getSandboxPerk(perkHash);
+    final display = perkDef?['displayProperties'] as Map<String, dynamic>?;
+    return SetPerk(
+      requiredSetCount: count,
+      name: (display?['name'] as String?) ?? '',
+      description: (display?['description'] as String?) ?? '',
+      iconPath: (display?['icon'] as String?) ?? '',
+    );
   }
 
   /// The full deduped [GearSummary] index for [kind], built once and cached.

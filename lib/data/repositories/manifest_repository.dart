@@ -157,6 +157,12 @@ class ManifestRepository implements FacetSource {
   @override
   Map<String, dynamic>? getPlugSet(int hash) => database.getPlugSet(hash);
 
+  Map<String, dynamic>? getEquipableItemSet(int hash) =>
+      database.getEquipableItemSet(hash);
+
+  List<Map<String, dynamic>> allEquipableItemSets() =>
+      database.allEquipableItemSets();
+
   List<Map<String, Object?>> queryGearSummaries(GearKind kind) =>
       database.queryGearSummaries(kind);
 

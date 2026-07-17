@@ -486,4 +486,75 @@ void main() {
       expect(repo.frameOptions().single.iconPath, '/i/Adaptive Frame.png');
     });
   });
+
+  group('armor sets — reverse index', () {
+    // Two members of one set + a stat-perk pair, mirroring a real
+    // DestinyEquipableItemSetDefinition (2-piece / 4-piece bonuses).
+    const setHash = 2151917545;
+    const memberA = 2419726011;
+    const memberB = 365930261;
+    const perk2Hash = 681117218;
+    const perk4Hash = 681117219;
+
+    setUp(() {
+      when(() => manifest.allEquipableItemSets()).thenReturn([
+        {
+          'hash': setHash,
+          'displayProperties': {'name': 'Thriving Survivor'},
+          'setItems': [memberA, memberB],
+          // Deliberately out of order to prove ascending sort by count.
+          'setPerks': [
+            {'requiredSetCount': 4, 'sandboxPerkHash': perk4Hash},
+            {'requiredSetCount': 2, 'sandboxPerkHash': perk2Hash},
+          ],
+          'redacted': false,
+        },
+      ]);
+      when(() => manifest.getSandboxPerk(perk2Hash)).thenReturn({
+        'displayProperties': {
+          'name': 'Opening Act',
+          'description': 'A two-piece bonus.',
+          'icon': '/i/opening_act.png',
+        }
+      });
+      when(() => manifest.getSandboxPerk(perk4Hash)).thenReturn({
+        'displayProperties': {
+          'name': 'Second Act',
+          'description': 'A four-piece bonus.',
+          'icon': '/i/second_act.png',
+        }
+      });
+    });
+
+    test('a member item resolves to its set with both perks (sorted)', () {
+      final set = repo.armorSetForItem(memberA);
+      expect(set, isNotNull);
+      expect(set!.hash, setHash);
+      expect(set.name, 'Thriving Survivor');
+      expect(set.memberHashes, containsAll([memberA, memberB]));
+      // Perks ascending by required count: 2-piece then 4-piece.
+      expect(set.perks.map((p) => p.requiredSetCount), [2, 4]);
+      expect(set.perks[0].name, 'Opening Act');
+      expect(set.perks[0].description, 'A two-piece bonus.');
+      expect(set.perks[0].iconUrl, contains('/i/opening_act.png'));
+      expect(set.perks[1].name, 'Second Act');
+    });
+
+    test('every member of the set maps back to the same set', () {
+      expect(repo.armorSetForItem(memberB)!.hash, setHash);
+      expect(repo.armorSetByHash(setHash)!.name, 'Thriving Survivor');
+    });
+
+    test('an item in no set resolves to null', () {
+      expect(repo.armorSetForItem(999999), isNull);
+    });
+
+    test('the reverse index is built once (allEquipableItemSets read once)',
+        () {
+      repo.armorSetForItem(memberA);
+      repo.armorSetForItem(memberB);
+      repo.armorSetByHash(setHash);
+      verify(() => manifest.allEquipableItemSets()).called(1);
+    });
+  });
 }

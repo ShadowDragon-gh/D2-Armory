@@ -105,16 +105,15 @@ Success criteria met: with Armor selected a class control filters the list to th
 
 ---
 
-## Phase 3 — Set model, accessor, and reverse-membership index
+## Phase 3 — Set model, accessor, and reverse-membership index — **DONE**
 
-Files: `lib/data/local/manifest_database.dart`, `lib/data/repositories/manifest_repository.dart`, new `lib/domain/models/armor_set.dart` (or fold into `item_detail.dart` if small), `lib/data/repositories/database_repository.dart`.
+Files changed: `lib/data/local/manifest_database.dart`, `lib/data/repositories/manifest_repository.dart`, new `lib/domain/models/armor_set.dart`, `lib/data/repositories/database_repository.dart`, `test/database_repository_test.dart` (+ 3 test-double updates).
 
-- [ ] Add `getEquipableItemSet(int hash)` accessor (trivial: `getDefinition('DestinyEquipableItemSetDefinition', hash)`) and re-expose on `ManifestRepository`.
-- [ ] Add a way to enumerate all set defs (a `SELECT json FROM DestinyEquipableItemSetDefinition` query method) to build the reverse index. Follows the `queryGearSummaries` precedent (fixed table name, no injection surface).
-- [ ] New model `ArmorSet { hash, name, memberHashes, setPerks: List<SetPerk> }`, `SetPerk { requiredSetCount, name, description, iconUrl }` — resolving `sandboxPerkHash` via `getSandboxPerk`.
-- [ ] In `DatabaseRepository`, build once (cached, like the gear index) an `itemHash → ArmorSet` map by inverting `setItems`, plus `hash → ArmorSet`. Resolve set-perk display data lazily/once.
+- [x] Added `getEquipableItemSet(int hash)` and `allEquipableItemSets()` (a `SELECT json FROM DestinyEquipableItemSetDefinition` enumerator, following the `queryGearSummaries` precedent) to `ManifestDatabase`, re-exposed on `ManifestRepository`.
+- [x] New models `ArmorSet { hash, name, memberHashes, perks: List<SetPerk> }` and `SetPerk { requiredSetCount, name, description, iconPath/iconUrl }` — set perks resolved via `getSandboxPerk`.
+- [x] `DatabaseRepository._ensureSetsBuilt` builds the reverse index once (cached): inverts every set's `setItems` into `itemHash → ArmorSet`, plus `setHash → ArmorSet`, sorting perks ascending by `requiredSetCount`. Accessors: `armorSetForItem(hash)`, `armorSetByHash(hash)`.
 
-Success: a unit test asserts a known set (e.g. "Thriving Survivor", hash `2151917545`) resolves its member list and both `setPerks` with real names/descriptions.
+Verified: unit tests assert a member resolves to its set with both perks (sorted 2pc→4pc, real names/descriptions/icons), every member maps back, a non-member resolves null, and the index is built once (`allEquipableItemSets` called once). `flutter analyze` clean; full suite green (343 tests).
 
 ---
 
