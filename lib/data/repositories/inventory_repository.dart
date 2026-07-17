@@ -518,14 +518,35 @@ class InventoryRepository {
       }
       if (activeHash != null && activeHash != 0) addOption(activeHash);
 
+      // Resolve the equipped plug first so it wins any de-duplication below —
+      // the definition pool can list a placeholder variant that shares a name
+      // with the equipped one (e.g. a second "Empty Mod Socket"), and the
+      // equipped plug is the real, insertable state.
       final plugs = <ItemPlug>[];
+      final seenNames = <String>{};
       int? activeIndex;
-      for (final hash in optionHashes) {
+      final ordered = <int>[
+        if (activeHash != null && activeHash != 0) activeHash,
+        for (final h in optionHashes) if (h != activeHash) h,
+      ];
+      for (final hash in ordered) {
+        // Armor mod pools (drawn from the definition plug set — armor sockets
+        // carry no live 310 options) include entries the free socket-insert
+        // endpoint rejects: artifact-gated variants (the seasonal-artifact
+        // discounted copy of a mod, and artifact-only mods) and "Locked Armor
+        // Mod" rank placeholders. Drop them — except the equipped plug, which
+        // stays so the picker shows what is on the item.
+        if (hash != activeHash && _isArtifactGatedPlug(hash)) continue;
         final plug = _columnPlugOf(hash, interpolator,
             isEnabled: hash == activeHash ? enabled : true,
             socketIndex: index);
         // Only real mod plugs (the socket may list an empty placeholder).
         if (plug == null || plug.category != PlugCategory.mod) continue;
+        // Rank-locked placeholders are not selectable mods.
+        if (hash != activeHash && plug.name == 'Locked Armor Mod') continue;
+        // Collapse duplicate-named variants (the equipped plug, resolved first,
+        // is the one kept on a collision).
+        if (!seenNames.add(plug.name)) continue;
         if (hash == activeHash) activeIndex = plugs.length;
         plugs.add(plug);
       }
@@ -586,6 +607,23 @@ class InventoryRepository {
       }
     }
     return '';
+  }
+
+  /// Whether the armor mod [plugHash] is gated behind the seasonal artifact —
+  /// either a seasonal-artifact-discounted copy of a mod or an artifact-only
+  /// mod. Its plug `insertionRules` carry a failure message naming the artifact
+  /// ("Must Be Selected in the Seasonal Artifact"). The free socket-insert
+  /// endpoint cannot satisfy that rule, so such plugs are not offered as
+  /// swappable options (they would fail with DestinyFailedPlugInsertionRules).
+  bool _isArtifactGatedPlug(int plugHash) {
+    final rules = (_manifest.getInventoryItem(plugHash)?['plug']
+        as Map<String, dynamic>?)?['insertionRules'];
+    if (rules is! List) return false;
+    for (final r in rules) {
+      final msg = ((r as Map)['failureMessage'] as String?) ?? '';
+      if (msg.toLowerCase().contains('artifact')) return true;
+    }
+    return false;
   }
 
   /// The armor energy a plug costs to install: its "Any Energy Type Cost" /

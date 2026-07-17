@@ -1559,6 +1559,165 @@ void main() {
     expect(detail.armorEnergy!.used, 2);
   });
 
+  test('armor mod options exclude artifact-gated, locked, and duplicate-empty '
+      'placeholder plugs — keeping the real, insertable mods only', () async {
+    const armorHash = 9701;
+    const armorModsCategory = 590099826;
+    const modHeadType = 968742181; // whitelist enhancements.v2_head
+    const setHash = 5555; // the definition reusable plug set for the socket
+
+    // The socket has no live 310 options (as real armor does), so the resolver
+    // draws from the definition plug set below.
+    const equippedMod = 9805; // Empty Mod Socket (equipped — the real empty)
+    const realDup = 9802; // "Hands-On" cost 3 — real, insertable
+    const artifactDup = 9803; // "Hands-On" cost 1 — artifact-discounted, gated
+    const artifactOnly = 9804; // "Kinetic Charge Siphon" — artifact-only, gated
+    const realMod = 9801; // Recovery Mod — a real selectable mod
+    const lockedMod = 9806; // "Locked Armor Mod" — rank placeholder, excluded
+    const dupEmpty = 9807; // a second "Empty Mod Socket" from the set — collapsed
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Test Helm', 'icon': '/i/h.jpg'},
+      'itemType': 2,
+      'itemSubType': 26,
+      'itemTypeDisplayName': 'Helmet',
+      'inventory': {'bucketTypeHash': EquipmentBucket.helmet.hash},
+      'sockets': {
+        'socketCategories': [
+          {'socketCategoryHash': armorModsCategory, 'socketIndexes': [0]},
+        ],
+        'socketEntries': [
+          {
+            'singleInitialItemHash': equippedMod,
+            'socketTypeHash': modHeadType,
+            'reusablePlugSetHash': setHash,
+          },
+        ],
+      },
+    });
+    when(() => manifest.getSocketType(modHeadType)).thenReturn({
+      'plugWhitelist': [
+        {'categoryIdentifier': 'enhancements.v2_head'}
+      ],
+    });
+    when(() => manifest.getPlugSet(setHash)).thenReturn({
+      'reusablePlugItems': [
+        {'plugItemHash': dupEmpty}, // duplicate empty (from the set) → collapsed
+        {'plugItemHash': realMod},
+        {'plugItemHash': realDup},
+        {'plugItemHash': artifactDup},
+        {'plugItemHash': artifactOnly},
+        {'plugItemHash': lockedMod}, // rank placeholder → excluded
+      ],
+    });
+
+    // A plug def with the given name and insertion rules.
+    Map<String, dynamic> modDef(String name, List<String> failureMessages) => {
+          'displayProperties': {'name': name, 'icon': '/i/$name.jpg'},
+          'plug': {
+            'plugCategoryIdentifier': 'enhancements.v2_head',
+            'insertionRules': [
+              for (final m in failureMessages) {'failureMessage': m},
+            ],
+          },
+        };
+
+    // The equipped plug is the real "Empty Mod Socket" (no insertion rules).
+    when(() => manifest.getInventoryItem(equippedMod))
+        .thenReturn(modDef('Empty Mod Socket', const []));
+    // A second empty from the definition pool — same name, must collapse away.
+    when(() => manifest.getInventoryItem(dupEmpty))
+        .thenReturn(modDef('Empty Mod Socket', const ['']));
+    when(() => manifest.getInventoryItem(realMod))
+        .thenReturn(modDef('Recovery Mod', const ['Requires Guardian Rank 3']));
+    when(() => manifest.getInventoryItem(lockedMod)).thenReturn(modDef(
+        'Locked Armor Mod',
+        const ['Requires Guardian Rank 7: Threats and Surges']));
+    when(() => manifest.getInventoryItem(realDup))
+        .thenReturn(modDef('Hands-On', const ['Requires Guardian Rank 3']));
+    // The discounted duplicate carries the extra artifact rule → excluded.
+    when(() => manifest.getInventoryItem(artifactDup)).thenReturn(modDef(
+        'Hands-On', const [
+      'Requires Guardian Rank 3',
+      'Must Be Selected in the Seasonal Artifact'
+    ]));
+    // An artifact-only mod (single variant) → also excluded.
+    when(() => manifest.getInventoryItem(artifactOnly)).thenReturn(modDef(
+        'Kinetic Charge Siphon',
+        const ['Must Be Selected in the Seasonal Artifact']));
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': '1000',
+                    'bucketHash': EquipmentBucket.helmet.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                '1000': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                '1000': {
+                  'sockets': [
+                    {'plugHash': equippedMod, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            // No 310 options for the socket — armor draws from the plug set.
+            'reusablePlugs': {'data': {'1000': {'plugs': {}}}},
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.helmet.hash).single;
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+
+    final names = detail.modColumns.single.plugs.map((p) => p.name).toList();
+    // Survivors: the equipped empty socket, the real Recovery Mod, and the real
+    // (non-artifact) Hands-On.
+    expect(names, containsAll(['Empty Mod Socket', 'Recovery Mod', 'Hands-On']));
+    // The artifact-discounted Hands-On duplicate is dropped → only one Hands-On.
+    expect(names.where((n) => n == 'Hands-On').length, 1);
+    // The duplicate empty socket collapses → only one Empty Mod Socket.
+    expect(names.where((n) => n == 'Empty Mod Socket').length, 1);
+    // Artifact-only and locked placeholders are excluded entirely.
+    expect(names, isNot(contains('Kinetic Charge Siphon')));
+    expect(names, isNot(contains('Locked Armor Mod')));
+  });
+
   test('ArmorEnergy.canAffordSwap gates a mod swap on remaining capacity', () {
     // 9 of 11 used, so 2 free. The current socket holds a cost-1 mod.
     const energy = ArmorEnergy(capacity: 11, used: 9);
