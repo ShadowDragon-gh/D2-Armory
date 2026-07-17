@@ -58,16 +58,49 @@ class _FilterBar extends ConsumerWidget {
 
     // The Weapons/Armor toggle selects which gear index is browsed; every other
     // facet (rarity, type, element, ammo, …) is expressed through the search
-    // bar (is:exotic, is:handcannon, is:arc, ammo:heavy, frame:"…").
+    // bar (is:exotic, is:handcannon, is:arc, ammo:heavy, frame:"…"). The class
+    // filter is the one structured armor facet, shown only when browsing armor.
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Row(
         children: [
           _KindToggle(kind: filter.kind, onChanged: notifier.setKind),
+          if (filter.kind == GearKind.armor) ...[
+            const SizedBox(width: 12),
+            _ClassFilter(
+                classType: filter.classType,
+                onChanged: notifier.setClassType),
+          ],
           const SizedBox(width: 12),
           const Expanded(child: _DatabaseSearchField()),
         ],
       ),
+    );
+  }
+}
+
+/// The armor class filter: All / Titan / Hunter / Warlock. "All" is the null
+/// [classType] (no constraint). Shown only while browsing armor.
+class _ClassFilter extends StatelessWidget {
+  const _ClassFilter({required this.classType, required this.onChanged});
+
+  /// DestinyClass (0=Titan, 1=Hunter, 2=Warlock), or null for all classes.
+  final int? classType;
+  final ValueChanged<int?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<int?>(
+      style: const ButtonStyle(visualDensity: VisualDensity.compact),
+      segments: const [
+        ButtonSegment(value: null, label: Text('All')),
+        ButtonSegment(value: 0, label: Text('Titan')),
+        ButtonSegment(value: 1, label: Text('Hunter')),
+        ButtonSegment(value: 2, label: Text('Warlock')),
+      ],
+      selected: {classType},
+      showSelectedIcon: false,
+      onSelectionChanged: (s) => onChanged(s.first),
     );
   }
 }

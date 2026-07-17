@@ -90,15 +90,18 @@ Success criteria met: opening an owned armor piece's modal will surface interact
 
 ---
 
-## Phase 2 — Class filter in the Database tab
+## Phase 2 — Class filter in the Database tab — **DONE**
 
-Files: `lib/presentation/providers/database_provider.dart`, `lib/presentation/screens/database/database_screen.dart`.
+Files changed: `lib/presentation/providers/database_provider.dart`, `lib/presentation/screens/database/database_screen.dart`, `test/database_screen_test.dart`.
 
-- [ ] Add `classType` to `DatabaseFilter` (nullable int; null = all). Thread into `toGearFilter()` (the repo's `listGear` already filters `classType`).
-- [ ] Add a class control to `_FilterBar`, visible only when `kind == GearKind.armor`. Titan/Hunter/Warlock from `classByKeyword` (0/1/2), with an "All" state. Reset `classType` to null when switching to Weapons.
-- [ ] Keep the search-grammar `is:titan` path working (no conflict — the control just pre-populates the structured filter).
+- [x] Added nullable `classType` to `DatabaseFilter` (null = all classes), threaded into `toGearFilter()` (the repo's `listGear` already filters `classType`). Added `setClassType`, and made `setKind` drop the constraint when leaving armor.
+- [x] Added `_ClassFilter` (All/Titan/Hunter/Warlock `SegmentedButton<int?>`, "All" = null) to `_FilterBar`, shown only when `kind == GearKind.armor`. Mirrors the existing `_KindToggle` style.
+- [x] The search-grammar `is:titan` path is untouched — the control just pre-populates the structured filter.
+- [x] Widget test: weapons show no class control; switching to armor reveals it and lists all classes; picking Hunter narrows to the Hunter piece and sets `classType == 1`; switching back to Weapons hides the control and clears `classType`.
 
-Success: with Armor selected, a class control filters the list to that class; switching to Weapons hides it and clears the constraint. `database_screen_test.dart` extended to cover the control.
+Verification: `flutter analyze` clean; full suite green (332 tests, +1 for the class-filter test). Default class filter is **All** (per the locked decision). UI layout uses the desktop-width test surface, matching the existing modal tests.
+
+Success criteria met: with Armor selected a class control filters the list to that class; switching to Weapons hides it and clears the constraint.
 
 ---
 

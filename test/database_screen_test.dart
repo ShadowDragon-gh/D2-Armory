@@ -20,6 +20,13 @@ class _FakeRepo implements DatabaseRepository {
     _summary(3, 'Palindrome', tier: 5, sub: 9),
   ];
 
+  // Armor pieces spanning the three classes, for the class-filter test.
+  final _armor = <GearSummary>[
+    _armorSummary(11, 'Titan Helm', cls: 0),
+    _armorSummary(12, 'Hunter Hood', cls: 1),
+    _armorSummary(13, 'Warlock Cowl', cls: 2),
+  ];
+
   static GearSummary _summary(int hash, String name,
           {int tier = 5, int sub = 9}) =>
       GearSummary(
@@ -37,10 +44,30 @@ class _FakeRepo implements DatabaseRepository {
         index: hash,
       );
 
+  static GearSummary _armorSummary(int hash, String name, {required int cls}) =>
+      GearSummary(
+        itemHash: hash,
+        name: name,
+        iconPath: '',
+        tierType: 5,
+        itemType: 2,
+        itemSubType: 26,
+        itemTypeDisplayName: 'Helmet',
+        classType: cls,
+        damageType: 0,
+        ammoType: 0,
+        bucketHash: 3448274439,
+        index: hash,
+      );
+
   @override
   List<GearSummary> listGear(GearFilter filter) {
-    return _weapons.where((g) {
+    final source = filter.kind == GearKind.armor ? _armor : _weapons;
+    return source.where((g) {
       if (filter.tierType != null && g.tierType != filter.tierType) {
+        return false;
+      }
+      if (filter.classType != null && g.classType != filter.classType) {
         return false;
       }
       if (filter.itemSubType != null && g.itemSubType != filter.itemSubType) {
@@ -303,6 +330,53 @@ void main() {
     expect(find.text('Fatebringer'), findsOneWidget); // hand cannon kept
     expect(find.text('Palindrome'), findsOneWidget); // hand cannon kept
     expect(find.text('The Messenger'), findsNothing); // pulse filtered out
+  });
+
+  testWidgets(
+      'the class filter is armor-only and narrows the list by class',
+      (tester) async {
+    // The filter bar carries the kind toggle, the class control, and the search
+    // field — give it the desktop width the app runs at so they lay out without
+    // overflow.
+    _useWideSurface(tester);
+    final container = ProviderContainer(overrides: [
+      databaseRepositoryProvider.overrideWithValue(_FakeRepo()),
+    ]);
+    addTearDown(container.dispose);
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(home: Scaffold(body: DatabaseScreen())),
+    ));
+    await tester.pumpAndSettle();
+
+    // Weapons are the default kind: no class control, weapons listed.
+    expect(find.text('Titan'), findsNothing);
+    expect(find.text('Fatebringer'), findsOneWidget);
+
+    // Switch to Armor: the class control appears and all three armor pieces
+    // (one per class) list.
+    await tester.tap(find.text('Armor'));
+    await tester.pumpAndSettle();
+    expect(find.text('Titan'), findsOneWidget); // class control now shown
+    expect(find.text('Titan Helm'), findsOneWidget);
+    expect(find.text('Hunter Hood'), findsOneWidget);
+    expect(find.text('Warlock Cowl'), findsOneWidget);
+
+    // Pick Hunter: only the Hunter piece remains.
+    await tester.tap(find.text('Hunter'));
+    await tester.pumpAndSettle();
+    expect(container.read(databaseFilterProvider).classType, 1);
+    expect(find.text('Hunter Hood'), findsOneWidget);
+    expect(find.text('Titan Helm'), findsNothing);
+    expect(find.text('Warlock Cowl'), findsNothing);
+
+    // Switching back to Weapons hides the control and drops the class
+    // constraint (so returning to Armor would show all classes again).
+    await tester.tap(find.text('Weapons'));
+    await tester.pumpAndSettle();
+    expect(find.text('Hunter'), findsNothing); // control hidden
+    expect(container.read(databaseFilterProvider).classType, isNull);
+    expect(find.text('Fatebringer'), findsOneWidget);
   });
 
   testWidgets('the enhanced/regular toggle filters the perk grid',

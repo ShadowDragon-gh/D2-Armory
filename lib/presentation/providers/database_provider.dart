@@ -11,24 +11,35 @@ final databaseRepositoryProvider = Provider<DatabaseRepository>((ref) {
   return DatabaseRepository(manifest: ref.watch(manifestRepositoryProvider));
 });
 
-/// Which gear family the Database is browsing (the Weapons/Armor toggle). This
-/// is the only structured facet left: it selects which per-kind index and
-/// facet cache the list and search read. Every other facet (rarity, type,
-/// element, ammo, breaker, frame…) is expressed through the search bar
+/// Which gear family the Database is browsing (the Weapons/Armor toggle) and,
+/// for armor, an optional class constraint. The kind selects which per-kind
+/// index and facet cache the list and search read. Every other facet (rarity,
+/// type, element, ammo, breaker, frame…) is expressed through the search bar
 /// ([databaseSearchProvider]) and evaluated by the shared search grammar.
 class DatabaseFilter {
-  const DatabaseFilter({this.kind = GearKind.weapon});
+  const DatabaseFilter({this.kind = GearKind.weapon, this.classType});
 
   final GearKind kind;
 
-  GearFilter toGearFilter() => GearFilter(kind: kind);
+  /// DestinyClass (0=Titan, 1=Hunter, 2=Warlock) to restrict armor to, or null
+  /// for all classes. Only meaningful for armor; cleared when browsing weapons.
+  final int? classType;
+
+  GearFilter toGearFilter() => GearFilter(kind: kind, classType: classType);
 }
 
 class DatabaseFilterNotifier extends Notifier<DatabaseFilter> {
   @override
   DatabaseFilter build() => const DatabaseFilter();
 
-  void setKind(GearKind kind) => state = DatabaseFilter(kind: kind);
+  /// Switch the browsed family. Weapons carry no class constraint, so the class
+  /// filter is dropped when leaving armor.
+  void setKind(GearKind kind) => state = DatabaseFilter(
+      kind: kind, classType: kind == GearKind.armor ? state.classType : null);
+
+  /// Set (or clear, with null) the armor class constraint.
+  void setClassType(int? classType) =>
+      state = DatabaseFilter(kind: state.kind, classType: classType);
 }
 
 final databaseFilterProvider =
