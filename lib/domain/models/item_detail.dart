@@ -345,6 +345,8 @@ class GearDetail {
     this.breaker,
     this.flavorText = '',
     this.screenshotPath = '',
+    this.ornamentScreenshotPath,
+    this.ornamentIconPath,
   });
 
   final DestinyItem item;
@@ -357,9 +359,40 @@ class GearDetail {
   final String flavorText;
   final String screenshotPath;
 
-  String? get screenshotUrl => screenshotPath.isEmpty
-      ? null
-      : '${AppConfig.bungieBaseUrl}$screenshotPath';
+  /// When an owned instance wears an ornament, its screenshot / icon paths —
+  /// so the modal shows the ornamented look the instance actually displays.
+  /// Null for definition-only detail (Database tab) or an un-ornamented item.
+  final String? ornamentScreenshotPath;
+  final String? ornamentIconPath;
+
+  /// The screenshot to show: the applied ornament's when present, else the
+  /// base definition's.
+  String? get screenshotUrl {
+    final path = (ornamentScreenshotPath != null &&
+            ornamentScreenshotPath!.isNotEmpty)
+        ? ornamentScreenshotPath!
+        : screenshotPath;
+    return path.isEmpty ? null : '${AppConfig.bungieBaseUrl}$path';
+  }
+
+  /// The item icon to show: the applied ornament's when present, else the
+  /// base item's own icon.
+  String? get iconUrl =>
+      (ornamentIconPath != null && ornamentIconPath!.isNotEmpty)
+          ? '${AppConfig.bungieBaseUrl}$ornamentIconPath'
+          : item.iconUrl;
+
+  GearDetail withOrnamentArt({String? screenshot, String? icon}) => GearDetail(
+        item: item,
+        stats: stats,
+        perkColumns: perkColumns,
+        frame: frame,
+        breaker: breaker,
+        flavorText: flavorText,
+        screenshotPath: screenshotPath,
+        ornamentScreenshotPath: screenshot,
+        ornamentIconPath: icon,
+      );
 }
 
 /// An armor piece's energy meter: the total [capacity] and how much its

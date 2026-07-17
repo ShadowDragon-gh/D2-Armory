@@ -5,6 +5,7 @@ import '../../core/search/item_filter.dart';
 import '../../core/search/search_suggestions.dart';
 import '../../data/repositories/database_repository.dart';
 import '../../domain/models/item_detail.dart';
+import 'inventory_provider.dart';
 import 'manifest_provider.dart';
 
 final databaseRepositoryProvider = Provider<DatabaseRepository>((ref) {
@@ -198,7 +199,22 @@ final gearModalOpenProvider =
 final databaseItemDetailProvider = Provider.autoDispose<GearDetail?>((ref) {
   final hash = ref.watch(selectedDatabaseItemProvider);
   if (hash == null) return null;
-  return ref.watch(databaseRepositoryProvider).resolveGearDetail(hash);
+  final detail = ref.watch(databaseRepositoryProvider).resolveGearDetail(hash);
+  if (detail == null) return null;
+  // When an owned instance backs the modal (opened from Inventory), show the
+  // ornamented look it actually wears — the applied ornament's screenshot and
+  // icon — over the base definition art. Database-tab (definition-only) detail
+  // keeps the base art.
+  final instance = ref.watch(gearModalInstanceProvider);
+  if (instance != null) {
+    final art =
+        ref.watch(inventoryRepositoryProvider).appliedOrnamentArt(instance);
+    if (art != null) {
+      return detail.withOrnamentArt(
+          screenshot: art.screenshot, icon: art.icon);
+    }
+  }
+  return detail;
 });
 
 /// Which view the gear-detail modal shows when an owned item backs it (opened

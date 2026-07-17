@@ -1815,6 +1815,24 @@ class InventoryRepository {
         '$damageTypeHash|$gearTier|$plugs';
   }
 
+  /// The applied ornament's art for [item] — its `screenshot` and `icon` paths
+  /// — or null when the item is uninstanced or wears no (non-default) ornament.
+  /// Lets the detail modal show the ornamented look (screenshot + icon) an
+  /// owned instance actually displays, rather than the base definition art.
+  ({String? screenshot, String? icon})? appliedOrnamentArt(DestinyItem item) {
+    final instanceId = item.itemInstanceId;
+    if (instanceId == null) return null;
+    final def = _appliedOrnamentDef(instanceId);
+    if (def == null) return null;
+    final screenshot = def['screenshot'] as String?;
+    final icon = def['displayProperties']?['icon'] as String?;
+    if ((screenshot == null || screenshot.isEmpty) &&
+        (icon == null || icon.isEmpty)) {
+      return null;
+    }
+    return (screenshot: screenshot, icon: icon);
+  }
+
   /// The applied ornament's plug definition for an instance, or null when none
   /// (or only the default ornament) is socketed. Ornament plugs are
   /// itemSubType 21 / skin-category plugs; shaders ("shader") are not icon

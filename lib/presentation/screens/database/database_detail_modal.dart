@@ -87,8 +87,15 @@ class _ModalBodyState extends ConsumerState<_ModalBody> {
   Widget build(BuildContext context) {
     final detail = widget.detail;
     final rolled = _rolledFor(ref, detail);
-    final showRoll = rolled != null &&
-        ref.watch(gearModalViewProvider) == GearModalView.rolled;
+    final isArmor = detail.item.itemType == DestinyEnums.typeArmor;
+    // Armor has no perk grid / roll-vs-definition distinction to toggle: it
+    // simply shows the instance when one backs the modal (Inventory) or the
+    // definition otherwise (Database). Weapons keep the This Roll/Definition
+    // toggle.
+    final showRoll = isArmor
+        ? rolled != null
+        : rolled != null &&
+            ref.watch(gearModalViewProvider) == GearModalView.rolled;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -147,16 +154,18 @@ class _ModalBodyState extends ConsumerState<_ModalBody> {
               ),
               // Right: effects — the roll's perks, or the grid selection — in a
               // full-height panel that collapses to a thin rail to free grid
-              // space.
-              _EffectsPanel(
-                collapsed: _effectsCollapsed,
-                onToggle: () => setState(
-                    () => _effectsCollapsed = !_effectsCollapsed),
-                child: showRoll
-                    ? _RolledEffects(
-                        perks: rolled.plugsOf(PlugCategory.perk).toList())
-                    : const _SelectedEffects(),
-              ),
+              // space. Armor has no perk effects to show, so the panel is
+              // omitted entirely.
+              if (!isArmor)
+                _EffectsPanel(
+                  collapsed: _effectsCollapsed,
+                  onToggle: () => setState(
+                      () => _effectsCollapsed = !_effectsCollapsed),
+                  child: showRoll
+                      ? _RolledEffects(
+                          perks: rolled.plugsOf(PlugCategory.perk).toList())
+                      : const _SelectedEffects(),
+                ),
             ],
           ),
         ),
@@ -315,8 +324,8 @@ class _Header extends ConsumerWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Item icon.
-          if (item.iconUrl != null)
+          // Item icon (the applied ornament's when an instance wears one).
+          if (detail.iconUrl != null)
             Container(
               width: 56,
               height: 56,
@@ -327,7 +336,7 @@ class _Header extends ConsumerWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: CachedNetworkImage(
-                imageUrl: item.iconUrl!,
+                imageUrl: detail.iconUrl!,
                 fit: BoxFit.cover,
                 fadeInDuration: Duration.zero,
                 errorWidget: (_, _, _) =>
@@ -422,7 +431,10 @@ class _Header extends ConsumerWidget {
               ],
             ),
           ),
-          if (_rolledFor(ref, detail) != null)
+          // Armor has no roll-vs-definition distinction, so it shows no toggle
+          // (it simply displays the instance when one backs the modal).
+          if (detail.item.itemType != DestinyEnums.typeArmor &&
+              _rolledFor(ref, detail) != null)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _ViewToggle(view: ref.watch(gearModalViewProvider)),
@@ -602,7 +614,7 @@ class _ArmorEnergyMeter extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        // One segment per energy point; the first [used] segments are filled.
+        // One segment per energy point; the first  [used] segments are filled.
         Row(
           children: [
             for (var i = 0; i < capacity; i++) ...[
@@ -1931,15 +1943,18 @@ class _PerkIcon extends StatelessWidget {
         : plug.isEnhanced
             ? ArmoryPalette.masterworkGold
             : ArmoryPalette.borderStronger;
-    // Mod icons are square-ish, so mods get a rounded-rect background; perks
-    // (round icons) keep the circle.
-    final isMod = plug.category == PlugCategory.mod;
+    // Mods, masterwork, and cosmetic (shader/ornament/memento) plugs all have
+    // square-ish artwork, so they get a rounded-rect background; perks and
+    // frames (round icons) keep the circle.
+    final square = plug.category == PlugCategory.mod ||
+        plug.category == PlugCategory.masterwork ||
+        plug.category == PlugCategory.cosmetic;
     final icon = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        shape: isMod ? BoxShape.rectangle : BoxShape.circle,
-        borderRadius: isMod ? ArmoryRadius.sm : null,
+        shape: square ? BoxShape.rectangle : BoxShape.circle,
+        borderRadius: square ? ArmoryRadius.sm : null,
         color: ArmoryPalette.scrim26,
         border: Border.all(
           color: borderColor,

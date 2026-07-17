@@ -3,6 +3,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:d2_armory/core/destiny/destiny_buckets.dart';
 import 'package:d2_armory/core/destiny/plug_category.dart';
+import 'package:d2_armory/domain/models/destiny_item.dart';
 import 'package:d2_armory/domain/models/item_detail.dart';
 import 'package:d2_armory/data/remote/bungie_api.dart';
 import 'package:d2_armory/data/repositories/inventory_repository.dart';
@@ -2025,6 +2026,137 @@ void main() {
     final bySt = {for (final s in detail.stats) s.name: s};
     expect(bySt['Super']!.tuningBoosted, isTrue);
     expect(bySt['Health']!.tuningBoosted, isFalse);
+  });
+
+  test('an instanced item wearing an ornament exposes the ornament art, and '
+      'its cosmetic plugs resolve into the Cosmetics category', () async {
+    const armorHash = 8701;
+    const shaderPlug = 8710; // a shader (cosmetic)
+    const ornamentPlug = 8711; // an applied ornament (icon + screenshot)
+
+    when(() => manifest.getInventoryItem(armorHash)).thenReturn({
+      'displayProperties': {'name': 'Base Helm', 'icon': '/i/base_icon.jpg'},
+      'itemType': 2,
+      'itemSubType': 26,
+      'itemTypeDisplayName': 'Helmet',
+      'inventory': {'bucketTypeHash': EquipmentBucket.helmet.hash},
+      'sockets': {
+        'socketCategories': const [],
+        'socketEntries': [
+          {'singleInitialItemHash': shaderPlug},
+          {'singleInitialItemHash': ornamentPlug},
+        ],
+      },
+    });
+    when(() => manifest.getInventoryItem(shaderPlug)).thenReturn({
+      'displayProperties': {'name': 'Cool Shader', 'icon': '/i/shader.jpg'},
+      'plug': {'plugCategoryIdentifier': 'shader'},
+    });
+    // An applied armor ornament: itemSubType 21, skins category, with its own
+    // icon and screenshot.
+    when(() => manifest.getInventoryItem(ornamentPlug)).thenReturn({
+      'displayProperties': {'name': 'Snazzy Ornament', 'icon': '/i/orn_icon.jpg'},
+      'itemSubType': 21,
+      'screenshot': '/i/orn_shot.jpg',
+      'plug': {'plugCategoryIdentifier': 'armor_skins_titan_head'},
+    });
+    when(() => manifest.getBreakerType(any())).thenReturn(null);
+    when(() => manifest.getStat(any())).thenReturn(null);
+    when(() => manifest.getSocketType(any())).thenReturn(null);
+    when(() => manifest.getSandboxPerk(any())).thenReturn(null);
+
+    when(() => api.getProfile(
+          membershipType: any(named: 'membershipType'),
+          membershipId: any(named: 'membershipId'),
+          components: any(named: 'components'),
+        )).thenAnswer((_) async => {
+          'characters': {
+            'data': {
+              'c1': {
+                'characterId': 'c1',
+                'classType': 1,
+                'light': 500,
+                'emblemPath': '',
+                'emblemBackgroundPath': '',
+                'dateLastPlayed': '2026-07-01T00:00:00Z',
+              }
+            }
+          },
+          'characterEquipment': {
+            'data': {
+              'c1': {
+                'items': [
+                  {
+                    'itemHash': armorHash,
+                    'itemInstanceId': 'orn1',
+                    'bucketHash': EquipmentBucket.helmet.hash,
+                    'state': 0,
+                  }
+                ]
+              }
+            }
+          },
+          'characterInventories': {'data': {}},
+          'profileInventory': {'data': {'items': []}},
+          'itemComponents': {
+            'instances': {
+              'data': {
+                'orn1': {'primaryStat': {'value': 1800}}
+              }
+            },
+            'stats': {'data': {}},
+            'sockets': {
+              'data': {
+                'orn1': {
+                  'sockets': [
+                    {'plugHash': shaderPlug, 'isEnabled': true, 'isVisible': true},
+                    {'plugHash': ornamentPlug, 'isEnabled': true, 'isVisible': true},
+                  ]
+                }
+              }
+            },
+            'reusablePlugs': {'data': {}},
+          },
+        });
+
+    final grid = await repo.fetchInventory();
+    final armor =
+        grid.owners.first.itemsFor(EquipmentBucket.helmet.hash).single;
+
+    // The applied ornament's art is exposed for the modal to overlay.
+    final art = repo.appliedOrnamentArt(armor);
+    expect(art, isNotNull);
+    expect(art!.screenshot, '/i/orn_shot.jpg');
+    expect(art.icon, '/i/orn_icon.jpg');
+
+    // Both the shader and the ornament resolve into the Cosmetics category.
+    final detail = repo.resolveDetail(armor, withPerkColumns: true);
+    final cosmeticNames =
+        detail.plugsOf(PlugCategory.cosmetic).map((p) => p.name).toList();
+    expect(cosmeticNames, containsAll(['Cool Shader', 'Snazzy Ornament']));
+  });
+
+  test('GearDetail prefers the ornament art over base art when present', () {
+    const base = GearDetail(
+      item: DestinyItem(
+        itemHash: 1,
+        bucketHash: 3448274439,
+        name: 'Helm',
+        iconPath: '/i/base_icon.jpg',
+        itemInstanceId: 'x',
+      ),
+      stats: [],
+      perkColumns: [],
+      screenshotPath: '/i/base_shot.jpg',
+    );
+    // Without an ornament the base art shows.
+    expect(base.iconUrl, contains('/i/base_icon.jpg'));
+    expect(base.screenshotUrl, contains('/i/base_shot.jpg'));
+    // With ornament art the overlay wins.
+    final orn = base.withOrnamentArt(
+        screenshot: '/i/orn_shot.jpg', icon: '/i/orn_icon.jpg');
+    expect(orn.iconUrl, contains('/i/orn_icon.jpg'));
+    expect(orn.screenshotUrl, contains('/i/orn_shot.jpg'));
   });
 
   test('patchSocketPlug applies then reverses a plug + stat change, so an '
