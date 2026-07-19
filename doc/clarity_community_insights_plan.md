@@ -420,6 +420,55 @@ is a good reference:
 
 # Part 2 — Weapon/gear acquisition source (d2-additional-info)
 
+## As-built status (2026-07-19)
+
+Part 2 is **implemented** (inventory detail panel only). Deltas from the plan
+below:
+
+- **`ManifestDatabase.getCollectible` already existed** — Phase A only needed
+  `ItemDetail.source` and the panel row. A pre-existing `_sourceStringsOf`
+  (search facets) was refactored to share one `_sourceStringOf` helper with the
+  detail path (no duplicated collectible lookup).
+- **Simpler d2ai loader than the plan's 3-file split.** One
+  `D2aiRepository` (mirrors `ManifestRepository._loadCatalystRecordMap`:
+  `rootBundle.loadString` + `jsonDecode`, non-fatal try/catch, string-keyed maps
+  looked up by `'$hash'`) replaces the planned separate loader + repository +
+  the `D2aiSourceData` value class. Convention over the plan's sketch (Rule 11).
+- **Attachment: source resolution stays wholly in `resolveDetail`** (not split
+  to the widget like Clarity Part 1's approach B). The manifest fallback already
+  lived in the repository, so putting the d2ai override anywhere else would be
+  the "two places disagree" smell (Rule 7). `D2aiRepository` is injected
+  (nullable — existing tests pass none) and `selectedItemDetailProvider` watches
+  `d2aiBootstrapProvider` so the row re-resolves once the ~30 KB asset lands.
+- **d2ai is largely a passthrough on current data.** A real-manifest probe
+  (12,255 collectibles): all carry a `sourceHash`, 11,526 have a manifest
+  `sourceString`, and every `sourceHash` is present in d2ai's `sources.json` —
+  but for modern content d2ai's text *equals* the manifest's. The override only
+  visibly differs for older/messier sources d2ai cleaned up. The feature works
+  and d2ai wins where it matters, but "cleaner text wins" is a minority case in
+  practice, not the norm.
+- **Scope: both detail surfaces.** The Source row shows in the inventory detail
+  panel (`ItemDetail` / `resolveDetail`) *and* the Database modal (`GearDetail` /
+  `resolveGearDetail`) — the plan's original "inventory only" was written before
+  the Database modal gained Clarity insights; showing source only in one was
+  inconsistent. The shared resolution lives in `d2ai_source_resolver.dart`
+  (`resolveItemSource` / `resolveQuestOrigin`), called by both repositories, so
+  neither path can drift. The **grid tile** stays excluded (no room — a genuine
+  layout constraint, unlike the modal).
+- **Quest origin:** `weapon-from-quest.json` maps weapon→initial-step hash; the
+  step's manifest display name renders as an italic "From the quest: <name>"
+  line under the Source row.
+- **Attribution: a new About dialog** (info icon in the app bar →
+  `about_dialog.dart`) carries the version, the Clarity credit (site + Discord),
+  and the d2ai MIT credit. This also closes the one Clarity gap found in the
+  Part 1 audit — the mod hover tooltip names Clarity but has no links; the About
+  surface now satisfies "credit near the tooltips" app-wide. `assets/d2ai/`
+  ships `sources.json`, `weapon-from-quest.json`, and `LICENSE.md` (MIT).
+- **Assets are a frozen snapshot** fetched once from d2ai `master` (no runtime
+  download), per the locked distribution decision.
+
+## Original plan
+
 Clarity does **not** carry "how you get this weapon" — its `dim.json` is keyed
 by perk/mod hashes and holds gameplay effect text; weapons appear only as a
 parent `itemHash` reference (see [§Background](#background-what-clarity-is-verified)).
@@ -645,5 +694,5 @@ surface shows the d2ai attribution.
   decision.
 - d2ai's other outputs (`focusing-item-outputs.json`, `special-vendors-strings.json`,
   `seasons.json`) — not needed for a source line.
-- Grid-tile source display — the Source line lives in the detail panel only,
-  matching the Clarity insight placement.
+- Grid-tile source display — the Source line lives in the detail views (the
+  inventory panel and the Database modal), not the cramped grid tile.
