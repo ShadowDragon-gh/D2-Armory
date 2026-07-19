@@ -38,11 +38,14 @@ void main() {
     expect(repo.sourceFor(10464158), isNotNull);
   });
 
-  test('loads the source-overrides asset (empty by default → no override)',
+  test('loads the source-overrides asset and resolves a bundled override',
       () async {
-    // The overrides asset ships empty; loading must succeed and any lookup is
-    // null until entries are added. This proves the asset is registered/parses.
     await repo.ensureLoaded();
+    // A hand-authored override that ships in source_overrides.json (Bushido
+    // Vest → Vanguard Ops). Proves the asset is registered, parses, and the
+    // per-item lookup works against real bundled data.
+    expect(repo.sourceOverrideFor(1154629600), 'Source: Vanguard Ops');
+    // A hash with no override entry resolves to null.
     expect(repo.sourceOverrideFor(10464158), isNull);
   });
 }
