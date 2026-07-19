@@ -10,10 +10,12 @@ import '../../../core/destiny/destiny_enums.dart';
 import '../../../core/destiny/plug_category.dart';
 import '../../../domain/models/destiny_item.dart';
 import '../../../domain/models/item_detail.dart';
+import '../../providers/clarity_provider.dart';
 import '../../providers/database_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../providers/search_provider.dart';
 import '../../theme/armory_palette.dart';
+import '../../widgets/clarity_insight_view.dart';
 import 'armor_set_detail_modal.dart' show SetBonusSection;
 
 /// The Database tab's purpose-built detail view: a centered modal, rendered
@@ -79,11 +81,17 @@ class _ModalBody extends ConsumerStatefulWidget {
 }
 
 class _ModalBodyState extends ConsumerState<_ModalBody> {
-  // The effects panel (Selected Perks / rolled Perk Effects) starts expanded;
-  // collapsing it hands its width back to the perk grid so wide grids (many
-  // trait/origin columns) no longer crowd it. Modal-body local — a transient UI
-  // toggle, so it lives here rather than in a provider.
-  bool _effectsCollapsed = false;
+  // The side panel starts expanded; collapsing it hands its width back to
+  // the perk grid so wide grids (many trait/origin columns) no longer crowd
+  // it. Modal-body local — a transient UI toggle, so it lives here rather
+  // than in a provider.
+  bool _panelCollapsed = false;
+
+  // Which content the side panel shows: the standard perk effects (default)
+  // or the Community Insights for the same perks. The swap rail at the
+  // modal's right edge always offers the other view. Every modal open
+  // starts on the effects.
+  bool _showInsights = false;
 
   @override
   Widget build(BuildContext context) {
@@ -155,20 +163,40 @@ class _ModalBodyState extends ConsumerState<_ModalBody> {
                   ),
                 ),
               ),
-              // Right: effects — the roll's perks, or the grid selection — in a
+              // Right: the side panel — the roll's perk effects or the grid
+              // selection's, swappable to their Community Insights — in a
               // full-height panel that collapses to a thin rail to free grid
-              // space. Armor has no perk effects to show, so the panel is
-              // omitted entirely.
-              if (!isArmor)
-                _EffectsPanel(
-                  collapsed: _effectsCollapsed,
-                  onToggle: () => setState(
-                      () => _effectsCollapsed = !_effectsCollapsed),
-                  child: showRoll
-                      ? _RolledEffects(
-                          perks: rolled.plugsOf(PlugCategory.perk).toList())
-                      : const _SelectedEffects(),
+              // space, plus the always-slim swap rail at the modal's right
+              // edge offering the other view. Armor has no perk effects to
+              // show, so both are omitted entirely.
+              if (!isArmor) ...[
+                _SidePanel(
+                  collapsed: _panelCollapsed,
+                  label: _showInsights ? 'Insights' : 'Effects',
+                  onToggle: () =>
+                      setState(() => _panelCollapsed = !_panelCollapsed),
+                  child: _showInsights
+                      ? _PerkInsights(
+                          rolledPerks: showRoll
+                              ? rolled.plugsOf(PlugCategory.perk).toList()
+                              : null)
+                      : showRoll
+                          ? _RolledEffects(
+                              perks:
+                                  rolled.plugsOf(PlugCategory.perk).toList())
+                          : const _SelectedEffects(),
                 ),
+                _SwapRail(
+                  icon: _showInsights
+                      ? Icons.bar_chart
+                      : Icons.lightbulb_outline,
+                  label: _showInsights ? 'Effects' : 'Insights',
+                  onTap: () => setState(() {
+                    _showInsights = !_showInsights;
+                    _panelCollapsed = false; // swapping reveals the panel
+                  }),
+                ),
+              ],
             ],
           ),
         ),
@@ -177,20 +205,27 @@ class _ModalBodyState extends ConsumerState<_ModalBody> {
   }
 }
 
-/// The collapsible right-hand effects panel. Expanded it holds [child] (the
-/// Selected Perks / rolled Perk Effects list) with a chevron on its left edge;
-/// collapsed it animates down to a thin rail showing only the reopen chevron,
-/// giving the width back to the perk grid. The width tween is the smooth
-/// open/close animation; the content fades in step so it is gone by the time
-/// the rail width hides it.
-class _EffectsPanel extends StatelessWidget {
-  const _EffectsPanel({
+/// The collapsible right-hand side panel. Expanded it holds [child] (the
+/// perk effects list, or their Community Insights — see [_SwapRail]) with a
+/// chevron and its vertical [label] on its left edge; collapsed it animates
+/// down to a thin rail showing only that edge, giving the width back to the
+/// perk grid. The width tween is the smooth open/close animation; the
+/// content fades in step so it is gone by the time the rail width hides it,
+/// and cross-fades when a swap changes what the panel shows.
+class _SidePanel extends StatelessWidget {
+  const _SidePanel({
     required this.collapsed,
+    required this.label,
     required this.onToggle,
     required this.child,
   });
 
   final bool collapsed;
+
+  /// The rail title for the panel's current content ('Effects' /
+  /// 'Insights'); also keys the content cross-fade when a swap changes it.
+  final String label;
+
   final VoidCallback onToggle;
   final Widget child;
 
@@ -206,14 +241,25 @@ class _EffectsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final toggle = IconButton(
-      tooltip: collapsed ? 'Show selected perks' : 'Hide selected perks',
-      visualDensity: VisualDensity.compact,
-      iconSize: 20,
-      icon: Icon(
-          collapsed ? Icons.chevron_left : Icons.chevron_right,
-          color: theme.colorScheme.onSurfaceVariant),
-      onPressed: onToggle,
+    // The whole rail strip is the toggle target (not just the chevron), so
+    // the ink hover spans its full height.
+    final rail = Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onToggle,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Icon(
+                  collapsed ? Icons.chevron_left : Icons.chevron_right,
+                  size: 20,
+                  color: theme.colorScheme.onSurfaceVariant),
+            ),
+            _RailLabel(label),
+          ],
+        ),
+      ),
     );
 
     // The panel content is always laid out at the full expanded width so it
@@ -227,10 +273,7 @@ class _EffectsPanel extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: _railWidth,
-            child: Align(alignment: Alignment.topCenter, child: toggle),
-          ),
+          SizedBox(width: _railWidth, child: rail),
           Expanded(
             child: IgnorePointer(
               ignoring: collapsed,
@@ -241,7 +284,10 @@ class _EffectsPanel extends StatelessWidget {
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.only(
                       top: 20, right: 20, bottom: 20),
-                  child: child,
+                  child: AnimatedSwitcher(
+                    duration: _duration,
+                    child: KeyedSubtree(key: ValueKey(label), child: child),
+                  ),
                 ),
               ),
             ),
@@ -1180,6 +1226,8 @@ class _CatalystInfo extends StatelessWidget {
                   color: theme.colorScheme.primary),
             ),
           ],
+          if (option.plugHash != 0)
+            ClarityInsightExpander(hash: option.plugHash),
         ],
       ],
     );
@@ -1697,6 +1745,8 @@ class _Intrinsic extends StatelessWidget {
                               color:
                                   Theme.of(context).colorScheme.onSurfaceVariant)),
                     ),
+                  if (frame.plugHash != 0)
+                    ClarityInsightExpander(hash: frame.plugHash),
                 ],
               ),
             ),
@@ -1722,14 +1772,7 @@ class _SelectedEffects extends ConsumerWidget {
     final selection = ref.watch(databasePerkSelectionProvider);
     if (detail == null) return const SizedBox.shrink();
 
-    // Gather the selected plugs (in column order) and their effects.
-    final selectedPlugs = <ItemPlug>[];
-    for (var c = 0; c < detail.perkColumns.length; c++) {
-      final idx = selection[c];
-      if (idx == null) continue;
-      final plugs = detail.perkColumns[c].plugs;
-      if (idx >= 0 && idx < plugs.length) selectedPlugs.add(plugs[idx]);
-    }
+    final selectedPlugs = _selectedGridPlugs(detail, selection);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1745,6 +1788,145 @@ class _SelectedEffects extends ConsumerWidget {
           )
         else
           _EffectsColumn(plugs: selectedPlugs),
+      ],
+    );
+  }
+}
+
+/// The plugs picked in the modal's perk grid, in column order. Shared by the
+/// effects panel's standard and Insights views so both list the same perks.
+List<ItemPlug> _selectedGridPlugs(GearDetail detail, Map<int, int> selection) {
+  final plugs = <ItemPlug>[];
+  for (var c = 0; c < detail.perkColumns.length; c++) {
+    final idx = selection[c];
+    if (idx == null) continue;
+    final columnPlugs = detail.perkColumns[c].plugs;
+    if (idx >= 0 && idx < columnPlugs.length) plugs.add(columnPlugs[idx]);
+  }
+  return plugs;
+}
+
+/// The always-slim rail at the modal's right edge offering the side panel's
+/// *other* view: its icon and vertical title name the view it would bring in
+/// (the lightbulb for Community Insights, the chart for the perk effects),
+/// and clicking it swaps the [_SidePanel]'s content — expanding the panel
+/// first if it was collapsed.
+class _SwapRail extends StatelessWidget {
+  const _SwapRail({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: ArmoryPalette.surface2,
+        border: Border(left: BorderSide(color: ArmoryPalette.border)),
+      ),
+      child: SizedBox(
+        width: _SidePanel._railWidth,
+        // The whole rail strip is the tap target (not just the icon), so the
+        // ink hover spans its full height.
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: onTap,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Icon(icon,
+                      size: 20, color: theme.colorScheme.onSurfaceVariant),
+                ),
+                _RailLabel(label),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The effects panel's Community Insights view: the same perks the standard
+/// view lists (the roll's perks, or the grid selection), each with its full
+/// Clarity insight. Perks Clarity does not cover say so rather than silently
+/// disappearing. Ends with the attribution Clarity's terms require.
+class _PerkInsights extends ConsumerWidget {
+  const _PerkInsights({this.rolledPerks});
+
+  /// The roll view's perks, or null to list the grid selection instead.
+  final List<ItemPlug>? rolledPerks;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final detail = ref.watch(databaseItemDetailProvider);
+    final plugs = rolledPerks ??
+        (detail == null
+            ? const <ItemPlug>[]
+            : _selectedGridPlugs(
+                detail, ref.watch(databasePerkSelectionProvider)));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('Community Insights'),
+        const SizedBox(height: 8),
+        if (plugs.isEmpty)
+          Text(
+            // Worded apart from the effects panel's empty states — both
+            // panels stay in the tree (the closed one is clipped), so shared
+            // phrasing would read as duplicates to tests and screen readers.
+            rolledPerks != null
+                ? 'This roll has no perks to show insights for.'
+                : 'Select perks in the grid to see their community insights.',
+            style: TextStyle(
+                fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+          )
+        else ...[
+          for (final plug in plugs)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _PerkIcon(plug: plug, size: 22),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(plug.name,
+                            style: const TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Builder(builder: (context) {
+                    final insight =
+                        ref.watch(clarityInsightProvider(plug.plugHash));
+                    if (insight == null) {
+                      return Text('No community insight for this perk.',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontStyle: FontStyle.italic,
+                              color: theme.colorScheme.onSurfaceVariant));
+                    }
+                    return ClarityInsightText(
+                        lines: insight.lines, fontSize: 11);
+                  }),
+                ],
+              ),
+            ),
+          const ClarityAttribution(),
+        ],
       ],
     );
   }
@@ -2088,20 +2270,27 @@ class _EnergyCostBadge extends StatelessWidget {
   }
 }
 
-/// Rich hover tooltip for a perk. Shows the name and manifest description.
-///
-/// Clarity seam: [ItemPlug] carries only manifest data today. When the Clarity
-/// community-research pipeline (doc/clarity_community_insights_plan.md) lands,
-/// pass its text in here and render it under a "Community Research" divider —
-/// the layout below already leaves the spot.
-class _PerkTooltip extends StatelessWidget {
+/// Rich hover tooltip for a perk or mod. Shows the name, manifest
+/// description, and stat/note detail. For **mods** it also renders the Clarity
+/// community insight (read-only — the tooltip ignores pointer events, so its
+/// links are not tappable). Perk insights live in the effects panel's
+/// Insights view instead, so they are not repeated here.
+class _PerkTooltip extends ConsumerWidget {
   const _PerkTooltip({required this.plug, required this.child});
 
   final ItemPlug plug;
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Mods carry their insight in the tooltip; perks do not (theirs is the
+    // Insights rail). Look up by hash, then by name — the name fallback
+    // catches enhanced mods whose own hash Clarity does not carry but whose
+    // base-named copy it does (e.g. "Synergy (Enhanced)").
+    final insight = plug.category == PlugCategory.mod
+        ? ref.watch(clarityInsightForPlugProvider(
+            (hash: plug.plugHash, name: plug.name)))
+        : null;
     return Tooltip(
       // Let scroll/pointer events pass through the tooltip overlay to the modal
       // beneath, so hovering a perk does not block scrolling the perk grid.
@@ -2166,7 +2355,22 @@ class _PerkTooltip extends StatelessWidget {
                         color: ArmoryPalette.textPrimary
                             .withValues(alpha: 0.55))),
               ],
-              // Clarity community-research block goes here once wired.
+              // A mod's community insight, under a labelled divider. Read-only
+              // here (the tooltip swallows no pointer events, so its links are
+              // not tappable); the label credits Clarity as the source.
+              if (insight != null) ...[
+                const SizedBox(height: 8),
+                Container(height: 1, color: ArmoryPalette.borderStrong),
+                const SizedBox(height: 6),
+                const Text('COMMUNITY INSIGHT · CLARITY',
+                    style: TextStyle(
+                        fontSize: 9,
+                        letterSpacing: 0.8,
+                        fontWeight: FontWeight.w600,
+                        color: ArmoryPalette.textSecondary)),
+                const SizedBox(height: 4),
+                ClarityInsightText(lines: insight.lines, fontSize: 11),
+              ],
             ],
           ),
         ),
@@ -2198,5 +2402,24 @@ class _SectionLabel extends StatelessWidget {
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
+      );
+}
+
+/// A side panel's title on its rail, written vertically (top-to-bottom)
+/// under the rail's toggle so the panel stays identifiable while collapsed.
+class _RailLabel extends StatelessWidget {
+  const _RailLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => RotatedBox(
+        quarterTurns: 1,
+        child: Text(
+          text.toUpperCase(),
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                letterSpacing: 1.1,
+              ),
+        ),
       );
 }

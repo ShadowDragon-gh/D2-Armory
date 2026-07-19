@@ -82,6 +82,27 @@ class ManifestDatabase implements FacetSource {
     ];
   }
 
+  /// Every damage-type definition's decoded JSON (a handful of rows), for
+  /// lookups keyed by `enumValue` rather than hash (e.g. the Clarity marker
+  /// icons). Fixed table name, no bound parameters.
+  List<Map<String, dynamic>> allDamageTypes() {
+    final rows = _db.select('SELECT json FROM DestinyDamageTypeDefinition');
+    return [
+      for (final r in rows)
+        jsonDecode(r['json'] as String) as Map<String, dynamic>,
+    ];
+  }
+
+  /// Every breaker-type definition's decoded JSON (three rows), for lookups
+  /// keyed by `enumValue`. Fixed table name, no bound parameters.
+  List<Map<String, dynamic>> allBreakerTypes() {
+    final rows = _db.select('SELECT json FROM DestinyBreakerTypeDefinition');
+    return [
+      for (final r in rows)
+        jsonDecode(r['json'] as String) as Map<String, dynamic>,
+    ];
+  }
+
   /// The layered icon definition (`foreground`/`background`/watermark paths)
   /// referenced by an item's `displayProperties.iconHash`.
   Map<String, dynamic>? getIcon(int hash) =>

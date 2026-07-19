@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,9 +8,11 @@ import 'package:d2_armory/core/destiny/plug_category.dart';
 import 'package:d2_armory/core/search/item_filter.dart';
 import 'package:d2_armory/core/search/search_suggestions.dart';
 import 'package:d2_armory/data/repositories/database_repository.dart';
+import 'package:d2_armory/domain/models/clarity_insight.dart';
 import 'package:d2_armory/domain/models/destiny_item.dart';
 import 'package:d2_armory/domain/models/armor_set.dart';
 import 'package:d2_armory/domain/models/item_detail.dart';
+import 'package:d2_armory/presentation/providers/clarity_provider.dart';
 import 'package:d2_armory/presentation/providers/database_provider.dart';
 import 'package:d2_armory/presentation/providers/inventory_provider.dart';
 import 'package:d2_armory/presentation/providers/search_provider.dart';
@@ -91,7 +94,11 @@ ItemDetail _rolledDetail(DestinyItem item) => ItemDetail(
           isEnhanced: true,
           statEffects: [PerkStatEffect(hash: 7, name: 'Range', value: 20)],
         ),
-        ItemPlug(name: 'Boss Spec', iconPath: '', category: PlugCategory.mod),
+        ItemPlug(
+            name: 'Boss Spec',
+            iconPath: '',
+            category: PlugCategory.mod,
+            plugHash: 5000),
         ItemPlug(
             name: 'Masterwork: Range',
             iconPath: '',
@@ -133,7 +140,10 @@ ItemDetail _rolledDetail(DestinyItem item) => ItemDetail(
     );
 
 void main() {
-  ProviderContainer makeContainer() {
+  // [insight] serves as every plug's Clarity entry when given (both the
+  // by-hash lookup the Insights panel uses and the hash-then-name lookup the
+  // mod tooltip uses), so tests get covered plugs without a Clarity pipeline.
+  ProviderContainer makeContainer({ClarityInsight? insight}) {
     final c = ProviderContainer(overrides: [
       databaseRepositoryProvider.overrideWithValue(_Repo()),
       // The rolled detail derived from the backing instance, without an
@@ -143,6 +153,10 @@ void main() {
         if (item == null) return null;
         return _rolledDetail(item);
       }),
+      if (insight != null) ...[
+        clarityInsightProvider.overrideWith((ref, hash) => insight),
+        clarityInsightForPlugProvider.overrideWith((ref, plug) => insight),
+      ],
     ]);
     addTearDown(c.dispose);
     return c;
@@ -297,6 +311,155 @@ void main() {
   });
 
   testWidgets(
+      'the side panel swaps between perk effects and community insights via '
+      'the right-edge rail', (tester) async {
+    useWideSurface(tester);
+    const insight = ClarityInsight(hash: 0, name: 'Opening Shot', lines: [
+      ClarityLine(content: [
+        ClaritySpan(text: 'Shockwaves inherit weapon damage buffs.'),
+      ]),
+    ]);
+    final c = makeContainer(insight: insight);
+    await tester.pumpWidget(app(c));
+    await tester.pumpAndSettle();
+
+    c
+        .read(gearModalInstanceProvider.notifier)
+        .select(_Repo.summary(1).toDestinyItem());
+    c.read(selectedDatabaseItemProvider.notifier).select(1);
+    await tester.pumpAndSettle();
+
+    // The side panel's animated width is the size of its width-factor
+    // builder; the swap rail is fixed-width and has none.
+    final panel = find.byType(TweenAnimationBuilder<double>);
+
+    // Default: perk effects expanded (rail titled EFFECTS), with the
+    // insights swap rail on the right edge.
+    expect(find.text('PERK EFFECTS'), findsOneWidget);
+    expect(find.text('EFFECTS'), findsOneWidget);
+    expect(find.text('INSIGHTS'), findsOneWidget);
+    final expandedWidth = tester.getSize(panel).width;
+
+    // The swap rail offers insights (lightbulb); the panel rail offers to
+    // collapse the effects (chevron_right).
+    expect(find.byIcon(Icons.lightbulb_outline), findsOneWidget);
+    expect(find.byIcon(Icons.bar_chart), findsNothing);
+
+    // Swap to insights via its rail: same panel and width, the insights
+    // content and credit, and the swap rail now offers the effects back.
+    await tester.tap(find.byIcon(Icons.lightbulb_outline));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(panel).width, expandedWidth);
+    expect(find.text('COMMUNITY INSIGHTS'), findsOneWidget);
+    expect(find.text('PERK EFFECTS'), findsNothing);
+    expect(find.textContaining('Shockwaves inherit', findRichText: true),
+        findsOneWidget);
+    expect(find.text('Clarity Discord'), findsOneWidget); // attribution
+    expect(find.byIcon(Icons.bar_chart), findsOneWidget);
+
+    // Collapse the insights panel via its chevron rail; the swap rail then
+    // reopens the panel straight onto the effects content.
+    await tester.tap(find.byIcon(Icons.chevron_right));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(panel).width, lessThan(expandedWidth));
+    await tester.tap(find.byIcon(Icons.bar_chart));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(panel).width, expandedWidth);
+    expect(find.text('PERK EFFECTS'), findsOneWidget);
+    expect(find.text('COMMUNITY INSIGHTS'), findsNothing);
+  });
+
+  testWidgets(
+      'hovering an equipped mod shows its Clarity insight in the tooltip, '
+      'while a perk tooltip does not', (tester) async {
+    useWideSurface(tester);
+    const insight = ClarityInsight(hash: 0, name: 'Boss Spec', lines: [
+      ClarityLine(content: [
+        ClaritySpan(text: 'Deals extra damage to bosses and minibosses.'),
+      ]),
+    ]);
+    final c = makeContainer(insight: insight);
+    await tester.pumpWidget(app(c));
+    await tester.pumpAndSettle();
+
+    c
+        .read(gearModalInstanceProvider.notifier)
+        .select(_Repo.summary(1).toDestinyItem());
+    c.read(selectedDatabaseItemProvider.notifier).select(1);
+    await tester.pumpAndSettle();
+
+    final gesture =
+        await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: Offset.zero);
+    addTearDown(gesture.removePointer);
+
+    // Hover the equipped mod chip: its tooltip carries the Clarity block.
+    await gesture.moveTo(tester.getCenter(find.text('Boss Spec')));
+    await tester.pump(const Duration(seconds: 1)); // tooltip wait
+    await tester.pumpAndSettle();
+    expect(find.text('COMMUNITY INSIGHT · CLARITY'), findsOneWidget);
+    expect(
+        find.textContaining('extra damage to bosses', findRichText: true),
+        findsOneWidget);
+
+    // Move off, then hover a perk chip: no Clarity block (perk insights live
+    // in the Insights rail, not the tooltip), even though the fixture would
+    // resolve one for every hash.
+    await gesture.moveTo(Offset.zero);
+    await tester.pumpAndSettle();
+    await gesture.moveTo(tester.getCenter(find.text('Kill Clip')));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(find.text('COMMUNITY INSIGHT · CLARITY'), findsNothing);
+  });
+
+  testWidgets(
+      'an enhanced mod whose hash Clarity misses still shows the base '
+      'insight via the name fallback', (tester) async {
+    useWideSurface(tester);
+    const insight = ClarityInsight(hash: 0, name: 'Boss Spec', lines: [
+      ClarityLine(content: [
+        ClaritySpan(text: 'Deals extra damage to bosses and minibosses.'),
+      ]),
+    ]);
+    // The tooltip passes the plug's (hash, name) to
+    // clarityInsightForPlugProvider. Mimic Clarity carrying the base by name
+    // but not this enhanced copy's hash: resolve only when the name matches,
+    // never by the hash (5000, the rolled Boss Spec mod's plugHash).
+    final c = ProviderContainer(overrides: [
+      databaseRepositoryProvider.overrideWithValue(_Repo()),
+      gearModalInstanceDetailProvider.overrideWith((ref) {
+        final item = ref.watch(gearModalInstanceProvider);
+        return item == null ? null : _rolledDetail(item);
+      }),
+      clarityInsightForPlugProvider.overrideWith(
+          (ref, plug) => plug.name == 'Boss Spec' ? insight : null),
+    ]);
+    addTearDown(c.dispose);
+
+    await tester.pumpWidget(app(c));
+    await tester.pumpAndSettle();
+    c
+        .read(gearModalInstanceProvider.notifier)
+        .select(_Repo.summary(1).toDestinyItem());
+    c.read(selectedDatabaseItemProvider.notifier).select(1);
+    await tester.pumpAndSettle();
+
+    final gesture =
+        await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: Offset.zero);
+    addTearDown(gesture.removePointer);
+
+    await gesture.moveTo(tester.getCenter(find.text('Boss Spec')));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(find.text('COMMUNITY INSIGHT · CLARITY'), findsOneWidget);
+    expect(
+        find.textContaining('extra damage to bosses', findRichText: true),
+        findsOneWidget);
+  });
+
+  testWidgets(
       'the Selected Perks panel starts expanded, then collapses to a narrower '
       'rail and reopens via its chevron', (tester) async {
     useWideSurface(tester);
@@ -307,29 +470,34 @@ void main() {
     await tester.tap(find.text('Fatebringer'));
     await tester.pumpAndSettle();
 
-    // The panel's animated width is the size of its width-factor builder.
-    final panel = find.byType(TweenAnimationBuilder<double>);
+    // The panel's animated width is the size of its width-factor builder
+    // (scoped to the effects panel — the insights panel has its own builder).
+    final panel = find
+        .ancestor(
+            of: find.text('SELECTED PERKS'),
+            matching: find.byType(TweenAnimationBuilder<double>))
+        .first;
 
-    // Expanded by default: the Selected Perks section shows, and the toggle
-    // offers to hide it. The panel is at its full width.
+    // Expanded by default: the Selected Perks section shows, and the panel
+    // rail's chevron (pointing right) offers to collapse it.
     expect(find.text('SELECTED PERKS'), findsOneWidget);
     expect(find.textContaining('No perks selected'), findsOneWidget);
-    expect(find.byTooltip('Hide selected perks'), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_right), findsOneWidget);
     final expandedWidth = tester.getSize(panel).width;
 
-    // Collapse via the chevron: the panel shrinks to a narrower rail whose
-    // chevron now offers to reopen it.
-    await tester.tap(find.byTooltip('Hide selected perks'));
+    // Collapse via the chevron rail: the panel shrinks to a narrower rail
+    // whose chevron now points left to reopen it.
+    await tester.tap(find.byIcon(Icons.chevron_right));
     await tester.pumpAndSettle();
     final collapsedWidth = tester.getSize(panel).width;
     expect(collapsedWidth, lessThan(expandedWidth));
-    expect(find.byTooltip('Show selected perks'), findsOneWidget);
-    expect(find.byTooltip('Hide selected perks'), findsNothing);
+    expect(find.byIcon(Icons.chevron_left), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_right), findsNothing);
 
-    // Reopen: back to full width with the hide chevron.
-    await tester.tap(find.byTooltip('Show selected perks'));
+    // Reopen: back to full width with the collapse chevron.
+    await tester.tap(find.byIcon(Icons.chevron_left));
     await tester.pumpAndSettle();
     expect(tester.getSize(panel).width, expandedWidth);
-    expect(find.byTooltip('Hide selected perks'), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_right), findsOneWidget);
   });
 }

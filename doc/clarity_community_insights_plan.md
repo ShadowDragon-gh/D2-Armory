@@ -1,5 +1,66 @@
 # Plan: Clarity "Community Insights" in equipment & perk displays
 
+## As-built status (2026-07-18)
+
+Part 1 is **implemented** (Part 2 is not started). Deltas from the plan below,
+found against the app and Clarity's live data (v2.0607, 1651 entries):
+
+- **`ItemPlug.plugHash` already existed** (added for socket inserts); the work
+  was populating it in `DatabaseRepository._plugOf` (definition perk columns)
+  and the empty-catalyst shell, plus adding `CatalystOption.plugHash`.
+- **Attachment approach (B)** as recommended: widgets look up
+  `clarityInsightProvider(hash)` (a family watching the bootstrap, so rows
+  update when Clarity loads late).
+- **Plain `Dio()`, not `DioClient.unauthenticated()`** — that helper attaches
+  the Bungie API key interceptor and API base URL.
+- **Live data is simpler than the plan's className vocabulary**: no `pve`/
+  `pvp`/`center`/color classes, and zero `title`/`table`/`formula` fields.
+  PvE/PvP values are inline text ("[PVP: 1.5]"). Actual vocabulary handled:
+  `spacer`, `bold` (line- and span-level), damage types, ammo
+  (`primary`/`special`/`heavy`), champions, classes, and `enhancedArrow`
+  (rendered as the gold ▲). Icon-only marker spans render as their colored
+  word (e.g. a stasis glyph → "Stasis").
+- **Surfaces wired** ("anywhere effects show"): inventory detail panel rows +
+  catalyst section; Database modal intrinsic row and catalyst info (all via
+  the expandable `ClarityInsightExpander`); and the modal's **side panel**
+  (`_SidePanel`), whose content swaps between the standard perk effects and
+  their **Community Insights** (`_PerkInsights`) via the vertically-labelled
+  `_SwapRail` fixed at the modal's right edge — the rail's lightbulb/chart
+  icon always names the *other* view, and the panel's own rail carries the
+  current view's title. There is no global show/hide toggle (tried and
+  reverted).
+- **Perk vs mod split for tooltips** (locked by user): perk hover tooltips
+  carry **no** insight block — perk insights live only in the Insights side
+  panel. **Mod** hover tooltips (`_PerkTooltip`, gated on
+  `plug.category == PlugCategory.mod`) *do* render the insight read-only,
+  labelled "COMMUNITY INSIGHT · CLARITY" — covering both the equipped mod
+  chip and every option in the mod picker. Clarity covers ~86–98% of armor
+  combat mods and ~61% of weapon "guns" mods (verified); economy/cosmetic
+  mods (ghosts, ornaments, artifice, raid/season) have 0% coverage and show
+  manifest text only.
+- **Enhanced-plug name fallback** (mods): Clarity documents a base mod
+  ("Synergy") but not its mechanically-identical **Enhanced** copy, which the
+  app looks up by a different hash. The mod tooltip resolves via
+  `clarityInsightForPlugProvider` — hash first, then name — so an enhanced mod
+  falls back to its base-named insight. `ClarityRepository.insightForName`
+  matches on a normalized name (leading "Enhanced " stripped, lowercased),
+  backed by a name index built at load. This recovers most of the uncovered
+  weapon mods, which are overwhelmingly `Enhanced …` stat-mod variants.
+- **Armor set bonuses are excluded**: set perks are `sandboxPerkHash`-keyed
+  (a different hash space than Clarity's inventory-item keys), and a
+  name-level cross-check of all 112 manifest set-bonus perks against Clarity
+  found zero coverage. Nothing to join.
+- **~99 fragment + ~35 class-ability insights are parsed but unsurfaced** —
+  the app has no subclass UI yet. [subclass_abilities_plan.md](subclass_abilities_plan.md)
+  plans the surfaces that will show them.
+- The 1.6 MB parse runs via `Isolate.run` over a top-level function
+  (`clarity_store.dart`), keeping startup jank off the UI isolate.
+- The widget file is `lib/presentation/widgets/clarity_insight_view.dart`
+  (the model owns `clarity_insight.dart`).
+- Attribution: expanded insights carry a "Courtesy of Clarity — inaccuracies?
+  Clarity Discord" footer with links; tooltips are labelled
+  "COMMUNITY INSIGHT · CLARITY".
+
 ## Goal
 
 Show Clarity's community-authored insight text on every perk / mod / catalyst /

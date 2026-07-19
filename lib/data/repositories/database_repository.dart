@@ -693,6 +693,7 @@ class DatabaseRepository {
       category: category,
       isEnhanced: enhanced,
       statEffects: _statEffectsOf(def),
+      plugHash: plugHash,
     );
   }
 

@@ -128,6 +128,10 @@ class ManifestRepository implements FacetSource {
   Map<String, dynamic>? getDamageType(int hash) =>
       database.getDamageType(hash);
 
+  List<Map<String, dynamic>> allDamageTypes() => database.allDamageTypes();
+
+  List<Map<String, dynamic>> allBreakerTypes() => database.allBreakerTypes();
+
   @override
   Map<String, dynamic>? getStat(int hash) => database.getStat(hash);
 

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/destiny/destiny_buckets.dart';
+import 'clarity_provider.dart';
 import 'database_provider.dart';
 import 'inventory_provider.dart';
 import 'manifest_provider.dart';
@@ -19,6 +20,11 @@ import 'manifest_provider.dart';
 /// gear index scan runs after a frame, and the facet index resolves in batches
 /// — so warming stays responsive and tabs paint as their data lands.
 final appWarmupProvider = Provider<void>((ref) {
+  // Clarity community insights are independent of the manifest (a public
+  // static file), so their bootstrap starts immediately, in parallel with
+  // the manifest download. Nothing blocks on it.
+  ref.watch(clarityBootstrapProvider);
+
   // Gate on the manifest: nothing below can run until the DB is open.
   if (!ref.watch(manifestBootstrapProvider).hasValue) return;
 

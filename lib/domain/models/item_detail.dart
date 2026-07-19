@@ -267,11 +267,16 @@ class CatalystOption {
     required this.name,
     this.effects = const [],
     this.statBonuses = const [],
+    this.plugHash = 0,
   });
 
   final String name;
   final List<CatalystEffect> effects;
   final List<CatalystStatBonus> statBonuses;
+
+  /// The catalyst plug's inventory-item hash — the Clarity community-insight
+  /// join key. 0 when unknown.
+  final int plugHash;
 }
 
 /// An exotic weapon's catalyst: its granted effect [options] (resolved from

@@ -10,6 +10,7 @@ import '../../../core/destiny/plug_category.dart';
 import '../../../domain/models/item_detail.dart';
 import '../../providers/inventory_provider.dart';
 import '../../theme/armory_palette.dart';
+import '../../widgets/clarity_insight_view.dart';
 
 /// Wraps [ItemDetailPanel] with a slide animation. Designed to be placed on
 /// the right edge of a [Stack] as an overlay over the grid, so opening/closing
@@ -523,6 +524,7 @@ class _PlugSection extends StatelessWidget {
             description: plug.description,
             dim: !plug.isEnabled,
             enhanced: plug.isEnhanced,
+            plugHash: plug.plugHash,
           ),
         const SizedBox(height: 12),
       ],
@@ -595,6 +597,8 @@ class _CatalystSection extends StatelessWidget {
                   color: theme.colorScheme.primary),
             ),
           ],
+          if (option.plugHash != 0)
+            ClarityInsightExpander(hash: option.plugHash),
         ],
         const SizedBox(height: 12),
       ],
@@ -629,6 +633,7 @@ class _MasterworkSection extends StatelessWidget {
             name: plug.name,
             description: plug.description,
             dim: !plug.isEnabled,
+            plugHash: plug.plugHash,
           ),
         for (final o in objectives) ...[
           const SizedBox(height: 6),
@@ -689,6 +694,7 @@ class _Row extends StatelessWidget {
     required this.description,
     this.dim = false,
     this.enhanced = false,
+    this.plugHash = 0,
   });
 
   final String? iconUrl;
@@ -696,6 +702,10 @@ class _Row extends StatelessWidget {
   final String description;
   final bool dim;
   final bool enhanced;
+
+  /// The plug's inventory-item hash, for the Clarity community-insight lookup.
+  /// 0 for rows with no plug identity (e.g. the breaker row) — no insight.
+  final int plugHash;
 
   @override
   Widget build(BuildContext context) {
@@ -722,6 +732,7 @@ class _Row extends StatelessWidget {
                           fontSize: 11,
                           color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
+                  if (plugHash != 0) ClarityInsightExpander(hash: plugHash),
                 ],
               ),
             ),

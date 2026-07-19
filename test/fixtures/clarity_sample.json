@@ -1,0 +1,284 @@
+{
+    "75282108":  {
+                     "hash":  75282108,
+                     "name":  "Weighted Edge",
+                     "itemHash":  3118061004,
+                     "itemName":  "Winterbite",
+                     "descriptions":  {
+                                          "en":  [
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "When the magazine has at least 1 round loaded, Glaive Melee Attacks deal 50% increased damage and apply "
+                                                                              },
+                                                                              {
+                                                                                  "classNames":  [
+                                                                                                     "stasis"
+                                                                                                 ]
+                                                                              },
+                                                                              {
+                                                                                  "text":  "40 Slow for "
+                                                                              },
+                                                                              {
+                                                                                  "text":  "4"
+                                                                              },
+                                                                              {
+                                                                                  "text":  " "
+                                                                              },
+                                                                              {
+                                                                                  "text":  "[PVP: 1.5]"
+                                                                              },
+                                                                              {
+                                                                                  "text":  " seconds ("
+                                                                              },
+                                                                              {
+                                                                                  "text":  "8"
+                                                                              },
+                                                                              {
+                                                                                  "text":  " "
+                                                                              },
+                                                                              {
+                                                                                  "text":  "[PVP: 1.5]"
+                                                                              },
+                                                                              {
+                                                                                  "text":  " with "
+                                                                              },
+                                                                              {
+                                                                                  "classNames":  [
+                                                                                                     "stasis"
+                                                                                                 ]
+                                                                              },
+                                                                              {
+                                                                                  "text":  "Whisper of Durance)."
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "spacer"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "Bosses",
+                                                                                  "link":  "https://url.d2clarity.com/combatants"
+                                                                              },
+                                                                              {
+                                                                                  "text":  " only receive 20% increased damage."
+                                                                              }
+                                                                          ]
+                                                     }
+                                                 ]
+                                      }
+                 },
+    "23371658":  {
+                     "hash":  23371658,
+                     "name":  "Box Breathing",
+                     "descriptions":  {
+                                          "en":  [
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "Aiming Down Sights for "
+                                                                              },
+                                                                              {
+                                                                                  "text":  "",
+                                                                                  "classNames":  [
+                                                                                                     "enhancedArrow"
+                                                                                                 ]
+                                                                              },
+                                                                              {
+                                                                                  "text":  "1.4 seconds without firing grants the following for a single shot:"
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "• 10% increased Aim Assist Falloff Distance"
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "• 40% increased precision damage (35% for "
+                                                                              },
+                                                                              {
+                                                                                  "classNames":  [
+                                                                                                     "primary"
+                                                                                                 ]
+                                                                              },
+                                                                              {
+                                                                                  "text":  "Scout Rifles, 30% for "
+                                                                              },
+                                                                              {
+                                                                                  "classNames":  [
+                                                                                                     "heavy"
+                                                                                                 ]
+                                                                              },
+                                                                              {
+                                                                                  "text":  "Heavy Ammo Sniper Rifles)"
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "spacer"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "Timer starts as soon as the ADS input is pressed. Unscoping immediately removes the buff."
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "spacer"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "For glaives (Greasy Luck), the projectile must strike the target\u0027s critical hitbox in order to recieve the 40% "
+                                                                              },
+                                                                              {
+                                                                                  "text":  "[PVP: 35%]"
+                                                                              },
+                                                                              {
+                                                                                  "text":  " damage bonus."
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "spacer"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "",
+                                                                                  "classNames":  [
+                                                                                                     "enhancedArrow"
+                                                                                                 ]
+                                                                              },
+                                                                              {
+                                                                                  "text":  " Activation time is decreased by 0.1 seconds."
+                                                                              }
+                                                                          ]
+                                                     }
+                                                 ]
+                                      }
+                 },
+    "82994288":  {
+                     "hash":  82994288,
+                     "name":  "One Thousand Voices Catalyst",
+                     "itemHash":  2069224589,
+                     "itemName":  "One Thousand Voices",
+                     "descriptions":  {
+                                          "en":  [
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "I gain 30 Stability and 20 Ammo Generation."
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "spacer"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "Each of my detonations release a Taken Seeker which aggressively tracks and burrows into nearby targets, dealing 22 ticks of damage, one tick every 0.25 seconds, for 5.65 seconds."
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "spacer"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "My Taken Seekers can stun "
+                                                                              },
+                                                                              {
+                                                                                  "classNames":  [
+                                                                                                     "overload"
+                                                                                                 ]
+                                                                              },
+                                                                              {
+                                                                                  "text":  "Overload Champions."
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "spacer"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "My foes can be afflicted by up to 5 seekers at once, and "
+                                                                              },
+                                                                              {
+                                                                                  "text":  "Blighted Enemies (directly impacted by Witherhoard)"
+                                                                              },
+                                                                              {
+                                                                                  "text":  " take 100% increased tick damage."
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "spacer"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "I do not interact with "
+                                                                              },
+                                                                              {
+                                                                                  "text":  "Malfeasance"
+                                                                              },
+                                                                              {
+                                                                                  "text":  " or "
+                                                                              },
+                                                                              {
+                                                                                  "text":  "Wish-Ender"
+                                                                              },
+                                                                              {
+                                                                                  "text":  "."
+                                                                              }
+                                                                          ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "spacer"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "classNames":  [
+                                                                            "bold",
+                                                                            "bold"
+                                                                        ],
+                                                         "linesContent":  [
+                                                                              {
+                                                                                  "text":  "▛ Most of those who bargain with me do not win... ▟"
+                                                                              }
+                                                                          ]
+                                                     }
+                                                 ]
+                                      }
+                 }
+}

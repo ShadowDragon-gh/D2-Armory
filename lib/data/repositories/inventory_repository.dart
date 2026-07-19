@@ -1113,6 +1113,7 @@ class InventoryRepository {
           category: PlugCategory.masterwork,
           isEnabled: true,
           isEnhanced: false,
+          plugHash: plugHash,
         );
       }
     }
@@ -1171,7 +1172,10 @@ class InventoryRepository {
     final name =
         (def?['displayProperties']?['name'] as String?) ?? 'Catalyst';
     return CatalystOption(
-        name: name, effects: effects, statBonuses: statBonuses);
+        name: name,
+        effects: effects,
+        statBonuses: statBonuses,
+        plugHash: plugHash);
   }
 
   /// Replace Bungie's `[###DestinyNamedSubstitutions...###]` template tokens
