@@ -59,13 +59,20 @@ class UpdateInstaller {
 
     _log.i('Launching update helper for pid $appPid -> $install');
     try {
-      // Detached, in its own minimized console, so it outlives this process and
-      // is not killed when the app exits.
+      // Detached so it outlives this process, and launched through PowerShell's
+      // Start-Process -WindowStyle Hidden so the batch runs in a hidden console
+      // rather than a visible/minimized one. A plain 'cmd /c start /min' leaves
+      // a stray console window on screen for the batch's lifetime.
       await Process.start(
-        'cmd.exe',
-        ['/c', 'start', '""', '/min', scriptPath],
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-WindowStyle',
+          'Hidden',
+          '-Command',
+          "Start-Process -FilePath '$scriptPath' -WindowStyle Hidden",
+        ],
         mode: ProcessStartMode.detached,
-        runInShell: true,
       );
     } catch (e) {
       throw UpdateFailure('Could not start the updater helper.', cause: e);
