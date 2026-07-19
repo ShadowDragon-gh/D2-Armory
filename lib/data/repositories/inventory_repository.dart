@@ -937,15 +937,23 @@ class InventoryRepository {
         : CatalystState.incomplete;
   }
 
+  /// The item's collectible source hint (e.g. "Source: Complete the raid
+  /// 'Salvation's Edge'"), or null when the item has no collectible or source
+  /// text. This is Bungie's own acquisition wording, shown as-is.
+  String? _sourceStringOf(Map<String, dynamic> def) {
+    final collectibleHash = (def['collectibleHash'] as num?)?.toInt();
+    if (collectibleHash == null || collectibleHash == 0) return null;
+    final source =
+        _manifest.getCollectible(collectibleHash)?['sourceString'] as String?;
+    if (source == null || source.isEmpty) return null;
+    return source;
+  }
+
   /// The item's collectible source string(s), lowercased. Empty when the item
   /// has no collectible or source text.
   Set<String> _sourceStringsOf(Map<String, dynamic> def) {
-    final collectibleHash = (def['collectibleHash'] as num?)?.toInt();
-    if (collectibleHash == null || collectibleHash == 0) return const {};
-    final source =
-        _manifest.getCollectible(collectibleHash)?['sourceString'] as String?;
-    if (source == null || source.isEmpty) return const {};
-    return {source.toLowerCase()};
+    final source = _sourceStringOf(def);
+    return source == null ? const {} : {source.toLowerCase()};
   }
 
   /// The item's searchable description text: mechanical description plus flavor

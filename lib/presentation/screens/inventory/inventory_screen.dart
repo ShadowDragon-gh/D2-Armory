@@ -14,7 +14,6 @@ import '../../widgets/inventory_poller.dart';
 import '../../widgets/action_toast.dart';
 import '../../widgets/item_tile.dart';
 import '../database/database_detail_modal.dart';
-import 'item_detail_panel.dart';
 
 /// DIM-style inventory grid: one column per character (by last-played) plus a
 /// wide vault column, rows per equipment bucket. Read-only. Rendered inside
@@ -72,22 +71,10 @@ class InventoryScreen extends ConsumerWidget {
       data: (grid) => _Grid(grid: grid),
     );
 
-    // The detail panel overlays the grid on the right edge, so opening or
-    // closing it never resizes the grid (no reflow jank). Wrapped in the poller
-    // so the grid stays near-live while the inventory is on screen.
-    return InventoryPoller(
-      child: Stack(
-        children: [
-          Positioned.fill(child: body),
-          const Positioned(
-            top: 0,
-            bottom: 0,
-            right: 0,
-            child: AnimatedItemDetailPanel(),
-          ),
-        ],
-      ),
-    );
+    // Wrapped in the poller so the grid stays near-live while the inventory is
+    // on screen. Item detail opens in the shared gear-detail modal (see the
+    // selectedDatabaseItemProvider listener above), not an inline panel.
+    return InventoryPoller(child: body);
   }
 }
 

@@ -505,30 +505,6 @@ final itemNamesProvider = Provider<List<String>>((ref) {
   return sorted;
 });
 
-/// The item whose detail panel is open, or null when the panel is closed.
-class SelectedItemNotifier extends Notifier<DestinyItem?> {
-  @override
-  DestinyItem? build() => null;
-
-  void select(DestinyItem item) => state = item;
-  void clear() => state = null;
-
-  /// Toggle: selecting the already-selected item closes the panel.
-  void toggle(DestinyItem item) =>
-      state = identical(state, item) ? null : item;
-}
-
-final selectedItemProvider =
-    NotifierProvider<SelectedItemNotifier, DestinyItem?>(
-        SelectedItemNotifier.new);
-
-/// The resolved detail for the selected item, or null when none is selected.
-final selectedItemDetailProvider = Provider<ItemDetail?>((ref) {
-  final item = ref.watch(selectedItemProvider);
-  if (item == null) return null;
-  return ref.watch(inventoryRepositoryProvider).resolveDetail(item);
-});
-
 /// The owned item backing the gear-detail modal when it was opened from the
 /// Inventory tab, or null when the modal shows a plain Database definition.
 /// Lets the modal offer the instance's rolled stats alongside the definition.

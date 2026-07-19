@@ -48,3 +48,5 @@ app.*.map.json
 # Secrets — real dart-define config (keep the *.example.json templates)
 /env/*.json
 !/env/*.example.json
+
+/.claude/

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/destiny/destiny_buckets.dart';
 import 'clarity_provider.dart';
+import 'd2ai_provider.dart';
 import 'database_provider.dart';
 import 'inventory_provider.dart';
 import 'manifest_provider.dart';
@@ -24,6 +25,10 @@ final appWarmupProvider = Provider<void>((ref) {
   // static file), so their bootstrap starts immediately, in parallel with
   // the manifest download. Nothing blocks on it.
   ref.watch(clarityBootstrapProvider);
+
+  // d2ai source data is a bundled asset (no network), also manifest-independent
+  // — start it immediately so the Source row has its cleaner text right away.
+  ref.watch(d2aiBootstrapProvider);
 
   // Gate on the manifest: nothing below can run until the DB is open.
   if (!ref.watch(manifestBootstrapProvider).hasValue) return;

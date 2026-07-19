@@ -97,6 +97,13 @@ flutter:
     # D2 Armory logo assets (source of truth in doc/design/).
     - assets/branding/logo-icon-transparent.svg
     - assets/branding/logo-wordmark-transparent.svg
+    # DIM's d2-additional-info snapshot (MIT; LICENSE.md alongside): cleaner
+    # acquisition-source text and weapon->quest map, bundled and never fetched.
+    - assets/d2ai/sources.json
+    - assets/d2ai/weapon-from-quest.json
+    # Our own per-item source overrides (itemHash -> text), layered above d2ai
+    # so hand-added sources survive a d2ai snapshot refresh. Edit freely.
+    - assets/d2ai/source_overrides.json
 
   # D2 Armory brand typography (OFL-licensed; licenses in assets/fonts/).
   # Rajdhani = display/headings, Inter = body, JetBrains Mono = stats/data.
