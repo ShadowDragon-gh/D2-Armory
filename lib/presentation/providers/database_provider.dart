@@ -6,11 +6,15 @@ import '../../core/search/search_suggestions.dart';
 import '../../data/repositories/database_repository.dart';
 import '../../domain/models/armor_set.dart';
 import '../../domain/models/item_detail.dart';
+import 'd2ai_provider.dart';
 import 'inventory_provider.dart';
 import 'manifest_provider.dart';
 
 final databaseRepositoryProvider = Provider<DatabaseRepository>((ref) {
-  return DatabaseRepository(manifest: ref.watch(manifestRepositoryProvider));
+  return DatabaseRepository(
+    manifest: ref.watch(manifestRepositoryProvider),
+    d2ai: ref.watch(d2aiRepositoryProvider),
+  );
 });
 
 /// Which gear family the Database is browsing (the Weapons/Armor toggle) and,
@@ -396,6 +400,9 @@ final gearModalOpenProvider =
 final databaseItemDetailProvider = Provider.autoDispose<GearDetail?>((ref) {
   final hash = ref.watch(selectedDatabaseItemProvider);
   if (hash == null) return null;
+  // Re-resolve when d2ai lands so the Source row picks up its cleaner text if
+  // the modal was opened before that small asset finished loading.
+  ref.watch(d2aiBootstrapProvider);
   final detail = ref.watch(databaseRepositoryProvider).resolveGearDetail(hash);
   if (detail == null) return null;
   // When an owned instance backs the modal (opened from Inventory), show the

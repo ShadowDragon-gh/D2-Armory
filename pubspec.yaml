@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.2.0
+version: 1.3.0
 
 environment:
   sdk: ^3.12.2
@@ -97,6 +97,13 @@ flutter:
     # D2 Armory logo assets (source of truth in doc/design/).
     - assets/branding/logo-icon-transparent.svg
     - assets/branding/logo-wordmark-transparent.svg
+    # DIM's d2-additional-info snapshot (MIT; LICENSE.md alongside): cleaner
+    # acquisition-source text and weapon->quest map, bundled and never fetched.
+    - assets/d2ai/sources.json
+    - assets/d2ai/weapon-from-quest.json
+    # Our own per-item source overrides (itemHash -> text), layered above d2ai
+    # so hand-added sources survive a d2ai snapshot refresh. Edit freely.
+    - assets/d2ai/source_overrides.json
 
   # D2 Armory brand typography (OFL-licensed; licenses in assets/fonts/).
   # Rajdhani = display/headings, Inter = body, JetBrains Mono = stats/data.

@@ -10,6 +10,7 @@ import '../providers/search_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/armory_palette.dart';
 import '../theme/branding_svg.dart';
+import '../widgets/about_dialog.dart';
 import '../widgets/search_bar_field.dart';
 import '../widgets/update_banner.dart';
 import 'database/database_screen.dart';
@@ -90,6 +91,11 @@ class _AppShellState extends ConsumerState<AppShell> {
             const _RefreshButton(),
           ],
           const UpdateAction(),
+          IconButton(
+            tooltip: 'About',
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => showAppAboutDialog(context),
+          ),
           IconButton(
             tooltip: 'Sign out',
             icon: const Icon(Icons.logout),

@@ -2,11 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:d2_armory/core/destiny/destiny_buckets.dart';
+import 'package:d2_armory/data/repositories/d2ai_repository.dart';
 import 'package:d2_armory/data/repositories/database_repository.dart';
 import 'package:d2_armory/data/repositories/manifest_repository.dart';
 import 'package:d2_armory/domain/models/item_detail.dart';
 
 class _MockManifest extends Mock implements ManifestRepository {}
+
+class _MockD2ai extends Mock implements D2aiRepository {}
 
 /// Socket-category hashes as they appear in real definitions.
 const _weaponPerksCategory = 4241085061;
@@ -435,8 +438,73 @@ void main() {
         'displayProperties': {'name': 'Stagger'}
       });
       when(() => manifest.getCollectible(777)).thenReturn({
+        'sourceHash': 778,
         'sourceString': 'Source: Season of the Seraph',
       });
+    });
+
+    test('resolveGearDetail exposes the manifest source when no d2ai override',
+        () {
+      // The shared repo has no d2ai wired → the manifest sourceString shows.
+      expect(repo.resolveGearDetail(100)!.source,
+          'Source: Season of the Seraph');
+      expect(repo.resolveGearDetail(100)!.questOrigin, isNull);
+    });
+
+    test('resolveGearDetail lets d2ai override the source and add quest origin',
+        () {
+      final d2ai = _MockD2ai();
+      when(() => d2ai.sourceOverrideFor(any())).thenReturn(null);
+      when(() => d2ai.sourceFor(778))
+          .thenReturn('Source: Complete the raid "The Best Raid"');
+      when(() => d2ai.questStepFor(100)).thenReturn(950);
+      when(() => manifest.getInventoryItem(950)).thenReturn({
+        'displayProperties': {'name': 'The Whisper'},
+      });
+      final repoWithD2ai = DatabaseRepository(manifest: manifest, d2ai: d2ai);
+
+      final detail = repoWithD2ai.resolveGearDetail(100)!;
+      expect(detail.source, 'Source: Complete the raid "The Best Raid"');
+      expect(detail.questOrigin, 'The Whisper');
+    });
+
+    test('a per-item override wins over d2ai, manifest, and the random-perks '
+        'hide', () {
+      final d2ai = _MockD2ai();
+      // Our hand-authored override for item 100.
+      when(() => d2ai.sourceOverrideFor(100))
+          .thenReturn('Source: Found it in the Prophecy dungeon');
+      when(() => d2ai.sourceFor(any())).thenReturn('d2ai text (should lose)');
+      when(() => d2ai.questStepFor(any())).thenReturn(null);
+      // Even if this item were a hidden random-perks item, the override shows.
+      when(() => manifest.getCollectible(777)).thenReturn({
+        'sourceHash': 2387628034,
+        'sourceString':
+            'Random Perks: This item cannot be reacquired from Collections.',
+      });
+      final repoWithD2ai = DatabaseRepository(manifest: manifest, d2ai: d2ai);
+
+      expect(repoWithD2ai.resolveGearDetail(100)!.source,
+          'Source: Found it in the Prophecy dungeon');
+    });
+
+    test('hides the random-perks Collections note (not a real source)', () {
+      // The shared sourceHash for random-rolled world loot: its only "source"
+      // is a Collections note, so no Source row should show.
+      when(() => manifest.getCollectible(777)).thenReturn({
+        'sourceHash': 2387628034,
+        'sourceString':
+            'Random Perks: This item cannot be reacquired from Collections.',
+      });
+      expect(repo.resolveGearDetail(100)!.source, isNull);
+    });
+
+    test('hides the vague "Earned while leveling" note', () {
+      when(() => manifest.getCollectible(777)).thenReturn({
+        'sourceHash': 2892963218,
+        'sourceString': 'Source: Earned while leveling.',
+      });
+      expect(repo.resolveGearDetail(100)!.source, isNull);
     });
 
     test('resolves perks (traits only), stats, breaker, source, description',

@@ -397,24 +397,57 @@ class _Header extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.name,
-                    style: const TextStyle(
-                        fontFamily: ArmoryFonts.display,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.3)),
-                if (detail.flavorText.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      detail.flavorText,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontStyle: FontStyle.italic,
-                        color: theme.colorScheme.onSurfaceVariant,
+                // Title + flavor on the left; source to their right, set off by
+                // a divider, filling the header's otherwise-empty top band.
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Flexible(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(item.name,
+                                style: const TextStyle(
+                                    fontFamily: ArmoryFonts.display,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.3)),
+                            if (detail.flavorText.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  detail.flavorText,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontStyle: FontStyle.italic,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
+                      if (detail.source != null ||
+                          detail.questOrigin != null) ...[
+                        const SizedBox(width: 20),
+                        VerticalDivider(
+                          width: 1,
+                          thickness: 1,
+                          color: ArmoryPalette.borderStrong,
+                        ),
+                        const SizedBox(width: 20),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 340),
+                          child: _SourceArea(
+                              source: detail.source,
+                              questOrigin: detail.questOrigin),
+                        ),
+                      ],
+                    ],
                   ),
+                ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
@@ -2390,6 +2423,37 @@ String _statEffectLabel(PerkStatEffect e) {
   final raw = '${signed(e.value)} ${e.name}';
   final applied = e.applied;
   return applied == null ? raw : '$raw (${signed(applied)})';
+}
+
+/// How the item is acquired: its collectible source hint, and (for quest
+/// weapons) the originating quest. Rendered only when at least one is present.
+class _SourceArea extends StatelessWidget {
+  const _SourceArea({this.source, this.questOrigin});
+
+  final String? source;
+  final String? questOrigin;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bodyStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      height: 1.35,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('Source'),
+        const SizedBox(height: 6),
+        if (source != null) Text(source!, style: bodyStyle),
+        if (questOrigin != null) ...[
+          if (source != null) const SizedBox(height: 4),
+          Text('From the quest: $questOrigin',
+              style: bodyStyle?.copyWith(fontStyle: FontStyle.italic)),
+        ],
+      ],
+    );
+  }
 }
 
 class _SectionLabel extends StatelessWidget {

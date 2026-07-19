@@ -5,6 +5,8 @@ import '../../domain/models/armor_set.dart';
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/item_detail.dart';
 import '../../core/search/search_suggestions.dart';
+import 'd2ai_repository.dart';
+import 'd2ai_source_resolver.dart';
 import 'facet_builder.dart';
 import 'manifest_repository.dart';
 
@@ -52,9 +54,12 @@ class GearFilter {
 /// separate resolution path on purpose: a definition exposes the *pool* of
 /// possible perks per socket, not the single rolled perk an instance has.
 class DatabaseRepository {
-  DatabaseRepository({required this._manifest});
+  DatabaseRepository({required this._manifest, this._d2ai});
 
   final ManifestRepository _manifest;
+
+  /// DIM's d2-additional-info source overrides, or null when not wired (tests).
+  final D2aiRepository? _d2ai;
 
   // The full deduped gear index per kind, built once (the ~800ms full-table
   // scan is measured; caching keeps every later facet/search/sort instant).
@@ -456,6 +461,8 @@ class DatabaseRepository {
       breaker: _resolveBreaker(def),
       flavorText: (def['flavorText'] as String?) ?? '',
       screenshotPath: (def['screenshot'] as String?) ?? '',
+      source: resolveItemSource(_manifest, _d2ai, def, itemHash),
+      questOrigin: resolveQuestOrigin(_manifest, _d2ai, itemHash),
     );
   }
 

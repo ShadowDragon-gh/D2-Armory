@@ -352,6 +352,8 @@ class GearDetail {
     this.screenshotPath = '',
     this.ornamentScreenshotPath,
     this.ornamentIconPath,
+    this.source,
+    this.questOrigin,
   });
 
   final DestinyItem item;
@@ -363,6 +365,14 @@ class GearDetail {
   final BreakerType? breaker;
   final String flavorText;
   final String screenshotPath;
+
+  /// How the item is acquired — the collectible's source hint (d2ai override
+  /// else the manifest sourceString), or null when it has none.
+  final String? source;
+
+  /// The name of the quest this weapon originates from, or null when it is not
+  /// quest-sourced.
+  final String? questOrigin;
 
   /// When an owned instance wears an ornament, its screenshot / icon paths —
   /// so the modal shows the ornamented look the instance actually displays.
@@ -397,6 +407,8 @@ class GearDetail {
         screenshotPath: screenshotPath,
         ornamentScreenshotPath: screenshot,
         ornamentIconPath: icon,
+        source: source,
+        questOrigin: questOrigin,
       );
 }
 
