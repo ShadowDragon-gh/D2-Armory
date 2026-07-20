@@ -11,6 +11,7 @@ import '../../providers/clarity_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../theme/armory_palette.dart';
 import '../../widgets/clarity_insight_view.dart';
+import '../../widgets/diamond_shape.dart';
 
 /// The subclass detail modal: the subclass name and element banner, then one
 /// section per socket group (Abilities, Super, Aspects, Fragments). Each socket
@@ -368,7 +369,8 @@ class _SocketGroupSection extends StatelessWidget {
           runSpacing: 12,
           children: [
             for (final socket in group.sockets)
-              _SubclassSocketChip(item: item, socket: socket),
+              _SubclassSocketChip(
+                  item: item, socket: socket, diamond: group.isSuper),
           ],
         ),
       ],
@@ -382,10 +384,18 @@ class _SocketGroupSection extends StatelessWidget {
 /// equipped plug's Clarity insight (fragments and class abilities light up)
 /// renders in an expander beneath the chip.
 class _SubclassSocketChip extends ConsumerStatefulWidget {
-  const _SubclassSocketChip({required this.item, required this.socket});
+  const _SubclassSocketChip({
+    required this.item,
+    required this.socket,
+    this.diamond = false,
+  });
 
   final DestinyItem item;
   final SubclassSocket socket;
+
+  /// Whether the equipped/option icons render as a diamond (the Super socket)
+  /// rather than a square.
+  final bool diamond;
 
   @override
   ConsumerState<_SubclassSocketChip> createState() =>
@@ -441,6 +451,7 @@ class _SubclassSocketChipState extends ConsumerState<_SubclassSocketChip> {
                 plug: shown,
                 size: _cellSize,
                 selected: false,
+                diamond: widget.diamond,
                 onTap: (locked || socket.options.length < 2)
                     ? null
                     : () => controller.isOpen
@@ -469,6 +480,7 @@ class _SubclassSocketChipState extends ConsumerState<_SubclassSocketChip> {
                             size: _cellSize,
                             selected: isCurrent,
                             state: state,
+                            diamond: widget.diamond,
                             onTap: !selectable
                                 ? null
                                 : () {
@@ -517,6 +529,7 @@ class _SubclassPlugIcon extends ConsumerWidget {
     required this.size,
     required this.selected,
     this.state = SubclassOptionState.equippable,
+    this.diamond = false,
     this.onTap,
   });
 
@@ -524,9 +537,17 @@ class _SubclassPlugIcon extends ConsumerWidget {
   final double size;
   final bool selected;
   final SubclassOptionState state;
+
+  /// Whether the icon renders as a diamond (clipped + diamond border) rather
+  /// than a rounded square — the Super socket, matching the in-game shape.
+  final bool diamond;
   final VoidCallback? onTap;
 
   bool get _dimmed => state != SubclassOptionState.equippable;
+
+  /// How much a plate composite is scaled up so a rounded/circular plate covers
+  /// the diamond's corners (the clip trims the overflow). 1 for a square icon.
+  static const double _diamondPlateScale = 1.1;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -535,16 +556,53 @@ class _SubclassPlugIcon extends ConsumerWidget {
     // aspects/supers have none, so the block is skipped). Hover-only, per the
     // chosen layout — the narrow icon grid has no room for an expander.
     final insight = ref.watch(clarityInsightProvider(plug.plugHash));
-    final image = plug.iconUrl == null
-        ? const ColoredBox(color: ArmoryPalette.scrim26)
-        : CachedNetworkImage(
-            imageUrl: plug.iconUrl!,
-            cacheManager: ItemIconCache.instance,
-            fit: BoxFit.cover,
-            fadeInDuration: Duration.zero,
-            errorWidget: (_, _, _) =>
-                const ColoredBox(color: ArmoryPalette.scrim26),
-          );
+    // Class-ability / movement plugs ship the wrong (Stasis-blue) baked plate,
+    // so when a corrected plate + transparent glyph are provided, composite
+    // those (glyph over the element plate) instead of the flat icon.
+    final plateUrl = plug.plateUrl;
+    final foregroundUrl = plug.foregroundUrl;
+    // On a diamond (super) socket a circular/rounded plate is scaled up so it
+    // covers the diamond's corners (the clip trims the overflow).
+    final plateScale = diamond ? _diamondPlateScale : 1.0;
+    final Widget image;
+    if (plateUrl != null && foregroundUrl != null) {
+      image = Stack(
+        fit: StackFit.expand,
+        children: [
+          Transform.scale(
+            scale: plateScale,
+            child: CachedNetworkImage(
+              imageUrl: plateUrl,
+              cacheManager: ItemIconCache.instance,
+              fit: BoxFit.cover,
+              fadeInDuration: Duration.zero,
+              errorWidget: (_, _, _) =>
+                  const ColoredBox(color: ArmoryPalette.scrim26),
+            ),
+          ),
+          Transform.scale(
+            scale: plateScale,
+            child: CachedNetworkImage(
+              imageUrl: foregroundUrl,
+              cacheManager: ItemIconCache.instance,
+              fit: BoxFit.cover,
+              fadeInDuration: Duration.zero,
+              errorWidget: (_, _, _) => const SizedBox.shrink(),
+            ),
+          ),
+        ],
+      );
+    } else if (plug.iconUrl == null) {
+      image = const ColoredBox(color: ArmoryPalette.scrim26);
+    } else {
+      image = CachedNetworkImage(
+        imageUrl: plug.iconUrl!,
+        cacheManager: ItemIconCache.instance,
+        fit: BoxFit.cover,
+        fadeInDuration: Duration.zero,
+        errorWidget: (_, _, _) => const ColoredBox(color: ArmoryPalette.scrim26),
+      );
+    }
     return Tooltip(
       // Pointer events pass through to the modal beneath, so the tooltip's
       // insight links are read-only (matching the gear modal's perk tooltip).
@@ -643,39 +701,49 @@ class _SubclassPlugIcon extends ConsumerWidget {
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(2),
-            child: Container(
-              width: size,
-              height: size,
-              decoration: BoxDecoration(
-                borderRadius: ArmoryRadius.sm,
-                color: ArmoryPalette.scrim26,
-                // The selected (equipped-here) plug and an option equipped in
-                // another slot share the same accent border at full brightness,
-                // so a same-family pick reads as "in use". Only the artwork is
-                // dimmed (see the Opacity below) to show the option is not here.
-                border: Border.all(
-                  color:
-                      (selected ||
-                          state == SubclassOptionState.equippedElsewhere)
-                      ? theme.colorScheme.primary
-                      : ArmoryPalette.borderStronger,
-                  width:
-                      (selected ||
-                          state == SubclassOptionState.equippedElsewhere)
-                      ? 1.5
-                      : 1,
-                ),
-              ),
-              clipBehavior: Clip.antiAlias,
-              // A non-equippable option (locked, or equipped elsewhere) dims
-              // only its artwork — not its border — so an equipped-elsewhere
-              // plug keeps the same bright accent ring as the equipped one. Its
-              // tooltip still shows on hover so details stay viewable.
-              child: Opacity(opacity: _dimmed ? 0.35 : 1, child: image),
-            ),
+            child: _framedIcon(context, theme, image),
           ),
         ),
       ),
+    );
+  }
+
+  /// Frame [image] in the plug's shape: a diamond (clip + diamond border) for a
+  /// Super socket, else a rounded square. The selected plug and one equipped in
+  /// another slot share the accent border at full brightness; only the artwork
+  /// dims for a non-equippable option (so its ring still reads).
+  Widget _framedIcon(BuildContext context, ThemeData theme, Widget image) {
+    final accent = selected || state == SubclassOptionState.equippedElsewhere;
+    final borderColor =
+        accent ? theme.colorScheme.primary : ArmoryPalette.borderStronger;
+    final borderWidth = accent ? 1.5 : 1.0;
+    final dimmed = Opacity(opacity: _dimmed ? 0.35 : 1, child: image);
+
+    if (diamond) {
+      return SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(
+          foregroundPainter:
+              DiamondBorderPainter(color: borderColor, width: borderWidth),
+          child: ClipPath(
+            clipper: const DiamondClipper(),
+            child: ColoredBox(color: ArmoryPalette.scrim26, child: dimmed),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: ArmoryRadius.sm,
+        color: ArmoryPalette.scrim26,
+        border: Border.all(color: borderColor, width: borderWidth),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: dimmed,
     );
   }
 }

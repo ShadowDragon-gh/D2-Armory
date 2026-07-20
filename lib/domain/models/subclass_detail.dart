@@ -73,6 +73,7 @@ class SubclassSocketGroup {
     required this.label,
     required this.sockets,
     this.isFragments = false,
+    this.isSuper = false,
   });
 
   final String label;
@@ -83,6 +84,11 @@ class SubclassSocketGroup {
   /// Derived from the plug category, not the label — robust across elements
   /// (Stasis fragments predate the 3.0 naming).
   final bool isFragments;
+
+  /// Whether this is the Super group (its plugs are `.supers`), so the modal
+  /// renders its socket as a diamond (the in-game super shape) rather than a
+  /// square. Derived from the plug category, not the label.
+  final bool isSuper;
 }
 
 /// How an option renders in a socket's picker.

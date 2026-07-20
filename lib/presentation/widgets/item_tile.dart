@@ -6,6 +6,7 @@ import '../../core/destiny/destiny_buckets.dart';
 import '../../core/destiny/destiny_enums.dart';
 import '../../core/network/item_icon_cache.dart';
 import '../../domain/models/destiny_item.dart';
+import 'diamond_shape.dart';
 import '../providers/database_provider.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/search_provider.dart';
@@ -301,9 +302,9 @@ class ItemTile extends ConsumerWidget {
         height: size,
         child: CustomPaint(
           foregroundPainter:
-              _DiamondBorderPainter(color: borderColor, width: borderWidth),
+              DiamondBorderPainter(color: borderColor, width: borderWidth),
           child: ClipPath(
-            clipper: const _DiamondClipper(),
+            clipper: const DiamondClipper(),
             child: content,
           ),
         ),
@@ -418,57 +419,6 @@ class _SubclassEquipMenuState extends ConsumerState<_SubclassEquipMenu> {
       ),
     );
   }
-}
-
-/// Clips a tile's icon to a diamond (a square rotated 45°: the four edge
-/// midpoints), used for subclass tiles so their art reads as the in-game
-/// diamond slot and a Prismatic super's rounded plate is masked to that shape.
-class _DiamondClipper extends CustomClipper<Path> {
-  const _DiamondClipper();
-
-  @override
-  Path getClip(Size size) => Path()
-    ..moveTo(size.width / 2, 0)
-    ..lineTo(size.width, size.height / 2)
-    ..lineTo(size.width / 2, size.height)
-    ..lineTo(0, size.height / 2)
-    ..close();
-
-  @override
-  bool shouldReclip(covariant _DiamondClipper oldClipper) => false;
-}
-
-/// Strokes the diamond outline for a subclass tile — the border that fits the
-/// [_DiamondClipper] shape. Inset by half the stroke width so the line sits
-/// fully inside the tile bounds rather than being clipped at the points.
-class _DiamondBorderPainter extends CustomPainter {
-  const _DiamondBorderPainter({required this.color, required this.width});
-
-  final Color color;
-  final double width;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final inset = width / 2;
-    final path = Path()
-      ..moveTo(size.width / 2, inset)
-      ..lineTo(size.width - inset, size.height / 2)
-      ..lineTo(size.width / 2, size.height - inset)
-      ..lineTo(inset, size.height / 2)
-      ..close();
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = width
-        ..strokeJoin = StrokeJoin.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _DiamondBorderPainter old) =>
-      old.color != color || old.width != width;
 }
 
 /// The gear-tier indicator on an item tile: a vertical column of [tier] small

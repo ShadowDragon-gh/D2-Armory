@@ -447,6 +447,17 @@ class InventoryRepository {
             if (h != 0 && !_isEmptySocketPlug(h)) h,
     };
 
+    // The subclass's element background plate, taken from a correctly-plated
+    // ability plug (melee/grenade/aspect), so the wrongly-plated class-ability
+    // and movement plugs can be recomposited over it (see [_columnPlugOf]).
+    final elementPlatePath = _subclassElementPlate(entries);
+
+    // The subclass definition's own background plate — non-null only for
+    // Prismatic (the pink prism plate). When present, super plugs (whose flat
+    // icon carries a single element's plate) are recomposited over it so the
+    // super reads as Prismatic, matching the inventory tile.
+    final subclassPlatePath = def == null ? null : _backgroundPath(def);
+
     // Each built group paired with the plug-category *kind* of its sockets
     // (aspects / fragments / other), derived from the plugs' plug-category
     // identifiers — not the socket-category hash, which differs across
@@ -526,11 +537,16 @@ class InventoryRepository {
             : _columnPlugOf(activeHash, interpolator,
                 isEnabled: enabled,
                 socketIndex: rawIndex,
-                alwaysDescribe: true);
+                alwaysDescribe: true,
+                elementPlatePath: elementPlatePath,
+                superPlatePath: subclassPlatePath);
         final plugs = <ItemPlug>[];
         for (final hash in optionHashes) {
           final plug = _columnPlugOf(hash, interpolator,
-              socketIndex: rawIndex, alwaysDescribe: true);
+              socketIndex: rawIndex,
+              alwaysDescribe: true,
+              elementPlatePath: elementPlatePath,
+              superPlatePath: subclassPlatePath);
           if (plug != null) plugs.add(plug);
         }
         // Classify the group from its plugs' plug-category identifier the first
@@ -560,6 +576,7 @@ class InventoryRepository {
             label: label,
             sockets: socketsInGroup,
             isFragments: groupKind == _SubclassGroupKind.fragments,
+            isSuper: groupKind == _SubclassGroupKind.superAbility,
           ),
         ));
       }
@@ -676,6 +693,9 @@ class InventoryRepository {
     }
     if (pci.endsWith('.fragments') || pci.endsWith('.trinkets')) {
       return _SubclassGroupKind.fragments;
+    }
+    if (pci.endsWith('.supers')) {
+      return _SubclassGroupKind.superAbility;
     }
     return _SubclassGroupKind.other;
   }
@@ -958,6 +978,11 @@ class InventoryRepository {
   // appear only on armor mods, never on weapon mods.
   static const _modCostStats = {3578062600, 514071887};
 
+  // A subclass fragment's socket-cost stat display name. Filtered from a plug's
+  // stat effects (always 1, not a gameplay stat) — matched by name rather than
+  // hash to avoid an unverified magic constant (the app renders English only).
+  static const _fragmentCostStat = 'Fragment Cost';
+
   /// This roll's *mod* sockets as columns of selectable options: for weapons the
   /// definition's WEAPON MODS sockets, for armor the ARMOR MODS/legacy-perk
   /// sockets — each holding the copy's available mod plugs (from ItemReusablePlugs
@@ -1092,6 +1117,57 @@ class InventoryRepository {
     return columns;
   }
 
+  // Element-specific ability plug categories whose icons carry the correct
+  // element background plate (unlike class_abilities/movement/super, which are
+  // class-shared and ship a generic plate). Any one of these yields the
+  // subclass's element plate. (Fragments/trinkets carry it too — verified — so
+  // they widen the source; melee/grenades/aspects/totems all also match.)
+  static const _elementPlatedSuffixes = [
+    '.melee',
+    '.grenades',
+    '.aspects',
+    '.totems',
+    '.fragments',
+    '.trinkets',
+  ];
+
+  /// The subclass's element background-plate path, found from a correctly-plated
+  /// ability plug (melee/grenade/aspect) among the definition's socket entries —
+  /// so a wrongly-plated class-ability/movement plug can be recomposited over
+  /// it. Null when none is resolvable. Walks the socket entries' plug sets and
+  /// initial plugs, returning the first matching plug's layered `background`.
+  String? _subclassElementPlate(List<dynamic> entries) {
+    for (final entry in entries) {
+      if (entry is! Map) continue;
+      final hashes = <int>[];
+      final init = (entry['singleInitialItemHash'] as num?)?.toInt();
+      if (init != null && init != 0) hashes.add(init);
+      final setHash = (entry['reusablePlugSetHash'] as num?)?.toInt();
+      final setItems =
+          setHash == null ? null : _manifest.getPlugSet(setHash)?['reusablePlugItems'];
+      if (setItems is List) {
+        for (final pi in setItems) {
+          final h = ((pi as Map)['plugItemHash'] as num?)?.toInt();
+          if (h != null && h != 0) hashes.add(h);
+        }
+      }
+      for (final h in hashes) {
+        final def = _manifest.getInventoryItem(h);
+        final pci = (def?['plug'] as Map?)?['plugCategoryIdentifier'] as String?;
+        if (pci == null ||
+            !_elementPlatedSuffixes.any((s) => pci.endsWith(s))) {
+          continue;
+        }
+        final iconHash = (def?['displayProperties']?['iconHash'] as num?)?.toInt();
+        final bg = iconHash == null
+            ? null
+            : _manifest.getIcon(iconHash)?['background'] as String?;
+        if (bg != null && bg.isNotEmpty) return bg;
+      }
+    }
+    return null;
+  }
+
   /// Resolve [plugHash] for an instance perk column: name, icon, description,
   /// and the enhanced flag. Null for placeholder plugs with no display name
   /// and for kill trackers. Unlike [_resolvePlugs], the origin trait keeps its
@@ -1106,7 +1182,9 @@ class InventoryRepository {
   ItemPlug? _columnPlugOf(int plugHash, _StatInterpolator interpolator,
       {bool isEnabled = true,
       int socketIndex = -1,
-      bool alwaysDescribe = false}) {
+      bool alwaysDescribe = false,
+      String? elementPlatePath,
+      String? superPlatePath}) {
     final def = _manifest.getInventoryItem(plugHash);
     if (def == null) return null;
     final display = def['displayProperties'] as Map<String, dynamic>?;
@@ -1118,6 +1196,34 @@ class InventoryRepository {
       return null;
     }
     final statEffects = _plugStatEffects(def, interpolator);
+
+    // Recomposite the plug's transparent foreground glyph over a corrected
+    // background plate when its baked plate is wrong for this subclass:
+    //  - class-ability / movement plugs (class-shared, ship a Stasis-blue plate)
+    //    over the subclass's element plate;
+    //  - super plugs on a Prismatic subclass (each super carries a single
+    //    element's plate) over the Prismatic plate.
+    String? platePath;
+    String? foregroundPath;
+    final correctedPlate = plugCategory == null
+        ? null
+        : (plugCategory.endsWith('.class_abilities') ||
+                plugCategory.endsWith('.movement'))
+            ? elementPlatePath
+            : plugCategory.endsWith('.supers')
+                ? superPlatePath
+                : null;
+    if (correctedPlate != null) {
+      final iconHash = (display?['iconHash'] as num?)?.toInt();
+      final fg = iconHash == null
+          ? null
+          : _manifest.getIcon(iconHash)?['foreground'] as String?;
+      if (fg != null && fg.isNotEmpty) {
+        platePath = correctedPlate;
+        foregroundPath = fg;
+      }
+    }
+
     return ItemPlug(
       name: name,
       iconPath: (display?['icon'] as String?) ?? '',
@@ -1131,6 +1237,8 @@ class InventoryRepository {
       plugHash: plugHash,
       socketIndex: socketIndex,
       statEffects: statEffects,
+      platePath: platePath,
+      foregroundPath: foregroundPath,
     );
   }
 
@@ -1236,6 +1344,11 @@ class InventoryRepository {
       final statDef = _manifest.getStat(statHash);
       final name = (statDef?['displayProperties']?['name'] as String?) ?? '';
       if (name.isEmpty) continue;
+      // A subclass fragment's "Fragment Cost" is a socket-cost value (always 1),
+      // not a gameplay stat — the game shows it as a cost header, not a bonus
+      // line. Skip it so it never appears in the fragment tooltip or the modal's
+      // net fragment-stat summary.
+      if (name == _fragmentCostStat) continue;
       // Raw = the number the game advertises (sign-flipped for inverted stats);
       // applied = the actual change to the displayed stat after interpolation.
       // A positive raw investment is always beneficial — it raises a normal stat
@@ -2592,7 +2705,7 @@ class _SubclassDef {
 /// groups by their plugs' plug-category identifier (stable across every
 /// element, unlike the socket-category hash — see
 /// [InventoryRepository._subclassGroupKindOf]).
-enum _SubclassGroupKind { aspects, fragments, other }
+enum _SubclassGroupKind { aspects, fragments, superAbility, other }
 
 /// Converts a stat's raw investment value to its displayed value using the
 /// weapon stat group's per-stat `displayInterpolation`, a piecewise-linear

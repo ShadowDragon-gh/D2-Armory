@@ -749,15 +749,29 @@ void main() {
     const fragmentHash = 6030; // equipped in socket 2 (via def plug set)
     const fragmentSetHash = 7700;
     const discHash = 6040; // Discipline stat
+    const fragCostHash = 6050; // "Fragment Cost" — a socket cost, not a stat
 
     void stubPlug(int hash, String name,
         {String category = 'shared.solar.fragments',
-        List<Map<String, dynamic>> investmentStats = const []}) {
+        List<Map<String, dynamic>> investmentStats = const [],
+        int? iconHash,
+        String? foreground,
+        String? background}) {
       when(() => manifest.getInventoryItem(hash)).thenReturn({
-        'displayProperties': {'name': name, 'icon': '/p/$hash.png'},
+        'displayProperties': {
+          'name': name,
+          'icon': '/p/$hash.png',
+          'iconHash': ?iconHash,
+        },
         'plug': {'plugCategoryIdentifier': category},
         'investmentStats': investmentStats,
       });
+      if (iconHash != null) {
+        when(() => manifest.getIcon(iconHash)).thenReturn({
+          'foreground': ?foreground,
+          'background': ?background,
+        });
+      }
     }
 
     setUp(() {
@@ -795,8 +809,14 @@ void main() {
         'displayProperties': {'name': 'FRAGMENTS'}
       });
 
+      // The class-ability plug has a transparent glyph but its baked plate is
+      // the (wrong) generic one — the resolver should recomposite its glyph
+      // over the subclass element plate (from the fragment below).
       stubPlug(classAbilityHash, 'Phoenix Dive',
-          category: 'warlock.solar.class_abilities');
+          category: 'warlock.solar.class_abilities',
+          iconHash: 4100,
+          foreground: '/fg/phoenix.png',
+          background: '/plate/generic_stasis.png');
       stubPlug(classAbilityAltHash, 'Healing Rift',
           category: 'warlock.solar.class_abilities');
       stubPlug(classAbilityLockedHash, 'Icarus Dash',
@@ -811,14 +831,24 @@ void main() {
           {'plugItemHash': classAbilityLockedHash},
         ],
       });
-      // The fragment carries a -10 Discipline investment stat.
+      // The fragment carries a -10 Discipline investment stat plus a
+      // "+1 Fragment Cost" socket-cost stat (which must be filtered out). Its
+      // layered icon's background is the correct element plate — the source the
+      // class-ability recomposite draws over.
       stubPlug(fragmentHash, 'Ember of Torches',
           category: 'shared.solar.fragments',
+          iconHash: 4200,
+          foreground: '/fg/torches.png',
+          background: '/plate/solar.png',
           investmentStats: [
             {'statTypeHash': discHash, 'value': -10},
+            {'statTypeHash': fragCostHash, 'value': 1},
           ]);
       when(() => manifest.getStat(discHash)).thenReturn({
         'displayProperties': {'name': 'Discipline', 'icon': '/stat/disc.png'}
+      });
+      when(() => manifest.getStat(fragCostHash)).thenReturn({
+        'displayProperties': {'name': 'Fragment Cost', 'icon': '/stat/fc.png'}
       });
 
       // The fragment socket's definition plug set (the 310 fallback).
@@ -969,20 +999,115 @@ void main() {
       final disc =
           fragment.statEffects.firstWhere((e) => e.name == 'Discipline');
       expect(disc.value, -10);
+      // "Fragment Cost" is a socket cost, not a gameplay stat — never surfaced.
+      expect(fragment.statEffects.any((e) => e.name == 'Fragment Cost'),
+          isFalse);
     });
 
-    test('the fragment stat summary nets the equipped fragments\' stat changes',
-        () async {
+    test('the fragment stat summary nets the equipped fragments\' stat changes '
+        'and excludes Fragment Cost', () async {
       final subclass = theSubclass(await repo.fetchInventory());
       final detail = repo.resolveSubclassDetail(subclass)!;
 
-      // One equipped fragment: Ember of Torches (-10 Discipline).
+      // One equipped fragment: Ember of Torches (-10 Discipline). The "+1
+      // Fragment Cost" it also carries is a socket cost, not a stat, so the
+      // summary has exactly one entry (Discipline), not two.
       expect(detail.fragmentStatSummary.length, 1);
       final disc = detail.fragmentStatSummary.single;
       expect(disc.name, 'Discipline');
       expect(disc.value, -10);
       expect(disc.beneficial, isFalse);
       expect(disc.iconUrl, contains('/stat/disc.png'));
+    });
+
+    test('a class-ability plug recomposites its glyph over the element plate '
+        '(not its wrong baked plate)', () async {
+      final subclass = theSubclass(await repo.fetchInventory());
+      final detail = repo.resolveSubclassDetail(subclass)!;
+
+      final ability = detail.groups
+          .firstWhere((g) => g.label == 'ABILITIES')
+          .sockets
+          .single
+          .equipped!;
+      // The plate is the element plate (from the fragment's background), and the
+      // foreground is the class-ability's own transparent glyph — so the modal
+      // composites green over blue instead of the baked Stasis plate.
+      expect(ability.plateUrl, contains('/plate/solar.png'));
+      expect(ability.foregroundUrl, contains('/fg/phoenix.png'));
+    });
+
+    test('the SUPER group is flagged isSuper (diamond in the modal)', () async {
+      final subclass = theSubclass(await repo.fetchInventory());
+      final detail = repo.resolveSubclassDetail(subclass)!;
+      final superGroup = detail.groups.firstWhere((g) => g.label == 'SUPER');
+      expect(superGroup.isSuper, isTrue);
+      // The other groups are not supers.
+      expect(detail.groups.where((g) => g.isSuper).length, 1);
+    });
+
+    test('a non-Prismatic super is not recomposited (no def background plate)',
+        () async {
+      // The base Dawnblade def has no background layer, so the super keeps its
+      // flat element icon (no prism composite).
+      final subclass = theSubclass(await repo.fetchInventory());
+      final detail = repo.resolveSubclassDetail(subclass)!;
+      final superPlug = detail.groups
+          .firstWhere((g) => g.label == 'SUPER')
+          .sockets
+          .single
+          .equipped!;
+      expect(superPlug.plateUrl, isNull);
+      expect(superPlug.foregroundUrl, isNull);
+    });
+
+    test('a Prismatic super composites its glyph over the prism plate',
+        () async {
+      // Re-stub the subclass def with a background (the pink prism plate) and
+      // the super plug with a transparent foreground glyph — the Prismatic case.
+      when(() => manifest.getInventoryItem(subclassHash)).thenReturn({
+        'displayProperties': {
+          'name': 'Dawnblade',
+          'icon': '/sc.png',
+          'iconHash': 9001,
+        },
+        'itemType': 16,
+        'classType': 2,
+        'talentGrid': {'hudDamageType': 3},
+        'inventory': {'bucketTypeHash': EquipmentBucket.subclass.hash},
+        'sockets': {
+          'socketCategories': [
+            {'socketCategoryHash': abilitiesCat, 'socketIndexes': [0]},
+            {'socketCategoryHash': superCat, 'socketIndexes': [1]},
+            {'socketCategoryHash': fragmentsCat, 'socketIndexes': [2]},
+          ],
+          'socketEntries': [
+            {'reusablePlugSetHash': abilitySetHash},
+            {'reusablePlugSetHash': 0},
+            {'reusablePlugSetHash': fragmentSetHash},
+          ],
+        },
+      });
+      when(() => manifest.getIcon(9001)).thenReturn({
+        'background': '/plate/prism.png',
+      });
+      stubPlug(superHash, 'Daybreak',
+          category: 'warlock.solar.supers',
+          iconHash: 9002,
+          foreground: '/fg/daybreak.png',
+          background: '/plate/solar_super.png');
+
+      final subclass = theSubclass(await repo.fetchInventory());
+      final detail = repo.resolveSubclassDetail(subclass)!;
+      final superPlug = detail.groups
+          .firstWhere((g) => g.label == 'SUPER')
+          .sockets
+          .single
+          .equipped!;
+      // Composited over the PRISM plate (def background), not the super's own
+      // solar plate.
+      expect(superPlug.plateUrl, contains('/plate/prism.png'));
+      expect(superPlug.foregroundUrl, contains('/fg/daybreak.png'));
     });
 
     test('an aspect keeps its sandbox-perk description despite a stat effect',
