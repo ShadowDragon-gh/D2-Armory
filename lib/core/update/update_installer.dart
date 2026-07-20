@@ -130,11 +130,11 @@ if %ERRORLEVEL% GEQ 8 (
 
 :relaunch
 echo [%time%] relaunching app >> "%LOG%"
-rem Relaunch via Explorer so the app is parented to Explorer (as a double-click
-rem would be), not to this batch's console. The runner's
-rem AttachConsole(ATTACH_PARENT_PROCESS) would otherwise bind the GUI app to this
-rem console window, leaving a stray console whose close kills the app.
-explorer.exe "$exePath"
+rem This batch runs in a hidden console (launched via PowerShell Start-Process
+rem -WindowStyle Hidden), so there is no visible console for the GUI app to
+rem attach to via AttachConsole(ATTACH_PARENT_PROCESS). Launch it directly with
+rem 'start' so it detaches from this batch and outlives it.
+start "" "$exePath"
 
 rem --- 4. Clean up staging + downloaded zip (best effort) ---
 if exist "$stageDir" rmdir /s /q "$stageDir"

@@ -32,6 +32,15 @@ if (-not (Test-Path $envFile)) {
   throw "Missing $envFile. Create it with your release Bungie credentials first."
 }
 
+Write-Host "==> Cleaning previous build so the exe version resource regenerates" -ForegroundColor Cyan
+# The Windows FILEVERSION/ProductVersion is stamped from pubspec into the CMake
+# cache at configure time. An incremental `flutter build` reuses that cache and
+# re-links the exe with the STALE version, so a version bump would ship an exe
+# whose embedded version (what PackageInfo.fromPlatform reads) is the old one.
+# A clean forces CMake to reconfigure and pick up the current pubspec version.
+flutter clean
+if ($LASTEXITCODE -ne 0) { throw "flutter clean failed ($LASTEXITCODE)." }
+
 Write-Host "==> Building release with $envFile" -ForegroundColor Cyan
 flutter build windows --release --dart-define-from-file=$envFile
 if ($LASTEXITCODE -ne 0) { throw "flutter build failed ($LASTEXITCODE)." }
