@@ -269,6 +269,58 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'Equip'), findsNothing);
   });
 
+  testWidgets('the fragment stat summary renders its net stat totals',
+      (tester) async {
+    const item = DestinyItem(
+      itemHash: 3,
+      bucketHash: 3284755031,
+      name: 'Voidwalker',
+      iconPath: '',
+      itemType: 16,
+      itemInstanceId: '999',
+    );
+    const detail = SubclassDetail(
+      item: item,
+      element: 4,
+      screenshotPath: '',
+      groups: [
+        SubclassSocketGroup(label: 'FRAGMENTS', isFragments: true, sockets: [
+          SubclassSocket(
+            socketIndex: 7,
+            equipped: ItemPlug(
+                name: 'Echo of Instability',
+                iconPath: '',
+                category: PlugCategory.perk,
+                plugHash: 8001,
+                socketIndex: 7),
+            options: [],
+          ),
+        ]),
+      ],
+      fragmentStatSummary: [
+        SubclassStatEffect(
+            hash: 1, name: 'Discipline', iconPath: '', value: -20,
+            beneficial: false),
+        SubclassStatEffect(
+            hash: 2, name: 'Strength', iconPath: '', value: 10,
+            beneficial: true),
+      ],
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        subclassDetailProvider.overrideWith((ref) => detail),
+        moveControllerProvider.overrideWith(() => _SpyMoveController()),
+        clarityInsightProvider.overrideWith((ref, hash) => null),
+      ],
+      child: const MaterialApp(home: Scaffold(body: SubclassDetailModal())),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('FRAGMENT STATS'), findsOneWidget);
+    expect(find.text('-20'), findsOneWidget); // Discipline net
+    expect(find.text('+10'), findsOneWidget); // Strength net (signed +)
+  });
+
   testWidgets('tapping an option fires insertPlug with the socket/plug',
       (tester) async {
     final spy = _SpyMoveController();

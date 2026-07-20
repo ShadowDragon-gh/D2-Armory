@@ -818,7 +818,7 @@ void main() {
             {'statTypeHash': discHash, 'value': -10},
           ]);
       when(() => manifest.getStat(discHash)).thenReturn({
-        'displayProperties': {'name': 'Discipline'}
+        'displayProperties': {'name': 'Discipline', 'icon': '/stat/disc.png'}
       });
 
       // The fragment socket's definition plug set (the 310 fallback).
@@ -969,6 +969,20 @@ void main() {
       final disc =
           fragment.statEffects.firstWhere((e) => e.name == 'Discipline');
       expect(disc.value, -10);
+    });
+
+    test('the fragment stat summary nets the equipped fragments\' stat changes',
+        () async {
+      final subclass = theSubclass(await repo.fetchInventory());
+      final detail = repo.resolveSubclassDetail(subclass)!;
+
+      // One equipped fragment: Ember of Torches (-10 Discipline).
+      expect(detail.fragmentStatSummary.length, 1);
+      final disc = detail.fragmentStatSummary.single;
+      expect(disc.name, 'Discipline');
+      expect(disc.value, -10);
+      expect(disc.beneficial, isFalse);
+      expect(disc.iconUrl, contains('/stat/disc.png'));
     });
 
     test('an aspect keeps its sandbox-perk description despite a stat effect',

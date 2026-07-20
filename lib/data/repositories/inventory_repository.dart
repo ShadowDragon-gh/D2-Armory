@@ -556,7 +556,11 @@ class InventoryRepository {
       if (socketsInGroup.isNotEmpty) {
         built.add((
           kind: groupKind,
-          group: SubclassSocketGroup(label: label, sockets: socketsInGroup),
+          group: SubclassSocketGroup(
+            label: label,
+            sockets: socketsInGroup,
+            isFragments: groupKind == _SubclassGroupKind.fragments,
+          ),
         ));
       }
     }
@@ -567,6 +571,7 @@ class InventoryRepository {
       screenshotPath: (def?['screenshot'] as String?) ?? '',
       // A definition-only subclass (no instance) is not owned.
       owned: id != null,
+      fragmentStatSummary: _fragmentStatSummary(built),
       // The fragment-slot capacity constraint only applies to an owned subclass
       // (which has equipped aspects granting the slots). A definition-only
       // subclass has nothing equipped, so leave every socket browsable.
@@ -574,6 +579,50 @@ class InventoryRepository {
           ? [for (final b in built) b.group]
           : _constrainFragmentSlots(built),
     );
+  }
+
+  /// The net stat change from the equipped fragments — one [SubclassStatEffect]
+  /// per stat the fragments alter, zero-net stats dropped. Sums each equipped
+  /// fragment's [ItemPlug.statEffects] by stat hash (e.g. two −10 Discipline
+  /// fragments → −20 Discipline). Empty when no fragment is equipped or none
+  /// changes a stat. The stat icon is resolved from its definition.
+  List<SubclassStatEffect> _fragmentStatSummary(
+      List<({_SubclassGroupKind kind, SubclassSocketGroup group})> built) {
+    // Net value + a representative effect (for name/sign) per stat hash, kept in
+    // first-seen order so the summary is stable across resolves.
+    final net = <int, int>{};
+    final order = <int>[];
+    final sample = <int, PerkStatEffect>{};
+    for (final b in built) {
+      if (b.kind != _SubclassGroupKind.fragments) continue;
+      for (final socket in b.group.sockets) {
+        for (final e in socket.equipped?.statEffects ?? const <PerkStatEffect>[]) {
+          if (!net.containsKey(e.hash)) order.add(e.hash);
+          net[e.hash] = (net[e.hash] ?? 0) + e.value;
+          sample[e.hash] = e;
+        }
+      }
+    }
+
+    final result = <SubclassStatEffect>[];
+    for (final hash in order) {
+      final value = net[hash] ?? 0;
+      if (value == 0) continue; // opposing fragments cancelled out — omit
+      final e = sample[hash]!;
+      final iconPath =
+          (_manifest.getStat(hash)?['displayProperties']?['icon'] as String?) ??
+              '';
+      result.add(SubclassStatEffect(
+        hash: hash,
+        name: e.name,
+        iconPath: iconPath,
+        value: value,
+        // A positive net helps a normal stat; for an inverted "lower is better"
+        // stat the fragment already sign-flips its value, so the same rule holds.
+        beneficial: value > 0,
+      ));
+    }
+    return result;
   }
 
   // The display name of the aspect stat that grants fragment slots. Each
@@ -678,7 +727,11 @@ class InventoryRepository {
     return [
       for (final b in built)
         b.kind == _SubclassGroupKind.fragments
-            ? SubclassSocketGroup(label: b.group.label, sockets: constrained)
+            ? SubclassSocketGroup(
+                label: b.group.label,
+                sockets: constrained,
+                isFragments: true,
+              )
             : b.group,
     ];
   }

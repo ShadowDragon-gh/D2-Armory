@@ -199,6 +199,13 @@ class _SubclassBodyState extends State<_SubclassBody> {
                 for (final group in detail.groups) ...[
                   _SocketGroupSection(item: detail.item, group: group),
                   const SizedBox(height: 20),
+                  // The net fragment stat totals sit directly under the
+                  // Fragments section they summarise.
+                  if (group.isFragments &&
+                      detail.fragmentStatSummary.isNotEmpty) ...[
+                    _FragmentStatSummary(effects: detail.fragmentStatSummary),
+                    const SizedBox(height: 20),
+                  ],
                 ],
               ],
             ),
@@ -208,6 +215,7 @@ class _SubclassBodyState extends State<_SubclassBody> {
     );
   }
 }
+
 
 /// The header Equip button for an owned, not-currently-equipped subclass.
 /// Equips it in-game via [MoveController.equipSubclass] and closes the modal so
@@ -226,6 +234,76 @@ class _EquipButton extends ConsumerWidget {
       },
       icon: const Icon(Icons.check_circle_outline, size: 18),
       label: const Text('Equip'),
+    );
+  }
+}
+
+/// A summary of the net stat change from the equipped fragments — one chip per
+/// changed stat (its icon + a signed number), coloured gold for a gain and red
+/// for a loss. Shown only when at least one equipped fragment alters a stat.
+class _FragmentStatSummary extends StatelessWidget {
+  const _FragmentStatSummary({required this.effects});
+
+  final List<SubclassStatEffect> effects;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'FRAGMENT STATS',
+          style: theme.textTheme.labelSmall
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 14,
+          runSpacing: 8,
+          children: [for (final e in effects) _FragmentStatChip(effect: e)],
+        ),
+      ],
+    );
+  }
+}
+
+/// One stat in the fragment summary: the stat icon and its signed net value.
+class _FragmentStatChip extends StatelessWidget {
+  const _FragmentStatChip({required this.effect});
+
+  final SubclassStatEffect effect;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = effect.beneficial
+        ? ArmoryPalette.masterworkGold
+        : ArmoryPalette.statPenaltyRed;
+    return Tooltip(
+      message: effect.name,
+      waitDuration: const Duration(milliseconds: 400),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (effect.iconUrl != null)
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CachedNetworkImage(
+                imageUrl: effect.iconUrl!,
+                fit: BoxFit.contain,
+                fadeInDuration: Duration.zero,
+                errorWidget: (_, _, _) => const SizedBox.shrink(),
+              ),
+            ),
+          const SizedBox(width: 4),
+          Text(
+            '${effect.value > 0 ? '+' : ''}${effect.value}',
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w700, color: color),
+          ),
+        ],
+      ),
     );
   }
 }

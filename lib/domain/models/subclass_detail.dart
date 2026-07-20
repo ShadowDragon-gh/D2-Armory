@@ -12,6 +12,7 @@ class SubclassDetail {
     required this.element,
     required this.screenshotPath,
     required this.groups,
+    this.fragmentStatSummary = const [],
     this.owned = true,
   });
 
@@ -27,6 +28,11 @@ class SubclassDetail {
   /// any Prismatic extras), in the definition's category order.
   final List<SubclassSocketGroup> groups;
 
+  /// The net stat change from the equipped fragments, one entry per stat the
+  /// fragments alter (zero-net stats omitted). Empty when no equipped fragment
+  /// changes a stat (or the subclass is not owned).
+  final List<SubclassStatEffect> fragmentStatSummary;
+
   /// Whether the character owns this subclass (has a live instance). False for a
   /// definition-only subclass injected into the grid — the modal shows every
   /// option for browsing, but none is equippable, and a "not unlocked" notice
@@ -38,13 +44,45 @@ class SubclassDetail {
       : '${AppConfig.bungieBaseUrl}$screenshotPath';
 }
 
+/// A net stat change from the equipped fragments (e.g. −20 Discipline), for the
+/// modal's fragment stat summary: the stat's [name] and [iconPath], the signed
+/// net [value], and whether that net helps ([beneficial]).
+class SubclassStatEffect {
+  const SubclassStatEffect({
+    required this.hash,
+    required this.name,
+    required this.iconPath,
+    required this.value,
+    required this.beneficial,
+  });
+
+  final int hash;
+  final String name;
+  final String iconPath;
+  final int value;
+  final bool beneficial;
+
+  String? get iconUrl =>
+      iconPath.isEmpty ? null : '${AppConfig.bungieBaseUrl}$iconPath';
+}
+
 /// One socket category of a subclass (e.g. Abilities), labelled by the
 /// `DestinySocketCategoryDefinition` name.
 class SubclassSocketGroup {
-  const SubclassSocketGroup({required this.label, required this.sockets});
+  const SubclassSocketGroup({
+    required this.label,
+    required this.sockets,
+    this.isFragments = false,
+  });
 
   final String label;
   final List<SubclassSocket> sockets;
+
+  /// Whether this is the Fragments group (its plugs are fragments/`.trinkets`),
+  /// so the modal renders the fragment stat summary directly beneath it.
+  /// Derived from the plug category, not the label — robust across elements
+  /// (Stasis fragments predate the 3.0 naming).
+  final bool isFragments;
 }
 
 /// How an option renders in a socket's picker.
