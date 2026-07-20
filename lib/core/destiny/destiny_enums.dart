@@ -8,6 +8,7 @@ class DestinyEnums {
   // DestinyItemType
   static const int typeArmor = 2;
   static const int typeWeapon = 3;
+  static const int typeSubclass = 16;
 
   // TierType (rarity). Superior == Legendary in DIM terms.
   static const Map<String, int> tierByKeyword = {

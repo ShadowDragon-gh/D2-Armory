@@ -47,6 +47,23 @@ Map<String, dynamic> _def({
       'inventory': {'bucketTypeHash': bucketHash, 'tierType': tierType},
     };
 
+/// A subclass ability-plug definition (itemType 19), keyed by its plug
+/// category identifier (the ability taxonomy) rather than a bucket.
+Map<String, dynamic> _abilityDef({
+  required int hash,
+  required String name,
+  required String pci,
+  int redacted = 0,
+}) =>
+    {
+      'hash': hash,
+      'displayProperties': {'name': name, 'icon': '/icon/$name.jpg'},
+      'itemType': 19,
+      'classType': 3,
+      'redacted': redacted,
+      'plug': {'plugCategoryIdentifier': pci},
+    };
+
 List<String> _names(List<Map<String, Object?>> rows) => [
       for (final r in rows) r['name'] as String,
     ];
@@ -121,6 +138,83 @@ void main() {
       expect(ar['itemSubType'], 6);
       expect(ar['damageType'], 3);
       expect(ar['bucketHash'], 2465295065);
+    });
+  });
+
+  group('queryGearSummaries — abilities', () {
+    late ManifestDatabase db;
+
+    setUp(() {
+      db = _fixture({
+        // A real fragment (class-shared), a class ability, a super, an aspect,
+        // a stasis aspect (totems) and fragment (trinkets), a grenade.
+        10: _abilityDef(
+            hash: 10, name: 'Ember of Torches', pci: 'shared.solar.fragments'),
+        11: _abilityDef(
+            hash: 11,
+            name: 'Phoenix Dive',
+            pci: 'warlock.solar.class_abilities'),
+        12: _abilityDef(
+            hash: 12, name: 'Daybreak', pci: 'warlock.solar.supers'),
+        13: _abilityDef(
+            hash: 13, name: 'Heat Rises', pci: 'warlock.solar.aspects'),
+        14: _abilityDef(
+            hash: 14, name: 'Iceflare Bolts', pci: 'warlock.stasis.totems'),
+        15: _abilityDef(
+            hash: 15, name: 'Whisper of Rime', pci: 'shared.stasis.trinkets'),
+        16: _abilityDef(
+            hash: 16, name: 'Firebolt Grenade', pci: 'shared.solar.grenades'),
+        // An "Empty … Socket" placeholder — excluded by name.
+        17: _abilityDef(
+            hash: 17,
+            name: 'Empty Fragment Socket',
+            pci: 'shared.solar.fragments'),
+        // A weapon perk (frames.traits) — NOT an ability category, excluded.
+        18: _abilityDef(
+            hash: 18, name: 'Rampage', pci: 'frames.traits'),
+        // A redacted ability — excluded.
+        19: _abilityDef(
+            hash: 19,
+            name: 'Redacted Fragment',
+            pci: 'shared.void.fragments',
+            redacted: 1),
+      });
+    });
+
+    tearDown(() => db.close());
+
+    test('matches every ability category, excluding placeholders and non-abilities',
+        () {
+      final rows = db.queryGearSummaries(GearKind.ability);
+      expect(
+          _names(rows)..sort(),
+          [
+            'Daybreak',
+            'Ember of Torches',
+            'Firebolt Grenade',
+            'Heat Rises',
+            'Iceflare Bolts',
+            'Phoenix Dive',
+            'Whisper of Rime',
+          ]);
+    });
+
+    test('"Empty Fragment Socket" placeholder is excluded', () {
+      final rows = db.queryGearSummaries(GearKind.ability);
+      expect(_names(rows), isNot(contains('Empty Fragment Socket')));
+    });
+
+    test('a weapon perk (non-ability category) is excluded', () {
+      final rows = db.queryGearSummaries(GearKind.ability);
+      expect(_names(rows), isNot(contains('Rampage')));
+    });
+
+    test('projects the plug category identifier (pci) for class/element derive',
+        () {
+      final rows = db.queryGearSummaries(GearKind.ability);
+      final dive = rows.firstWhere((r) => r['name'] == 'Phoenix Dive');
+      expect(dive['pci'], 'warlock.solar.class_abilities');
+      expect(dive['itemType'], 19);
     });
   });
 }

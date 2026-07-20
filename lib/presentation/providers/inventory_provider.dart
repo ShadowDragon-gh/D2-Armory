@@ -10,6 +10,7 @@ import '../../data/repositories/membership_service.dart';
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/inventory_grid.dart';
 import '../../domain/models/item_detail.dart';
+import '../../domain/models/subclass_detail.dart';
 import 'character_provider.dart';
 import 'manifest_provider.dart';
 
@@ -245,6 +246,21 @@ class MoveController extends Notifier<MoveOutcome?> {
     }
   }
 
+  /// Equip an owned [subclass] on the character that holds it — the click-based
+  /// path (tile right-click / modal button) that replaces drag-to-equip for
+  /// subclasses. Resolves the owner from the current grid (a subclass is always
+  /// on its own character, never the vault) and equips in place via [equip].
+  /// No-op when the item is uninstanced (a not-owned definition-only subclass)
+  /// or not found in the grid.
+  Future<void> equipSubclass(DestinyItem subclass) async {
+    final instanceId = subclass.itemInstanceId;
+    if (instanceId == null) return;
+    final grid = ref.read(inventoryGridProvider).value;
+    final owner = grid == null ? null : _ownerOf(grid, instanceId);
+    if (owner == null) return;
+    await equip(ItemDrag(item: subclass, fromOwnerId: owner.id), owner);
+  }
+
   /// Insert [plugHash] into [item]'s [socketIndex] socket — selecting the perk
   /// or mod named [plugName] in-game. [item] must be the owned instance backing
   /// the gear-detail modal; its owner is resolved from the current grid (the
@@ -393,6 +409,13 @@ class MoveController extends Notifier<MoveOutcome?> {
     ref.read(inventoryGridProvider.notifier).patch(
           grid.withItemEquipped(instanceId: instanceId, ownerId: ownerId),
         );
+    // Record the equip so a later refetch that has not yet propagated it (an
+    // edge-lagged profile) does not silently revert the grid to the stale
+    // equipped item. Cleared automatically once a fetched profile confirms it.
+    final item = _itemOf(grid, instanceId);
+    if (item != null) {
+      ref.read(inventoryRepositoryProvider).markPendingEquip(item, ownerId);
+    }
   }
 
   void _patchMove(String instanceId, String fromOwnerId, String toOwnerId) {
@@ -591,4 +614,44 @@ final gearModalInstanceDetailProvider =
   return ref
       .watch(inventoryRepositoryProvider)
       .resolveDetail(item, withPerkColumns: true);
+});
+
+/// The subclass whose detail modal is open, or null when none is. Set from the
+/// inventory tile tap (alongside [gearModalInstanceProvider], which the insert
+/// reconcile re-selects); cleared when the modal closes.
+class SelectedSubclassNotifier extends Notifier<DestinyItem?> {
+  @override
+  DestinyItem? build() => null;
+
+  void select(DestinyItem item) => state = item;
+  void clear() => state = null;
+}
+
+final selectedSubclassProvider =
+    NotifierProvider<SelectedSubclassNotifier, DestinyItem?>(
+        SelectedSubclassNotifier.new);
+
+/// Guards a single subclass modal so a re-selection never stacks a second
+/// dialog (the Inventory screen stays alive in the shell's IndexedStack), the
+/// same way [gearModalOpenProvider] guards the item modal.
+class SubclassModalOpenNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void set(bool value) => state = value;
+}
+
+final subclassModalOpenProvider =
+    NotifierProvider<SubclassModalOpenNotifier, bool>(
+        SubclassModalOpenNotifier.new);
+
+/// The resolved subclass configuration behind the subclass modal, or null when
+/// none is open. Watches [gearModalRevisionProvider] so an ability insert's
+/// cache patch (and a following aspect change that shows/hides fragment
+/// sockets) re-resolves the groups, mirroring [gearModalInstanceDetailProvider].
+final subclassDetailProvider =
+    Provider.autoDispose<SubclassDetail?>((ref) {
+  final item = ref.watch(selectedSubclassProvider);
+  if (item == null) return null;
+  ref.watch(gearModalRevisionProvider);
+  return ref.watch(inventoryRepositoryProvider).resolveSubclassDetail(item);
 });

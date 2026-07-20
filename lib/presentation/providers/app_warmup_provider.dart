@@ -39,7 +39,7 @@ final appWarmupProvider = Provider<void>((ref) {
   ref.watch(inventoryGridProvider);
   ref.watch(inventoryFacetsWarmProvider);
 
-  // Database gear indexes + search-facet indexes, both kinds, in parallel.
+  // Database gear indexes + search-facet indexes, every kind, in parallel.
   for (final kind in GearKind.values) {
     ref.watch(databaseIndexProvider(kind));
     ref.watch(databaseFacetsWarmProvider(kind));

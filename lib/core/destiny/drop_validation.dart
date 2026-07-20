@@ -1,6 +1,7 @@
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/inventory_grid.dart';
 import 'destiny_buckets.dart';
+import 'destiny_enums.dart';
 
 /// The outcome of a pre-flight drop check: whether the drop is allowed, and —
 /// when it is not — a short human reason the UI can surface (and use to tint
@@ -46,6 +47,9 @@ DropVerdict canDrop(
 }) {
   if (item.itemInstanceId == null) {
     return const DropVerdict.deny('Only instanced items can be moved.');
+  }
+  if (item.itemType == DestinyEnums.typeSubclass) {
+    return const DropVerdict.deny("Subclasses can't be transferred.");
   }
   if (item.bucketHash != targetBucket.hash) {
     return const DropVerdict.deny('Wrong slot for this item.');

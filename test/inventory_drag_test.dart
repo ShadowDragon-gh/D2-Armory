@@ -397,6 +397,54 @@ void main() {
       expect(c.read(moveControllerProvider)!.ok, isTrue);
     });
 
+    test('equipSubclass resolves the owner and equips the subclass in place',
+        () async {
+      // A grid where the Hunter owns an unequipped subclass on its character.
+      const subclass = DestinyItem(
+        itemHash: 800,
+        bucketHash: 3284755031,
+        name: 'Nightstalker',
+        iconPath: '',
+        itemType: 16,
+        itemInstanceId: 'sub-1',
+        classType: 1,
+      );
+      final c = ProviderContainer(overrides: [
+        inventoryGridProvider.overrideWith(() => _FixedGridNotifier(
+              InventoryGrid([
+                InventoryOwner(
+                  id: 'charA',
+                  title: 'Hunter',
+                  isVault: false,
+                  character: _hunter(),
+                  itemsByBucket: const {
+                    3284755031: [subclass],
+                  },
+                ),
+                const InventoryOwner(
+                  id: 'vault',
+                  title: 'Vault',
+                  isVault: true,
+                  itemsByBucket: {},
+                ),
+              ]),
+            )),
+        itemTransferRepositoryProvider.overrideWithValue(transfer),
+      ]);
+      addTearDown(c.dispose);
+      await c.read(inventoryGridProvider.future);
+
+      await c.read(moveControllerProvider.notifier).equipSubclass(subclass);
+
+      // The transfer's equip was called with this subclass on charA (owner
+      // resolved from the grid — no ItemDrag threaded through the UI).
+      final captured =
+          verify(() => transfer.equip(captureAny(), captureAny())).captured;
+      expect((captured[0] as DestinyItem).itemInstanceId, 'sub-1');
+      expect((captured[1] as InventoryOwner).id, 'charA');
+      expect(c.read(moveControllerProvider)!.ok, isTrue);
+    });
+
     test('equipping a vault item onto a character moves it there then equips',
         () async {
       // _grid(): vault holds the rifle (inst-1); charA is empty. Dropping it on

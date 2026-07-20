@@ -126,7 +126,12 @@ class DatabaseRepository {
       if (filter.minTierType != null && g.tierType < filter.minTierType!) {
         return false;
       }
-      if (filter.classType != null && g.classType != filter.classType) {
+      // A class filter keeps that class's gear plus class-shared items
+      // (classType 3 — e.g. shared fragments/grenades, which belong to every
+      // class). Armor is never classType 3, so armor semantics are unchanged.
+      if (filter.classType != null &&
+          g.classType != filter.classType &&
+          g.classType != 3) {
         return false;
       }
       if (filter.itemSubType != null && g.itemSubType != filter.itemSubType) {
@@ -415,13 +420,29 @@ class DatabaseRepository {
     final itemHash = (row['hash'] as num?)?.toInt();
     if (name.isEmpty || itemHash == null) return null;
 
-    final damageType = (row['damageType'] as num?)?.toInt() ?? 0;
+    // Ability plugs carry `classType 3` and no damage type on the definition —
+    // their class affinity and element live in the plug-category prefix
+    // (`<class>.<element>.<suffix>`), so derive both from it. `pci` is null for
+    // weapon/armor rows, which keep their definition-projected values.
+    final pci = row['pci'] as String?;
+    final classType = pci != null
+        ? _abilityClassFromPci(pci)
+        : (row['classType'] as num?)?.toInt() ?? 3;
+    final damageType = pci != null
+        ? _abilityElementFromPci(pci)
+        : (row['damageType'] as num?)?.toInt() ?? 0;
+
     // Resolve the element glyph for every real damage type, kinetic included —
     // kinetic has its own icon, so kinetic weapons no longer render blank.
+    // Weapon/armor rows resolve it from their projected damageTypeHash; ability
+    // rows have no hash (the type came from the pci), so they resolve the glyph
+    // from the enum-value damage-type definition.
     String? elementIconPath;
     if (damageType >= DamageType.kinetic) {
-      final dmgDef =
-          _manifest.getDamageType((row['damageTypeHash'] as num?)?.toInt() ?? 0);
+      final dmgDef = pci != null
+          ? _damageTypeByEnum(damageType)
+          : _manifest
+              .getDamageType((row['damageTypeHash'] as num?)?.toInt() ?? 0);
       elementIconPath = (dmgDef?['transparentIconPath'] as String?) ??
           (dmgDef?['displayProperties']?['icon'] as String?);
     }
@@ -434,13 +455,54 @@ class DatabaseRepository {
       itemType: (row['itemType'] as num?)?.toInt() ?? 0,
       itemSubType: (row['itemSubType'] as num?)?.toInt() ?? 0,
       itemTypeDisplayName: row['itemTypeDisplayName'] as String? ?? '',
-      classType: (row['classType'] as num?)?.toInt() ?? 3,
+      classType: classType,
       damageType: damageType,
       ammoType: (row['ammoType'] as num?)?.toInt() ?? 0,
       bucketHash: (row['bucketHash'] as num?)?.toInt() ?? 0,
       index: (row['idx'] as num?)?.toInt() ?? 0,
       elementIconPath: elementIconPath,
     );
+  }
+
+  /// DestinyClass from an ability plug category's prefix
+  /// (`titan|hunter|warlock` → 0/1/2; `shared` and anything else → 3/any).
+  static int _abilityClassFromPci(String pci) {
+    final prefix = pci.split('.').first;
+    return switch (prefix) {
+      'titan' => 0,
+      'hunter' => 1,
+      'warlock' => 2,
+      _ => 3,
+    };
+  }
+
+  /// DestinyDamageType from an ability plug category's element segment (the
+  /// second segment). `prism` (Prismatic) has no single damage type → 0, its
+  /// identity reads from `itemTypeDisplayName` instead.
+  static int _abilityElementFromPci(String pci) {
+    final parts = pci.split('.');
+    final element = parts.length > 1 ? parts[1] : '';
+    return switch (element) {
+      'arc' => 2,
+      'solar' => 3,
+      'void' => 4,
+      'stasis' => 6,
+      'strand' => 7,
+      _ => 0, // prism / none
+    };
+  }
+
+  // Damage-type definitions cached by their enumValue, so an ability row (which
+  // has no damageTypeHash) can resolve its element glyph from the derived type
+  // number. Built once from the small damage-type table.
+  Map<int, Map<String, dynamic>>? _damageTypeByEnumCache;
+
+  Map<String, dynamic>? _damageTypeByEnum(int enumValue) {
+    final index = _damageTypeByEnumCache ??= {
+      for (final d in _manifest.allDamageTypes())
+        if ((d['enumValue'] as num?)?.toInt() case final int e) e: d,
+    };
+    return index[enumValue];
   }
 
   /// Resolve the full definition detail for the Database modal: base stats (no
@@ -464,6 +526,20 @@ class DatabaseRepository {
       source: resolveItemSource(_manifest, _d2ai, def, itemHash),
       questOrigin: resolveQuestOrigin(_manifest, _d2ai, itemHash),
     );
+  }
+
+  /// Resolve a subclass ability plug for the Database ability modal: its
+  /// summary (name, icon, itemTypeDisplayName, class, element) from the cached
+  /// ability index, plus the plug's description and stat effects from the
+  /// definition. Null when the hash is not a known ability. [ItemPlug.plugHash]
+  /// carries the hash for the Clarity join.
+  ({GearSummary summary, ItemPlug plug})? resolveAbilityDetail(int itemHash) {
+    _indexFor(GearKind.ability); // ensure the index + summary lookup are built
+    final summary = _summariesByHash[GearKind.ability]?[itemHash];
+    if (summary == null) return null;
+    final plug = _plugOf(itemHash, PlugCategory.other);
+    if (plug == null) return null;
+    return (summary: summary, plug: plug);
   }
 
   DestinyItem _itemOf(int itemHash, Map<String, dynamic> def) {

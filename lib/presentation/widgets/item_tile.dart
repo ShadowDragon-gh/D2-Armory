@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/destiny/destiny_buckets.dart';
+import '../../core/destiny/destiny_enums.dart';
 import '../../core/network/item_icon_cache.dart';
 import '../../domain/models/destiny_item.dart';
 import '../providers/database_provider.dart';
@@ -41,8 +42,19 @@ class ItemTile extends ConsumerWidget {
 
   static const double _footerHeight = 16;
 
+  /// How much a Prismatic subclass's circular plate composite is scaled up on
+  /// the diamond tile so the circle covers the diamond's corners (the diamond
+  /// clip trims the overflow). Just past 1 — enough to fill the corners without
+  /// noticeably shrinking the super glyph.
+  static const double _subclassPlateScale = 1.1;
+
+  // Subclasses are equipped by right-click / the modal button, not by dragging,
+  // so they are never a drag source (unlike weapons/armor).
   bool get _draggable =>
-      ownerId != null && item.itemInstanceId != null && !item.isEquipped;
+      ownerId != null &&
+      item.itemInstanceId != null &&
+      !item.isEquipped &&
+      item.itemType != DestinyEnums.typeSubclass;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -61,8 +73,15 @@ class ItemTile extends ConsumerWidget {
     // background. When the item ships a rarity plate + transparent ornament
     // foreground (exotics), composite those so the exotic background is kept;
     // otherwise fall back to the flat ornament icon.
-    final plateUrl = showCosmetics ? item.rarityPlateUrl : null;
-    final foregroundUrl = showCosmetics ? item.ornamentForegroundUrl : null;
+    //
+    // A subclass reuses the same plate + foreground fields to draw a Prismatic
+    // super glyph over the pink Prismatic plate (its flat super icon carries the
+    // wrong element colour). That composite is the item's correct icon, not a
+    // cosmetic preference, so it is not gated on the cosmetics toggle.
+    final compositeAllowed =
+        showCosmetics || item.itemType == DestinyEnums.typeSubclass;
+    final plateUrl = compositeAllowed ? item.rarityPlateUrl : null;
+    final foregroundUrl = compositeAllowed ? item.ornamentForegroundUrl : null;
     final useComposite = plateUrl != null && foregroundUrl != null;
     final iconUrl = useComposite
         ? null
@@ -81,10 +100,20 @@ class ItemTile extends ConsumerWidget {
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
-            // Opens the shared gear-detail modal (the Inventory screen listens
-            // to the definition selection and shows it). The instance is
+            // A subclass opens the socket-group subclass modal, not the
+            // weapon/armor-shaped gear modal. It is also selected into
+            // gearModalInstanceProvider so MoveController.insertPlug's
+            // override-reset and post-insert reconcile plumbing works unchanged
+            // (that path re-selects the instance there after its refetch). Other
+            // items open the shared gear-detail modal (the Inventory screen
+            // listens to the definition selection and shows it); the instance is
             // recorded first so the modal can offer this item's rolled stats.
             onTap: () {
+              if (item.itemType == DestinyEnums.typeSubclass) {
+                ref.read(gearModalInstanceProvider.notifier).select(item);
+                ref.read(selectedSubclassProvider.notifier).select(item);
+                return;
+              }
               ref.read(gearModalInstanceProvider.notifier).select(item);
               ref
                   .read(selectedDatabaseItemProvider.notifier)
@@ -112,6 +141,15 @@ class ItemTile extends ConsumerWidget {
         ),
       ),
     );
+
+    // An owned, not-currently-equipped subclass can be equipped by right-click
+    // (a context menu) or the modal button — subclasses don't drag-to-equip.
+    final canEquipSubclass = item.itemType == DestinyEnums.typeSubclass &&
+        item.itemInstanceId != null &&
+        !item.isEquipped;
+    if (canEquipSubclass) {
+      return _SubclassEquipMenu(item: item, child: tile);
+    }
 
     if (!_draggable) return tile;
 
@@ -158,41 +196,49 @@ class ItemTile extends ConsumerWidget {
             : item.isMasterwork
                 ? ArmoryPalette.masterworkGold.withValues(alpha: 0.5)
                 : ArmoryPalette.borderStronger;
+    final borderWidth = (selected || justMoved) ? 2.0 : 1.0;
 
-    return AnimatedContainer(
-      // Border color/width animate on change, so the green flash fades in when
-      // an item is moved and fades out when the highlight clears.
-      duration: const Duration(milliseconds: 300),
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: ArmoryRadius.sm,
-        border: Border.all(
-          color: borderColor,
-          width: (selected || justMoved) ? 2 : 1,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
+    // Subclass tiles are diamonds (a rotated square) to match the in-game
+    // subclass slot and the diamond-shaped super art — so the icon is clipped to
+    // a diamond and the border traces that diamond, rather than the rounded
+    // square weapons/armor use. This also masks a Prismatic super's rounded
+    // plate composite into the same diamond silhouette as the element supers.
+    final isSubclass = item.itemType == DestinyEnums.typeSubclass;
+    // A subclass the character does not own is injected as a definition-only
+    // item (no instance). It gets a dimming scrim + centre lock, so a locked
+    // subclass reads distinctly from an owned one.
+    final isLockedSubclass = isSubclass && item.itemInstanceId == null;
+
+    final content = Stack(
         fit: StackFit.expand,
         children: [
           // Composite the rarity plate + transparent ornament foreground when
           // both are provided (ornamented exotics); otherwise the flat icon.
+          // A Prismatic subclass's plate is a circle, so on the diamond tile it
+          // is scaled up to overflow the diamond's corners (the clip trims the
+          // excess); exotic ornament composites keep their 1:1 scale.
           if (plateUrl != null && foregroundUrl != null) ...[
-            CachedNetworkImage(
-              imageUrl: plateUrl,
-              cacheManager: ItemIconCache.instance,
-              fit: BoxFit.cover,
-              fadeInDuration: Duration.zero,
-              placeholder: (_, _) => const _IconPlaceholder(),
-              errorWidget: (_, _, _) => const ColoredBox(color: ArmoryPalette.scrim26),
+            Transform.scale(
+              scale: isSubclass ? _subclassPlateScale : 1,
+              child: CachedNetworkImage(
+                imageUrl: plateUrl,
+                cacheManager: ItemIconCache.instance,
+                fit: BoxFit.cover,
+                fadeInDuration: Duration.zero,
+                placeholder: (_, _) => const _IconPlaceholder(),
+                errorWidget: (_, _, _) =>
+                    const ColoredBox(color: ArmoryPalette.scrim26),
+              ),
             ),
-            CachedNetworkImage(
-              imageUrl: foregroundUrl,
-              cacheManager: ItemIconCache.instance,
-              fit: BoxFit.cover,
-              fadeInDuration: Duration.zero,
-              errorWidget: (_, _, _) => const SizedBox.shrink(),
+            Transform.scale(
+              scale: isSubclass ? _subclassPlateScale : 1,
+              child: CachedNetworkImage(
+                imageUrl: foregroundUrl,
+                cacheManager: ItemIconCache.instance,
+                fit: BoxFit.cover,
+                fadeInDuration: Duration.zero,
+                errorWidget: (_, _, _) => const SizedBox.shrink(),
+              ),
             ),
           ] else if (iconUrl == null)
             const ColoredBox(color: ArmoryPalette.scrim26)
@@ -227,8 +273,55 @@ class ItemTile extends ConsumerWidget {
               left: 2,
               child: _TierDiamonds(tier: item.gearTier),
             ),
+          // Locked (not-owned) subclass: a dimming scrim with a centre lock, so
+          // it reads as unavailable while its art stays recognisable.
+          if (isLockedSubclass) ...[
+            const DecoratedBox(
+              decoration: BoxDecoration(color: ArmoryPalette.scrim35),
+            ),
+            Center(
+              child: Icon(
+                Icons.lock,
+                size: size * 0.4,
+                color: ArmoryPalette.textPrimary.withValues(alpha: 0.7),
+                shadows: const [
+                  Shadow(color: ArmoryPalette.scrim87, blurRadius: 4),
+                ],
+              ),
+            ),
+          ],
         ],
+      );
+
+    if (isSubclass) {
+      // Clip the icon to a diamond and paint the border along that diamond, so
+      // every subclass tile reads as the same rotated-square shape.
+      return SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(
+          foregroundPainter:
+              _DiamondBorderPainter(color: borderColor, width: borderWidth),
+          child: ClipPath(
+            clipper: const _DiamondClipper(),
+            child: content,
+          ),
+        ),
+      );
+    }
+
+    return AnimatedContainer(
+      // Border color/width animate on change, so the green flash fades in when
+      // an item is moved and fades out when the highlight clears.
+      duration: const Duration(milliseconds: 300),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: ArmoryRadius.sm,
+        border: Border.all(color: borderColor, width: borderWidth),
       ),
+      clipBehavior: Clip.antiAlias,
+      child: content,
     );
   }
 
@@ -286,6 +379,96 @@ class ItemTile extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Wraps an owned, not-equipped subclass tile in a right-click context menu
+/// whose one action equips it (subclasses are equipped by menu/button, not by
+/// dragging). Left-click still opens the detail modal via the tile's own tap.
+class _SubclassEquipMenu extends ConsumerStatefulWidget {
+  const _SubclassEquipMenu({required this.item, required this.child});
+
+  final DestinyItem item;
+  final Widget child;
+
+  @override
+  ConsumerState<_SubclassEquipMenu> createState() => _SubclassEquipMenuState();
+}
+
+class _SubclassEquipMenuState extends ConsumerState<_SubclassEquipMenu> {
+  final _controller = MenuController();
+
+  @override
+  Widget build(BuildContext context) {
+    return MenuAnchor(
+      controller: _controller,
+      menuChildren: [
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.check_circle_outline, size: 18),
+          onPressed: () =>
+              ref.read(moveControllerProvider.notifier).equipSubclass(widget.item),
+          child: const Text('Equip'),
+        ),
+      ],
+      child: GestureDetector(
+        // Right-click opens the menu at the cursor; left-click passes through to
+        // the tile's own onTap (open the modal).
+        onSecondaryTapDown: (details) =>
+            _controller.open(position: details.localPosition),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+/// Clips a tile's icon to a diamond (a square rotated 45°: the four edge
+/// midpoints), used for subclass tiles so their art reads as the in-game
+/// diamond slot and a Prismatic super's rounded plate is masked to that shape.
+class _DiamondClipper extends CustomClipper<Path> {
+  const _DiamondClipper();
+
+  @override
+  Path getClip(Size size) => Path()
+    ..moveTo(size.width / 2, 0)
+    ..lineTo(size.width, size.height / 2)
+    ..lineTo(size.width / 2, size.height)
+    ..lineTo(0, size.height / 2)
+    ..close();
+
+  @override
+  bool shouldReclip(covariant _DiamondClipper oldClipper) => false;
+}
+
+/// Strokes the diamond outline for a subclass tile — the border that fits the
+/// [_DiamondClipper] shape. Inset by half the stroke width so the line sits
+/// fully inside the tile bounds rather than being clipped at the points.
+class _DiamondBorderPainter extends CustomPainter {
+  const _DiamondBorderPainter({required this.color, required this.width});
+
+  final Color color;
+  final double width;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final inset = width / 2;
+    final path = Path()
+      ..moveTo(size.width / 2, inset)
+      ..lineTo(size.width - inset, size.height / 2)
+      ..lineTo(size.width / 2, size.height - inset)
+      ..lineTo(inset, size.height / 2)
+      ..close();
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = width
+        ..strokeJoin = StrokeJoin.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _DiamondBorderPainter old) =>
+      old.color != color || old.width != width;
 }
 
 /// The gear-tier indicator on an item tile: a vertical column of [tier] small

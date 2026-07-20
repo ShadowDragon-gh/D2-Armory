@@ -103,6 +103,9 @@ class _Repo implements DatabaseRepository {
   List<PerkOption> frameOptions() => const [];
   @override
   List<PerkOption> setEffectOptions() => const [];
+  @override
+  ({GearSummary summary, ItemPlug plug})? resolveAbilityDetail(int itemHash) =>
+      null;
 }
 
 void main() {

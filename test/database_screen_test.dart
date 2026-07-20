@@ -43,6 +43,15 @@ class _FakeRepo implements DatabaseRepository {
     _armorSummary(13, 'Warlock Cowl', cls: 2),
   ];
 
+  // Ability plugs: a Warlock super, a class-shared fragment, and a Warlock
+  // aspect. Class 3 = shared. Used by the Abilities-tab tests.
+  final _abilities = <GearSummary>[
+    _abilitySummary(21, 'Daybreak', cls: 2, element: 3, type: 'Solar Super'),
+    _abilitySummary(22, 'Ember of Torches',
+        cls: 3, element: 3, type: 'Solar Fragment'),
+    _abilitySummary(23, 'Heat Rises', cls: 2, element: 3, type: 'Solar Aspect'),
+  ];
+
 
   static GearSummary _summary(int hash, String name,
           {int tier = 5, int sub = 9}) =>
@@ -77,14 +86,38 @@ class _FakeRepo implements DatabaseRepository {
         index: hash,
       );
 
+  static GearSummary _abilitySummary(int hash, String name,
+          {required int cls, required int element, required String type}) =>
+      GearSummary(
+        itemHash: hash,
+        name: name,
+        iconPath: '',
+        tierType: 0,
+        itemType: 19,
+        itemSubType: 0,
+        itemTypeDisplayName: type,
+        classType: cls,
+        damageType: element,
+        ammoType: 0,
+        bucketHash: 0,
+        index: hash,
+      );
+
   @override
   List<GearSummary> listGear(GearFilter filter) {
-    final source = filter.kind == GearKind.armor ? _armor : _weapons;
+    final source = switch (filter.kind) {
+      GearKind.armor => _armor,
+      GearKind.ability => _abilities,
+      GearKind.weapon => _weapons,
+    };
     return source.where((g) {
       if (filter.tierType != null && g.tierType != filter.tierType) {
         return false;
       }
-      if (filter.classType != null && g.classType != filter.classType) {
+      // Class filter keeps that class plus class-shared (classType 3) items.
+      if (filter.classType != null &&
+          g.classType != filter.classType &&
+          g.classType != 3) {
         return false;
       }
       if (filter.itemSubType != null && g.itemSubType != filter.itemSubType) {
@@ -92,6 +125,33 @@ class _FakeRepo implements DatabaseRepository {
       }
       return true;
     }).toList();
+  }
+
+  @override
+  ({GearSummary summary, ItemPlug plug})? resolveAbilityDetail(int itemHash) {
+    final match = _abilities.where((g) => g.itemHash == itemHash);
+    if (match.isEmpty) return null;
+    final g = match.first;
+    // Daybreak has a description; Ember of Torches carries a stat effect;
+    // Heat Rises (aspect) is uncovered by Clarity in the test override.
+    return (
+      summary: g,
+      plug: ItemPlug(
+        name: g.name,
+        iconPath: '',
+        category: PlugCategory.perk,
+        description: g.name == 'Heat Rises'
+            ? 'Hold to consume your grenade and begin gliding.'
+            : 'A subclass ability.',
+        plugHash: itemHash,
+        statEffects: g.name == 'Ember of Torches'
+            ? const [
+                PerkStatEffect(
+                    hash: 1, name: 'Discipline', value: -10, beneficial: false)
+              ]
+            : const [],
+      ),
+    );
   }
 
   @override
@@ -619,6 +679,10 @@ class _ToggleFakeRepo implements DatabaseRepository {
           ]),
         ],
       );
+
+  @override
+  ({GearSummary summary, ItemPlug plug})? resolveAbilityDetail(int itemHash) =>
+      null;
 
   @override
   SearchFacets? facetsFor(GearKind kind, int itemHash) => null;

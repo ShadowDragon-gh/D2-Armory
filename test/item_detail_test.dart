@@ -39,6 +39,9 @@ void main() {
     manifest = _MockManifest();
     repo = InventoryRepository(api: api, manifest: manifest);
 
+    // No subclass definitions by default, so fetchInventory injects none.
+    when(() => manifest.querySubclasses()).thenReturn(const []);
+
     when(() => api.getMembershipsForCurrentUser()).thenAnswer((_) async => {
           'destinyMemberships': [
             {'membershipType': 3, 'membershipId': 42, 'displayName': 'G'}

@@ -7,6 +7,7 @@ import '../../domain/models/destiny_character.dart';
 import '../../domain/models/destiny_item.dart';
 import '../../domain/models/inventory_grid.dart';
 import '../../domain/models/item_detail.dart';
+import '../../domain/models/subclass_detail.dart';
 import '../remote/bungie_api.dart';
 import 'facet_builder.dart';
 import 'manifest_repository.dart';
@@ -39,6 +40,15 @@ class InventoryRepository {
   // edge-lagged refetch lands is silently reverted (and the stale state sticks
   // until app restart).
   final Map<String, Map<int, int>> _pendingSocketEdits = {};
+  // Optimistic equips not yet confirmed by a fetched profile, keyed by owner id
+  // → bucket hash → the instance id that should be equipped there. Like
+  // [_pendingSocketEdits], Bungie's edge cache can serve a profile that lags a
+  // just-made equip (newer timestamp, stale characterEquipment), so a pending
+  // equip is re-applied over the built grid until a fetched profile actually
+  // reports it equipped, then dropped. Without this, an equip (a subclass swap,
+  // a weapon/armor equip) made while an edge-lagged refetch lands is silently
+  // reverted and the stale state sticks until app restart.
+  final Map<String, Map<int, String>> _pendingEquips = {};
   // Instance-keyed ItemInstances (300) component from the last fetch, retained
   // for the armor energy meter (its `energy` holds capacity/used). Power and
   // damage are read off it at decode time, so only armor energy needs it later.
@@ -48,9 +58,23 @@ class InventoryRepository {
   // search matches any of a column's options, not just the equipped one.
   Map<String, dynamic> _reusablePlugs = const {};
   Map<String, dynamic> _plugObjectives = const {};
+  // Plug-set ownership, keyed by plug-set hash → list of
+  // {plugItemHash, canInsert, enabled}. Merged from the profile- and
+  // character-scoped PlugSets fields (both gated by the ItemSockets (305)
+  // component the profile already fetches). This is the ownership signal for
+  // subclass aspects/fragments: a plug with `canInsert: true` is unlocked. The
+  // live 310 (ItemReusablePlugs) component is empty for subclass sockets, so
+  // this is the only source of which options a character actually owns.
+  Map<int, Set<int>> _ownedPlugsBySet = const {};
   // Record hash -> record component (catalyst/triumph progress), merged from
   // the profile- and character-scoped Records (900) components.
   Map<String, dynamic> _records = const {};
+
+  // The newest subclass definition per (classType, name), built once from the
+  // manifest. Backs the grid injection of subclasses a character may not own
+  // (the profile returns only owned subclasses), so every class subclass shows
+  // — owned ones as live instances, the rest as view-only definition items.
+  List<_SubclassDef>? _allSubclasses;
 
   // Bungie's `responseMintedTimestamp` from the last fetch: when Bungie minted
   // the profile snapshot. Bungie's edge cache can serve a profile older than
@@ -133,6 +157,59 @@ class InventoryRepository {
     });
   }
 
+  /// Record that [item] is now equipped on owner [ownerId] — the optimistic
+  /// equip state re-applied over later fetches until the profile confirms it
+  /// (see [_pendingEquips] / [_reapplyPendingEquips]). Keyed by owner + bucket,
+  /// so a newer equip in the same slot replaces the pending one. No-op for an
+  /// uninstanced item.
+  void markPendingEquip(DestinyItem item, String ownerId) {
+    final instanceId = item.itemInstanceId;
+    if (instanceId == null) return;
+    (_pendingEquips[ownerId] ??= {})[item.bucketHash] = instanceId;
+  }
+
+  /// Forget the pending equip for [item] on owner [ownerId] — called when an
+  /// equip fails and its optimistic grid patch is rolled back, so it is not
+  /// re-applied over later fetches.
+  void clearPendingEquip(DestinyItem item, String ownerId) {
+    final byBucket = _pendingEquips[ownerId];
+    if (byBucket == null) return;
+    byBucket.remove(item.bucketHash);
+    if (byBucket.isEmpty) _pendingEquips.remove(ownerId);
+  }
+
+  /// Re-apply the pending optimistic equips over the freshly-built [grid],
+  /// returning the patched grid. A fetch rebuilds equipment from the profile,
+  /// so an equip the fetched profile has not yet propagated (Bungie's edge
+  /// cache can lag it) would be reverted; re-applying keeps it. An equip the
+  /// grid now reports (that instance is already equipped in its slot) has
+  /// propagated and is dropped, as is one whose instance has left the grid.
+  InventoryGrid _reapplyPendingEquips(InventoryGrid grid) {
+    if (_pendingEquips.isEmpty) return grid;
+    var patched = grid;
+    _pendingEquips.removeWhere((ownerId, byBucket) {
+      final owner = patched.owners.where((o) => o.id == ownerId).firstOrNull;
+      byBucket.removeWhere((bucketHash, instanceId) {
+        final items = owner?.itemsFor(bucketHash);
+        // Instance gone from this slot (moved/deleted, or owner absent) — stop
+        // tracking; nothing to re-apply.
+        if (items == null ||
+            !items.any((i) => i.itemInstanceId == instanceId)) {
+          return true;
+        }
+        if (items.any((i) => i.itemInstanceId == instanceId && i.isEquipped)) {
+          return true; // propagated — the profile now reports it equipped
+        }
+        // Not yet propagated — re-apply the optimistic equip.
+        patched = patched.withItemEquipped(
+            instanceId: instanceId, ownerId: ownerId);
+        return false;
+      });
+      return byBucket.isEmpty;
+    });
+    return patched;
+  }
+
   // Search facets per item instance id, resolved lazily by [inventoryFacetsFor]
   // (the socket/stat/catalyst decode is the same work the detail panel does, so
   // a search only pays for the items it tests) and cached. Cleared on each
@@ -203,6 +280,7 @@ class InventoryRepository {
     _reapplyPendingSocketEdits();
     _reusablePlugs = _dataMap(itemComponents?['reusablePlugs']);
     _plugObjectives = _dataMap(itemComponents?['plugObjectives']);
+    _ownedPlugsBySet = _mergeOwnedPlugs(profile);
     _records = _mergeRecords(profile);
     _lastMintedTimestamp =
         DateTime.tryParse(profile['responseMintedTimestamp'] as String? ?? '');
@@ -234,6 +312,17 @@ class InventoryRepository {
         ...await _itemsOf(charInventories[character.characterId], instances,
             reuseDecoded: reuseDecoded, seen: seen),
       ];
+      // Inject the character's not-yet-owned subclasses as view-only
+      // definition items, so the grid lists every subclass for its class (the
+      // profile returns only owned ones). Deduped by the owned subclasses' names
+      // — generations share a name, so an owned older version suppresses the
+      // definition entry for that name.
+      final ownedSubclassNames = <String>{
+        for (final i in items)
+          if (i.itemType == DestinyEnums.typeSubclass) i.name,
+      };
+      items.addAll(
+          _unownedSubclassItems(character.classType, ownedSubclassNames));
       owners.add(InventoryOwner(
         id: character.characterId,
         title: character.className,
@@ -263,7 +352,10 @@ class InventoryRepository {
       });
     }
 
-    return InventoryGrid(owners);
+    // Re-apply optimistic equips the fetched profile has not yet propagated
+    // (Bungie's edge cache can lag a just-made equip), so a swap is not silently
+    // reverted to the stale equipped item.
+    return _reapplyPendingEquips(InventoryGrid(owners));
   }
 
   /// Resolve the full detail (stats, sockets, breaker) for [item] from the
@@ -308,6 +400,301 @@ class InventoryRepository {
       armorEnergy: _resolveArmorEnergy(item, plugs),
       archetype: _resolveArchetype(item, socketsData),
     );
+  }
+
+  /// Resolve a subclass's editable configuration: its element and screenshot
+  /// from the definition, and one [SubclassSocketGroup] per socket category
+  /// (Abilities, Super, Aspects, Fragments, and any Prismatic extras), each
+  /// listing its sockets with the equipped plug and the selectable options.
+  /// Returns null when the definition has no sockets.
+  ///
+  /// Works for a *definition-only* subclass too — one the character does not
+  /// own, injected into the grid with no `itemInstanceId`. With no live sockets
+  /// or plug-set ownership, every option resolves as view-only (nothing
+  /// equipped, nothing equippable), so its modal is fully viewable but
+  /// unequippable.
+  ///
+  /// Grouping is data-driven from the definition's `socketCategories` (stable
+  /// category hashes, labels from `DestinySocketCategoryDefinition`), so an
+  /// unknown category (a Prismatic extra) still renders under its own label
+  /// rather than being dropped.
+  SubclassDetail? resolveSubclassDetail(DestinyItem item) {
+    final id = item.itemInstanceId;
+    final def = _manifest.getInventoryItem(item.itemHash);
+    final sockets = def?['sockets'];
+    if (sockets is! Map) return null;
+    final categories = sockets['socketCategories'];
+    final entries = sockets['socketEntries'];
+    if (categories is! List || entries is! List) return null;
+
+    final socketsData =
+        id == null ? null : _sockets[id] as Map<String, dynamic>?;
+    final live = socketsData?['sockets'];
+    // Subclasses have no stat group; a bare interpolator resolves fragment
+    // stat effects at face value (1:1), which is what the game shows.
+    final interpolator = _statInterpolatorFor(item, socketsData);
+
+    // Every real plug currently equipped on this subclass, so an option
+    // equipped in another socket of the same category reads as "equipped
+    // elsewhere" rather than locked (aspects/fragments can't be socketed twice).
+    // The "Empty … Socket" placeholder is excluded: it is the *absence* of a
+    // plug (and how one is removed), shared across every empty slot — so it must
+    // stay freely selectable everywhere, never "equipped elsewhere".
+    final allEquipped = <int>{
+      if (live is List)
+        for (final s in live)
+          if (((s as Map)['plugHash'] as num?)?.toInt() case final int h)
+            if (h != 0 && !_isEmptySocketPlug(h)) h,
+    };
+
+    // Each built group paired with the plug-category *kind* of its sockets
+    // (aspects / fragments / other), derived from the plugs' plug-category
+    // identifiers — not the socket-category hash, which differs across
+    // subclasses (Stasis/Strand/Prismatic use different hashes than the 3.0
+    // Light layout). The fragment-slot constraint below uses this to find the
+    // aspect and fragment groups on every subclass.
+    final built = <({_SubclassGroupKind kind, SubclassSocketGroup group})>[];
+    for (final category in categories) {
+      final c = category as Map<String, dynamic>;
+      final categoryHash = (c['socketCategoryHash'] as num?)?.toInt();
+      final indexes = c['socketIndexes'];
+      if (categoryHash == null || indexes is! List) continue;
+
+      final label = (_manifest
+              .getSocketCategory(categoryHash)?['displayProperties']?['name']
+              as String?) ??
+          '';
+
+      var groupKind = _SubclassGroupKind.other;
+      final socketsInGroup = <SubclassSocket>[];
+      for (final rawIndex in indexes) {
+        if (rawIndex is! int || rawIndex < 0 || rawIndex >= entries.length) {
+          continue;
+        }
+
+        // The equipped plug from the live 305 component. An invisible socket
+        // (a fragment slot no aspect has unlocked yet) is skipped.
+        int? activeHash;
+        var enabled = true;
+        if (live is List && rawIndex < live.length) {
+          final s = live[rawIndex] as Map<String, dynamic>;
+          if (s['isVisible'] == false) continue;
+          activeHash = (s['plugHash'] as num?)?.toInt();
+          enabled = s['isEnabled'] != false;
+        }
+
+        // Options: the full pool from the definition's reusable plug set, so
+        // every ability/aspect/fragment shows — including ones the character
+        // has not unlocked (viewable, not equippable). The "Empty … Socket"
+        // placeholder stays (inserting it removes the plug).
+        final optionHashes = <int>[];
+        void addOption(int? h) {
+          if (h != null && h != 0 && !optionHashes.contains(h)) {
+            optionHashes.add(h);
+          }
+        }
+
+        final entry = entries[rawIndex] as Map<String, dynamic>;
+        final setHash = (entry['reusablePlugSetHash'] as num?)?.toInt();
+        final setItems = setHash == null
+            ? null
+            : _manifest.getPlugSet(setHash)?['reusablePlugItems'];
+        if (setItems is List) {
+          for (final pi in setItems) {
+            addOption(((pi as Map)['plugItemHash'] as num?)?.toInt());
+          }
+        }
+        if (activeHash != null) addOption(activeHash);
+
+        // Ownership (see [_ownedPlugsBySet]): the plug-set's `canInsert:true`
+        // hashes are unlocked and equippable *here*; the equipped plug is always
+        // equippable (a re-select). A plug equipped in another socket of this
+        // subclass ([allEquipped] minus this socket's own) is owned but not
+        // insertable here (aspects/fragments can't be duplicated) — the modal
+        // shows it as "equipped elsewhere", distinct from a locked one. The live
+        // 310 component is empty for subclass sockets, so it is not consulted.
+        final equippableHashes = <int>{
+          if (setHash != null) ...?_ownedPlugsBySet[setHash],
+        };
+        final equippedElsewhereHashes = <int>{
+          for (final h in allEquipped)
+            if (h != activeHash) h,
+        };
+
+        final equipped = activeHash == null || activeHash == 0
+            ? null
+            : _columnPlugOf(activeHash, interpolator,
+                isEnabled: enabled,
+                socketIndex: rawIndex,
+                alwaysDescribe: true);
+        final plugs = <ItemPlug>[];
+        for (final hash in optionHashes) {
+          final plug = _columnPlugOf(hash, interpolator,
+              socketIndex: rawIndex, alwaysDescribe: true);
+          if (plug != null) plugs.add(plug);
+        }
+        // Classify the group from its plugs' plug-category identifier the first
+        // time a socket resolves one (all sockets in a group share the family).
+        if (groupKind == _SubclassGroupKind.other) {
+          for (final hash in optionHashes) {
+            final kind = _subclassGroupKindOf(hash);
+            if (kind != _SubclassGroupKind.other) {
+              groupKind = kind;
+              break;
+            }
+          }
+        }
+        socketsInGroup.add(SubclassSocket(
+          socketIndex: rawIndex,
+          equipped: equipped,
+          options: plugs,
+          equippableHashes: equippableHashes,
+          equippedElsewhereHashes: equippedElsewhereHashes,
+        ));
+      }
+
+      if (socketsInGroup.isNotEmpty) {
+        built.add((
+          kind: groupKind,
+          group: SubclassSocketGroup(label: label, sockets: socketsInGroup),
+        ));
+      }
+    }
+
+    return SubclassDetail(
+      item: item,
+      element: (def?['talentGrid']?['hudDamageType'] as num?)?.toInt() ?? 0,
+      screenshotPath: (def?['screenshot'] as String?) ?? '',
+      // A definition-only subclass (no instance) is not owned.
+      owned: id != null,
+      // The fragment-slot capacity constraint only applies to an owned subclass
+      // (which has equipped aspects granting the slots). A definition-only
+      // subclass has nothing equipped, so leave every socket browsable.
+      groups: id == null
+          ? [for (final b in built) b.group]
+          : _constrainFragmentSlots(built),
+    );
+  }
+
+  // The display name of the aspect stat that grants fragment slots. Each
+  // equipped aspect adds this many; the fragment sockets beyond the summed
+  // total are disabled (matching the in-game screen).
+  static const _aspectCapacityStat = 'Aspect Energy Capacity';
+
+  /// The icon path of the Super plug equipped on subclass instance
+  /// [instanceId], or null when none is resolvable. Found by scanning the live
+  /// sockets for the equipped plug whose `plugCategoryIdentifier` ends in
+  /// `.supers` (the taxonomy is stable across every subclass, unlike the
+  /// socket-category hash). Used so the inventory tile shows the equipped Super
+  /// rather than the generic subclass icon.
+  String? _subclassSuperIconPath(int itemHash, String? instanceId) {
+    final superHash =
+        instanceId == null ? null : _subclassSuperPlugHash(instanceId);
+    if (superHash == null) return null;
+    final icon = _manifest
+        .getInventoryItem(superHash)?['displayProperties']?['icon'] as String?;
+    return (icon == null || icon.isEmpty) ? null : icon;
+  }
+
+  /// The plug hash of the Super equipped on subclass instance [instanceId] —
+  /// the equipped plug whose `plugCategoryIdentifier` ends in `.supers` (a
+  /// stable taxonomy across every subclass). Null when none is socketed.
+  int? _subclassSuperPlugHash(String instanceId) {
+    final sockets =
+        (_sockets[instanceId] as Map<String, dynamic>?)?['sockets'];
+    if (sockets is! List) return null;
+    for (final socket in sockets) {
+      final plugHash = ((socket as Map)['plugHash'] as num?)?.toInt();
+      if (plugHash == null || plugHash == 0) continue;
+      final pci = (_manifest.getInventoryItem(plugHash)?['plug']
+          as Map?)?['plugCategoryIdentifier'] as String?;
+      if (pci != null && pci.endsWith('.supers')) return plugHash;
+    }
+    return null;
+  }
+
+  /// Classify a subclass socket group from a plug's `plugCategoryIdentifier`.
+  /// The plug taxonomy is consistent across every element (unlike the socket
+  /// category hash), so this identifies aspect and fragment groups on Stasis
+  /// (`.totems`/`.trinkets`) and Strand/Prismatic alike: aspects end in
+  /// `.aspects` or `.totems`; fragments end in `.fragments` or `.trinkets`.
+  _SubclassGroupKind _subclassGroupKindOf(int plugHash) {
+    final pci = _manifest.getInventoryItem(plugHash)?['plug']
+        ?['plugCategoryIdentifier'] as String?;
+    if (pci == null) return _SubclassGroupKind.other;
+    if (pci.endsWith('.aspects') || pci.endsWith('.totems')) {
+      return _SubclassGroupKind.aspects;
+    }
+    if (pci.endsWith('.fragments') || pci.endsWith('.trinkets')) {
+      return _SubclassGroupKind.fragments;
+    }
+    return _SubclassGroupKind.other;
+  }
+
+  /// Disable empty fragment sockets beyond the slot count the equipped aspects
+  /// grant, returning the groups in build order. The count is the summed
+  /// "Aspect Energy Capacity" of the aspect group's equipped plugs; a filled
+  /// fragment socket always stays available (an already-socketed fragment is
+  /// within the granted total), and an empty socket is available only while the
+  /// running available-slot count is under the capacity. A no-op when there is
+  /// no fragment group. Aspects and fragments are identified by their plug
+  /// category (see [_subclassGroupKindOf]), not the socket-category hash — the
+  /// latter differs across subclasses (Stasis/Strand/Prismatic).
+  List<SubclassSocketGroup> _constrainFragmentSlots(
+      List<({_SubclassGroupKind kind, SubclassSocketGroup group})> built) {
+    final fragments = built
+        .where((b) => b.kind == _SubclassGroupKind.fragments)
+        .firstOrNull
+        ?.group;
+    if (fragments == null) return [for (final b in built) b.group];
+
+    var capacity = 0;
+    for (final b in built) {
+      if (b.kind != _SubclassGroupKind.aspects) continue;
+      for (final socket in b.group.sockets) {
+        for (final effect
+            in socket.equipped?.statEffects ?? const <PerkStatEffect>[]) {
+          if (effect.name == _aspectCapacityStat) capacity += effect.value;
+        }
+      }
+    }
+
+    var used = 0;
+    final constrained = <SubclassSocket>[];
+    for (final socket in fragments.sockets) {
+      final filled = _isFilledFragment(socket.equipped);
+      final available = filled || used < capacity;
+      if (available) used++;
+      constrained.add(SubclassSocket(
+        socketIndex: socket.socketIndex,
+        equipped: socket.equipped,
+        options: socket.options,
+        equippableHashes: socket.equippableHashes,
+        equippedElsewhereHashes: socket.equippedElsewhereHashes,
+        available: available,
+      ));
+    }
+
+    return [
+      for (final b in built)
+        b.kind == _SubclassGroupKind.fragments
+            ? SubclassSocketGroup(label: b.group.label, sockets: constrained)
+            : b.group,
+    ];
+  }
+
+  /// Whether a fragment socket holds a real fragment (vs. empty / an "Empty …
+  /// Socket" placeholder). A filled socket always counts toward the used slots.
+  bool _isFilledFragment(ItemPlug? equipped) =>
+      equipped != null && !equipped.name.startsWith('Empty ');
+
+  /// Whether the plug [hash] is an "Empty … Socket" placeholder — the absence of
+  /// a real aspect/fragment (and the plug inserted to remove one). Resolved by
+  /// the same "Empty " name convention [_isFilledFragment] uses.
+  bool _isEmptySocketPlug(int hash) {
+    final name = _manifest.getInventoryItem(hash)?['displayProperties']?['name']
+        as String?;
+    return name != null && name.startsWith('Empty ');
   }
 
   /// The armor piece's gear archetype (Powerhouse, Reaver, …): the equipped
@@ -656,8 +1043,17 @@ class InventoryRepository {
   /// and the enhanced flag. Null for placeholder plugs with no display name
   /// and for kill trackers. Unlike [_resolvePlugs], the origin trait keeps its
   /// clean name — its column label already reads "Origin Trait".
+  ///
+  /// [alwaysDescribe] keeps the sandbox-perk description fallback even when the
+  /// plug has stat effects. Subclass plugs (aspects, fragments) carry real
+  /// gameplay prose in a sandbox perk *alongside* a stat effect (e.g. Soul
+  /// Siphon: "+3 Aspect Energy Capacity" plus its effect text), where a mod's
+  /// perk description would merely restate its stat line — so only the subclass
+  /// resolver sets this, leaving weapon/armor mod behaviour unchanged.
   ItemPlug? _columnPlugOf(int plugHash, _StatInterpolator interpolator,
-      {bool isEnabled = true, int socketIndex = -1}) {
+      {bool isEnabled = true,
+      int socketIndex = -1,
+      bool alwaysDescribe = false}) {
     final def = _manifest.getInventoryItem(plugHash);
     if (def == null) return null;
     final display = def['displayProperties'] as Map<String, dynamic>?;
@@ -672,7 +1068,8 @@ class InventoryRepository {
     return ItemPlug(
       name: name,
       iconPath: (display?['icon'] as String?) ?? '',
-      description: _plugDescription(def, display, hasStatEffects: statEffects.isNotEmpty),
+      description: _plugDescription(def, display,
+          hasStatEffects: alwaysDescribe ? false : statEffects.isNotEmpty),
       note: _plugNote(def),
       energyCost: _plugEnergyCost(def),
       category: classifyPlug(plugCategory),
@@ -1806,15 +2203,50 @@ class InventoryRepository {
         }
       }
 
+      final itemType = (def['itemType'] as num?)?.toInt() ?? 0;
+      // A subclass's instance carries a primaryStat that is not a power level
+      // (weapons=Attack, armor=Defense), so it must not surface as tile power.
+      final power = itemType == DestinyEnums.typeSubclass
+          ? null
+          : (instance?['primaryStat']?['value'] as num?)?.toInt();
+
+      // A subclass tile shows its equipped Super's icon (like the in-game
+      // subclass slot) rather than the generic subclass icon. Falls back to the
+      // definition icon when no super plug is resolvable.
+      //
+      // Prismatic subclasses have no single element, so their super plugs carry
+      // an element-coloured plate (e.g. a Solar super → orange) that misreads as
+      // that element. Only Prismatic subclass definitions ship a `background`
+      // layer (the pink `build_prism_background` plate), so — mirroring the
+      // exotic-ornament composite — when the def has one, draw the super's
+      // transparent foreground glyph over that Prismatic plate instead. Every
+      // other subclass keeps its (correct) flat super icon.
+      String iconPath = (display?['icon'] as String?) ?? '';
+      if (itemType == DestinyEnums.typeSubclass) {
+        iconPath = _subclassSuperIconPath(itemHash, instanceId) ?? iconPath;
+        final plate = _backgroundPath(def); // non-null only for Prismatic
+        final superHash =
+            instanceId == null ? null : _subclassSuperPlugHash(instanceId);
+        final superFg = superHash == null
+            ? null
+            : _foregroundPath(_manifest.getInventoryItem(superHash));
+        // Reuse the tile's plate + transparent-foreground composite path
+        // (subclasses never have ornaments, so these are otherwise unused).
+        if (plate != null && superFg != null) {
+          rarityPlatePath = plate;
+          ornamentForegroundPath = superFg;
+        }
+      }
+
       final decoded = DestinyItem(
         itemHash: itemHash,
         bucketHash: bucketHash,
         name: (display?['name'] as String?) ?? '',
-        iconPath: (display?['icon'] as String?) ?? '',
+        iconPath: iconPath,
         ornamentIconPath: ornamentIconPath,
         ornamentForegroundPath: ornamentForegroundPath,
         rarityPlatePath: rarityPlatePath,
-        itemType: (def['itemType'] as num?)?.toInt() ?? 0,
+        itemType: itemType,
         itemSubType: (def['itemSubType'] as num?)?.toInt() ?? 0,
         tierType: tierType,
         classType: (def['classType'] as num?)?.toInt(),
@@ -1822,7 +2254,7 @@ class InventoryRepository {
         itemTypeDisplayName:
             (def['itemTypeDisplayName'] as String?) ?? '',
         itemInstanceId: instanceId,
-        power: (instance?['primaryStat']?['value'] as num?)?.toInt(),
+        power: power,
         damageType: (instance?['damageType'] as num?)?.toInt(),
         elementIconPath: elementIconPath,
         isEquipped: equipped,
@@ -1985,7 +2417,129 @@ class InventoryRepository {
     }
     return merged;
   }
+
+  /// Merge the profile- and character-scoped PlugSets into
+  /// `plugSetHash → {unlocked plug hashes}` (a plug is unlocked when its entry
+  /// has `canInsert: true`). Both scopes are gated by the ItemSockets (305)
+  /// component the profile already fetches. Subclass aspects/fragments live in
+  /// the profile scope (account-wide unlocks); reading both is harmless and
+  /// covers any character-scoped plug set too.
+  Map<int, Set<int>> _mergeOwnedPlugs(Map<String, dynamic> profile) {
+    final merged = <int, Set<int>>{};
+
+    void addFrom(dynamic plugSetsHolder) {
+      final plugs = plugSetsHolder is Map<String, dynamic>
+          ? plugSetsHolder['plugs']
+          : null;
+      if (plugs is! Map) return;
+      plugs.forEach((setKey, entries) {
+        final setHash = int.tryParse(setKey as String);
+        if (setHash == null || entries is! List) return;
+        final owned = merged[setHash] ??= <int>{};
+        for (final e in entries) {
+          if (e is! Map) continue;
+          if (e['canInsert'] != true) continue; // unlocked / insertable
+          final h = (e['plugItemHash'] as num?)?.toInt();
+          if (h != null && h != 0) owned.add(h);
+        }
+      });
+    }
+
+    // Profile scope: profilePlugSets.data.plugs (account-wide unlocks).
+    final profilePlugSetsData =
+        (profile['profilePlugSets'] is Map<String, dynamic>)
+            ? (profile['profilePlugSets'] as Map<String, dynamic>)['data']
+            : null;
+    addFrom(profilePlugSetsData);
+
+    // Character scope: characterPlugSets.data.<charId>.plugs.
+    final charPlugSets = _dataMap(profile['characterPlugSets']);
+    for (final entry in charPlugSets.values) {
+      addFrom(entry);
+    }
+    return merged;
+  }
+
+  /// The newest subclass definition per (classType, name), built once from the
+  /// manifest. Older subclass generations share a name, so the highest manifest
+  /// index wins — the current version.
+  List<_SubclassDef> _subclassDefs() {
+    final cached = _allSubclasses;
+    if (cached != null) return cached;
+    final byKey = <String, _SubclassDef>{};
+    for (final row in _manifest.querySubclasses()) {
+      final hash = (row['hash'] as num?)?.toInt();
+      final name = row['name'] as String? ?? '';
+      final classType = (row['classType'] as num?)?.toInt();
+      if (hash == null || name.isEmpty || classType == null) continue;
+      final index = (row['idx'] as num?)?.toInt() ?? 0;
+      final key = '$classType|$name';
+      final existing = byKey[key];
+      if (existing == null || index > existing.index) {
+        byKey[key] = _SubclassDef(
+          itemHash: hash,
+          name: name,
+          iconPath: row['icon'] as String? ?? '',
+          classType: classType,
+          element: (row['element'] as num?)?.toInt() ?? 0,
+          index: index,
+        );
+      }
+    }
+    return _allSubclasses = byKey.values.toList();
+  }
+
+  /// Definition-only [DestinyItem]s for the subclasses of [classType] the
+  /// character does not own — every class subclass whose *name* is not already
+  /// present among [ownedNames]. These carry no `itemInstanceId`, so they are
+  /// non-draggable and fail [canEquip]/[canDrop] (uninstanced), and their detail
+  /// modal resolves from the definition alone (all options view-only). Shown so
+  /// the grid lists every subclass, owned or not.
+  List<DestinyItem> _unownedSubclassItems(
+      int classType, Set<String> ownedNames) {
+    final result = <DestinyItem>[];
+    for (final sub in _subclassDefs()) {
+      if (sub.classType != classType) continue;
+      if (ownedNames.contains(sub.name)) continue;
+      result.add(DestinyItem(
+        itemHash: sub.itemHash,
+        bucketHash: EquipmentBucket.subclass.hash,
+        name: sub.name,
+        iconPath: sub.iconPath,
+        itemType: DestinyEnums.typeSubclass,
+        classType: sub.classType,
+        // No instance: definition-only, so not equippable and not draggable.
+      ));
+    }
+    return result;
+  }
 }
+
+/// A subclass definition row (newest per class + name) used to inject
+/// not-yet-owned subclasses into the grid.
+class _SubclassDef {
+  const _SubclassDef({
+    required this.itemHash,
+    required this.name,
+    required this.iconPath,
+    required this.classType,
+    required this.element,
+    required this.index,
+  });
+
+  final int itemHash;
+  final String name;
+  final String iconPath;
+  final int classType;
+  final int element;
+  final int index;
+}
+
+/// A subclass socket group's plug family, used to find the aspect and fragment
+/// groups by their plugs' plug-category identifier (stable across every
+/// element, unlike the socket-category hash — see
+/// [InventoryRepository._subclassGroupKindOf]).
+enum _SubclassGroupKind { aspects, fragments, other }
 
 /// Converts a stat's raw investment value to its displayed value using the
 /// weapon stat group's per-stat `displayInterpolation`, a piecewise-linear

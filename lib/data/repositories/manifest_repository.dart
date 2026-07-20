@@ -158,6 +158,9 @@ class ManifestRepository implements FacetSource {
   Map<String, dynamic>? getCollectible(int hash) =>
       database.getCollectible(hash);
 
+  Map<String, dynamic>? getSocketCategory(int hash) =>
+      database.getSocketCategory(hash);
+
   @override
   Map<String, dynamic>? getPlugSet(int hash) => database.getPlugSet(hash);
 
@@ -170,6 +173,8 @@ class ManifestRepository implements FacetSource {
 
   List<Map<String, Object?>> queryGearSummaries(GearKind kind) =>
       database.queryGearSummaries(kind);
+
+  List<Map<String, Object?>> querySubclasses() => database.querySubclasses();
 
   @override
   Map<String, dynamic>? getSocketType(int hash) =>
