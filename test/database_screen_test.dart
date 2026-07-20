@@ -36,11 +36,13 @@ class _FakeRepo implements DatabaseRepository {
 
   // Armor pieces spanning the three classes, for the class-filter test.
   // Titan Helm (11) and Warlock Cowl (13) belong to one set ("Aegis Set");
-  // Hunter Hood (12) is setless — so collapse yields one set row + one piece.
+  // Hunter Hood (12) is setless. Loreley (14) is a setless Exotic — so the
+  // Sets+Exotics union yields one set row plus the Exotic piece.
   final _armor = <GearSummary>[
     _armorSummary(11, 'Titan Helm', cls: 0),
     _armorSummary(12, 'Hunter Hood', cls: 1),
     _armorSummary(13, 'Warlock Cowl', cls: 2),
+    _armorSummary(14, 'Loreley Splendor', cls: 0, tier: 6),
   ];
 
   // Ability plugs: a Warlock super, a class-shared fragment, and a Warlock
@@ -70,12 +72,13 @@ class _FakeRepo implements DatabaseRepository {
         index: hash,
       );
 
-  static GearSummary _armorSummary(int hash, String name, {required int cls}) =>
+  static GearSummary _armorSummary(int hash, String name,
+          {required int cls, int tier = 5}) =>
       GearSummary(
         itemHash: hash,
         name: name,
         iconPath: '',
-        tierType: 5,
+        tierType: tier,
         itemType: 2,
         itemSubType: 26,
         itemTypeDisplayName: 'Helmet',
@@ -112,6 +115,9 @@ class _FakeRepo implements DatabaseRepository {
     };
     return source.where((g) {
       if (filter.tierType != null && g.tierType != filter.tierType) {
+        return false;
+      }
+      if (filter.minTierType != null && g.tierType < filter.minTierType!) {
         return false;
       }
       // Class filter keeps that class plus class-shared (classType 3) items.
@@ -442,13 +448,14 @@ void main() {
     expect(find.text('Titan'), findsNothing);
     expect(find.text('Fatebringer'), findsOneWidget);
 
-    // Switch to Armor: the class control appears. Collapse-into-sets is on by
-    // default (Titan Helm + Warlock Cowl are one set), so turn it off first to
-    // test class filtering against the flat per-piece list.
+    // Switch to Armor: the class control appears. Sets and Exotics are both on
+    // by default; turn both off to get the flat all-pieces view for testing
+    // class filtering.
     await tester.tap(find.text('Armor'));
     await tester.pumpAndSettle();
     expect(find.text('Titan'), findsOneWidget); // class control now shown
-    await tester.tap(find.text('Sets')); // toggle collapse off
+    await tester.tap(find.text('Sets')); // collapse off
+    await tester.tap(find.text('Exotics')); // exotics off → flat all pieces
     await tester.pumpAndSettle();
     expect(find.text('Titan Helm'), findsOneWidget);
     expect(find.text('Hunter Hood'), findsOneWidget);
@@ -472,7 +479,7 @@ void main() {
   });
 
   testWidgets(
-      'armor collapses into set rows by default; toggling Sets off flattens it',
+      'Sets and Exotics toggles are independent and additive',
       (tester) async {
     _useWideSurface(tester);
     final container = ProviderContainer(overrides: [
@@ -488,28 +495,45 @@ void main() {
     await tester.tap(find.text('Armor'));
     await tester.pumpAndSettle();
 
-    // Collapse on by default (set view): ONLY set rows show — the two members
-    // collapse to "Aegis Set" (with its bonus badges), and the setless Hunter
-    // Hood is hidden.
+    // Both on by default (the additive union): the Aegis Set collapses to one
+    // set row AND the setless Exotic (Loreley) shows as its own piece row. The
+    // setless Legendary (Hunter Hood) is not a set and not Exotic, so it is
+    // hidden.
     expect(find.text('Aegis Set'), findsOneWidget);
     expect(find.text('2pc: Guarded'), findsOneWidget);
     expect(find.text('4pc: Bulwark'), findsOneWidget);
+    expect(find.text('Loreley Splendor'), findsOneWidget); // Exotic piece
     expect(find.text('Titan Helm'), findsNothing); // collapsed into the set
     expect(find.text('Warlock Cowl'), findsNothing);
-    expect(find.text('Hunter Hood'), findsNothing); // setless — hidden in sets
+    expect(find.text('Hunter Hood'), findsNothing); // setless Legendary
 
-    // Toggle Sets off: the flat per-piece list shows every piece.
+    // Sets off, Exotics on → Exotics only: just Loreley, no set row.
     await tester.tap(find.text('Sets'));
+    await tester.pumpAndSettle();
+    expect(find.text('Aegis Set'), findsNothing);
+    expect(find.text('Loreley Splendor'), findsOneWidget);
+    expect(find.text('Titan Helm'), findsNothing);
+    expect(find.text('Hunter Hood'), findsNothing);
+
+    // Both off → show all: every piece as a flat row.
+    await tester.tap(find.text('Exotics'));
     await tester.pumpAndSettle();
     expect(find.text('Aegis Set'), findsNothing);
     expect(find.text('Titan Helm'), findsOneWidget);
     expect(find.text('Warlock Cowl'), findsOneWidget);
     expect(find.text('Hunter Hood'), findsOneWidget);
+    expect(find.text('Loreley Splendor'), findsOneWidget);
 
-    // Tapping a set row (collapse back on first) selects the set and opens the
-    // set-detail modal: it shows the set bonus and each member's screenshot.
+    // Sets on, Exotics off → sets only: the set row, no loose pieces.
     await tester.tap(find.text('Sets'));
     await tester.pumpAndSettle();
+    expect(find.text('Aegis Set'), findsOneWidget);
+    expect(find.text('Loreley Splendor'), findsNothing);
+    expect(find.text('Titan Helm'), findsNothing);
+    expect(find.text('Hunter Hood'), findsNothing);
+
+    // Tapping the set row selects the set and opens the set-detail modal: it
+    // shows the set bonus and each member's screenshot.
     await tester.tap(find.text('Aegis Set'));
     await tester.pumpAndSettle();
     expect(container.read(selectedArmorSetProvider), 777);
@@ -585,7 +609,7 @@ void main() {
     expect(find.text('85'), findsOneWidget);
   });
 
-  group('Sets vs Exotics exclusivity', () {
+  group('Sets and Exotics are independent', () {
     late ProviderContainer c;
     setUp(() => c = ProviderContainer());
     tearDown(() => c.dispose());
@@ -594,40 +618,32 @@ void main() {
     DatabaseFilterNotifier notifier() =>
         c.read(databaseFilterProvider.notifier);
 
-    test('turning Exotics on turns Sets off', () {
-      // Sets is on by default.
+    test('both are on by default', () {
       expect(read().collapseSets, isTrue);
-      notifier().setExoticsOnly(true);
-      expect(read().exoticsOnly, isTrue);
-      expect(read().collapseSets, isFalse); // exclusivity: Sets forced off
+      expect(read().showExotics, isTrue);
     });
 
-    test('turning Sets on turns Exotics off', () {
-      notifier().setExoticsOnly(true);
-      expect(read().exoticsOnly, isTrue);
-      notifier().setCollapseSets(true);
-      expect(read().collapseSets, isTrue);
-      expect(read().exoticsOnly, isFalse); // exclusivity: Exotics forced off
-    });
-
-    test('turning one OFF does not force the other on', () {
-      // Both off → toggling Exotics off leaves Sets off (not forced on).
+    test('toggling Sets leaves Exotics untouched', () {
       notifier().setCollapseSets(false);
-      notifier().setExoticsOnly(false);
       expect(read().collapseSets, isFalse);
-      expect(read().exoticsOnly, isFalse);
-      // Turning Sets off while Exotics is on leaves Exotics on.
-      notifier().setExoticsOnly(true);
-      notifier().setCollapseSets(false);
-      expect(read().exoticsOnly, isTrue);
+      expect(read().showExotics, isTrue); // unchanged
     });
 
-    test('exoticsOnly pins the tier filter to Exotic (overrides the floor)',
-        () {
-      notifier().setExoticsOnly(true);
-      final f = read().toGearFilter();
-      expect(f.tierType, 6); // Exotic
-      expect(f.minTierType, isNull); // floor suppressed while exotics-only
+    test('toggling Exotics leaves Sets untouched', () {
+      notifier().setShowExotics(false);
+      expect(read().showExotics, isFalse);
+      expect(read().collapseSets, isTrue); // unchanged
+    });
+
+    test('the rarity floor is independent of Exotics', () {
+      // Exotics no longer pins the tier; the Legendary floor is governed only
+      // by hideBelowLegendary.
+      notifier().setShowExotics(true);
+      expect(read().toGearFilter().tierType, isNull);
+      expect(read().toGearFilter().minTierType, 5); // Legendary floor
+
+      notifier().setHideBelowLegendary(false);
+      expect(read().toGearFilter().minTierType, isNull); // floor lifted
     });
   });
 }

@@ -1,5 +1,6 @@
 import '../../core/config/app_config.dart';
 import 'destiny_item.dart';
+import 'exotic_ability_interaction.dart';
 import 'item_detail.dart';
 
 /// The resolved, editable configuration of a subclass: the base [item], its
@@ -116,9 +117,17 @@ class SubclassSocket {
     this.equippableHashes = const {},
     this.equippedElsewhereHashes = const {},
     this.available = true,
+    this.abilityKind,
   });
 
   final int socketIndex;
+
+  /// The kind of ability this socket holds (grenade, melee, super, class
+  /// ability, aspect), derived from its plugs' plug-category identifier — the
+  /// join key to the curated exotic-interaction map. Null for a socket that is
+  /// not one of those ability kinds (e.g. fragments, or an unrecognised
+  /// category).
+  final AbilityKind? abilityKind;
 
   /// The plug currently in the socket (from the live 305 component), or null
   /// when the socket is empty.

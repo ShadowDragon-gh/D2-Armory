@@ -1,0 +1,1644 @@
+{
+  "50291571": {
+    "name": "Speaker's Sight",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Healing Grenade"
+        ]
+      }
+    ]
+  },
+  "90009855": {
+    "name": "Arbor Warden",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "class_ability"
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Drengr's Lash",
+          "Bastion"
+        ]
+      }
+    ]
+  },
+  "106575079": {
+    "name": "Helm of Saint-14",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Ward of Dawn"
+        ]
+      }
+    ]
+  },
+  "121305948": {
+    "name": "Geomag Stabilizers",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Chaos Reach"
+        ]
+      }
+    ]
+  },
+  "124786972": {
+    "name": "Necrotic Grip",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "136355432": {
+    "name": "Mk. 44 Stand Asides",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Juggernaut"
+        ]
+      }
+    ]
+  },
+  "192896783": {
+    "name": "Cyrtarachne's Facade",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Grapple"
+        ]
+      }
+    ]
+  },
+  "193869520": {
+    "name": "St0mp-EE5",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "movement",
+        "names": [
+          "High Jump",
+          "Strafe Jump",
+          "Triple Jump"
+        ]
+      }
+    ]
+  },
+  "193869523": {
+    "name": "Orpheus Rig",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "element": 4
+      },
+      {
+        "kind": "melee",
+        "element": 4
+      },
+      {
+        "kind": "super",
+        "names": [
+          "Shadowshot: Deadfall",
+          "Shadowshot: Moebius Quiver"
+        ]
+      },
+      {
+        "kind": "class_ability",
+        "element": 4
+      }
+    ]
+  },
+  "235591051": {
+    "name": "Promethium Spur",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 3
+      },
+      {
+        "kind": "class_ability",
+        "element": 3
+      }
+    ]
+  },
+  "241462141": {
+    "name": "Doom Fang Pauldron",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee",
+        "element": 4
+      },
+      {
+        "kind": "super",
+        "names": [
+          "Sentinel Shield"
+        ]
+      }
+    ]
+  },
+  "241462142": {
+    "name": "Synthoceps",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "super"
+      }
+    ]
+  },
+  "300502917": {
+    "name": "Nothing Manacles",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Scatter Grenade"
+        ]
+      }
+    ]
+  },
+  "308767728": {
+    "name": "Point-Contact Cannon Brace",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Thunderclap"
+        ]
+      }
+    ]
+  },
+  "322173891": {
+    "name": "Mask of Fealty",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Withering Blade"
+        ]
+      }
+    ]
+  },
+  "327385975": {
+    "name": "Caliban's Hand",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Proximity Explosive Knife",
+          "Withering Blade"
+        ]
+      }
+    ]
+  },
+  "368733541": {
+    "name": "The Dragon's Shadow",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "368733543": {
+    "name": "Raiden Flux",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Arc Staff"
+        ]
+      }
+    ]
+  },
+  "370930766": {
+    "name": "Wings of Sacred Dawn",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 3
+      }
+    ]
+  },
+  "405059572": {
+    "name": "Young Ahamkara's Spine",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Tripmine Grenade"
+        ]
+      },
+      {
+        "kind": "melee",
+        "element": 3
+      },
+      {
+        "kind": "super",
+        "element": 3
+      }
+    ]
+  },
+  "407148246": {
+    "name": "Graviton Forfeit",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "418363297": {
+    "name": "Lunafaction Boots",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Well of Radiance"
+        ]
+      },
+      {
+        "kind": "class_ability",
+        "names": [
+          "Empowering Rift",
+          "Healing Rift"
+        ]
+      }
+    ]
+  },
+  "461841403": {
+    "name": "Gyrfalcon's Hauberk",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "502173648": {
+    "name": "Heart of Inmost Light",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "508515818": {
+    "name": "Mask of Bakris",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "class_ability",
+        "element": 2
+      },
+      {
+        "kind": "class_ability",
+        "element": 6
+      }
+    ]
+  },
+  "511888814": {
+    "name": "Secant Filaments",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 4
+      },
+      {
+        "kind": "class_ability",
+        "names": [
+          "Empowering Rift"
+        ]
+      }
+    ]
+  },
+  "597039524": {
+    "name": "Boots of the Assembler",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Well of Radiance"
+        ]
+      },
+      {
+        "kind": "class_ability",
+        "names": [
+          "Empowering Rift",
+          "Healing Rift"
+        ]
+      }
+    ]
+  },
+  "599049453": {
+    "name": "Starfire Protocol",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Fusion Grenade"
+        ]
+      },
+      {
+        "kind": "super",
+        "names": [
+          "Well of Radiance"
+        ]
+      },
+      {
+        "kind": "class_ability",
+        "names": [
+          "Empowering Rift"
+        ]
+      }
+    ]
+  },
+  "609852545": {
+    "name": "Fr0st-EE5",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "691578979": {
+    "name": "Shards of Galanor",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee",
+        "element": 3
+      },
+      {
+        "kind": "super",
+        "names": [
+          "Blade Barrage"
+        ]
+      }
+    ]
+  },
+  "728668916": {
+    "name": "Felwinter's Helm",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "730200061": {
+    "name": "No Backup Plans",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "super",
+        "names": [
+          "Fists of Havoc",
+          "Sentinel Shield",
+          "Glacial Quake",
+          "Hammer of Sol"
+        ]
+      }
+    ]
+  },
+  "858758105": {
+    "name": "Khepri's Horn",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 3
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "863908533": {
+    "name": "Blight Ranger",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Arc Staff"
+        ]
+      }
+    ]
+  },
+  "864224653": {
+    "name": "Pyrogale Gauntlets",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Burning Maul"
+        ]
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Consecration"
+        ]
+      }
+    ]
+  },
+  "896224899": {
+    "name": "Foetracer",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "super"
+      }
+    ]
+  },
+  "900910756": {
+    "name": "Winter's Guile",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "903984858": {
+    "name": "Lucky Raspberry",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Arcbolt Grenade"
+        ]
+      }
+    ]
+  },
+  "925466716": {
+    "name": "Nezarec's Sin",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "super"
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "925466717": {
+    "name": "Eye of Another World",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "925466718": {
+    "name": "Crown of Tempests",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "element": 2
+      },
+      {
+        "kind": "melee",
+        "element": 2
+      },
+      {
+        "kind": "super",
+        "element": 2
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Ionic Sentry"
+        ]
+      }
+    ]
+  },
+  "950745251": {
+    "name": "Sunbracers",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Solar Grenade"
+        ]
+      },
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "978537162": {
+    "name": "Ophidia Spathe",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee",
+        "element": 3
+      },
+      {
+        "kind": "class_ability",
+        "names": [
+          "Gambler's Dodge"
+        ]
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Knock 'Em Down"
+        ]
+      }
+    ]
+  },
+  "1001356380": {
+    "name": "Star-Eater Scales",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "super"
+      }
+    ]
+  },
+  "1003391927": {
+    "name": "Mataiodoxía",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Arcane Needle"
+        ]
+      },
+      {
+        "kind": "super",
+        "names": [
+          "Needlestorm"
+        ]
+      }
+    ]
+  },
+  "1030017949": {
+    "name": "Skull of Dire Ahamkara",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Nova Bomb: Cataclysm",
+          "Nova Bomb: Vortex"
+        ]
+      }
+    ]
+  },
+  "1053737370": {
+    "name": "Shinobu's Vow",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Skip Grenade"
+        ]
+      }
+    ]
+  },
+  "1096253259": {
+    "name": "Apotheosis Veil",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "super"
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "1160559849": {
+    "name": "Dunemarchers",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "1163283805": {
+    "name": "Gemini Jester",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "1168370783": {
+    "name": "Gwisin Vest",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Spectral Blades"
+        ]
+      }
+    ]
+  },
+  "1188437342": {
+    "name": "Blastwave Striders",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Shiver Strike"
+        ]
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Howl of the Storm"
+        ]
+      }
+    ]
+  },
+  "1190497097": {
+    "name": "Citan's Ramparts",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "class_ability",
+        "names": [
+          "Towering Barricade"
+        ]
+      }
+    ]
+  },
+  "1192890598": {
+    "name": "Hallowfire Heart",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "element": 3
+      },
+      {
+        "kind": "melee",
+        "element": 3
+      },
+      {
+        "kind": "super",
+        "element": 3
+      },
+      {
+        "kind": "class_ability",
+        "element": 3
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Shieldburst"
+        ]
+      }
+    ]
+  },
+  "1203306856": {
+    "name": "Wormgod Caress",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "1219761634": {
+    "name": "The Bombardiers",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "super"
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "1321354573": {
+    "name": "Celestial Nighthawk",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "super"
+      }
+    ]
+  },
+  "1322544481": {
+    "name": "Hoarfrost-Z",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 6
+      },
+      {
+        "kind": "class_ability",
+        "element": 6
+      }
+    ]
+  },
+  "1407595207": {
+    "name": "An Insurmountable Skullfort",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "1429817243": {
+    "name": "Severance Enclosure",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "1443166262": {
+    "name": "Second Chance",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Shield Throw"
+        ]
+      }
+    ]
+  },
+  "1453120846": {
+    "name": "The Path of Burning Steps",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Roaring Flames"
+        ]
+      }
+    ]
+  },
+  "1467044898": {
+    "name": "Icefall Mantle",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 6
+      },
+      {
+        "kind": "class_ability",
+        "element": 6
+      }
+    ]
+  },
+  "1474735277": {
+    "name": "The Sixth Coyote",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "1479082657": {
+    "name": "Deimosuffusion",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 7
+      },
+      {
+        "kind": "class_ability",
+        "element": 7
+      }
+    ]
+  },
+  "1537074069": {
+    "name": "Phoenix Cradle",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Sol Invictus"
+        ]
+      }
+    ]
+  },
+  "1591207519": {
+    "name": "Crest of Alpha Lupi",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super"
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "1624882687": {
+    "name": "Rain of Fire",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Icarus Dash",
+          "Weavewalk"
+        ]
+      }
+    ]
+  },
+  "1627691271": {
+    "name": "Gifted Conviction",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Ascension",
+          "Tempest Strike"
+        ]
+      }
+    ]
+  },
+  "1688602431": {
+    "name": "Sealed Ahamkara Grasps",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "1702288800": {
+    "name": "Radiant Dance Machines",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "1725917554": {
+    "name": "Vesper of Radius",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 2
+      },
+      {
+        "kind": "class_ability",
+        "names": [
+          "Empowering Rift",
+          "Healing Rift"
+        ]
+      }
+    ]
+  },
+  "1734844650": {
+    "name": "Ashen Wake",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Fusion Grenade"
+        ]
+      }
+    ]
+  },
+  "1747063685": {
+    "name": "Stormdancer's Brace",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "element": 2
+      },
+      {
+        "kind": "melee",
+        "element": 2
+      },
+      {
+        "kind": "super",
+        "names": [
+          "Stormtrance"
+        ]
+      }
+    ]
+  },
+  "1793346751": {
+    "name": "Speedloader Slacks",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "1848640623": {
+    "name": "Ursa Furiosa",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Sentinel Shield"
+        ]
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Unbreakable"
+        ]
+      }
+    ]
+  },
+  "1849149215": {
+    "name": "Fallen Sunstar",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "1906093346": {
+    "name": "Contraverse Hold",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Vortex Grenade",
+          "Scatter Grenade",
+          "Axion Bolt",
+          "Magnetic Grenade"
+        ]
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Chaos Accelerant"
+        ]
+      }
+    ]
+  },
+  "1909305643": {
+    "name": "Hazardous Propulsion",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "1935198785": {
+    "name": "Omnioculus",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Snare Bomb"
+        ]
+      }
+    ]
+  },
+  "2169905051": {
+    "name": "Renewal Grasps",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Duskfield Grenade"
+        ]
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Touch of Winter"
+        ]
+      }
+    ]
+  },
+  "2177524718": {
+    "name": "The Stag",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "2203146422": {
+    "name": "Assassin's Cowl",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "2255796155": {
+    "name": "Peregrine Greaves",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Seismic Strike",
+          "Hammer Strike",
+          "Shield Bash"
+        ]
+      }
+    ]
+  },
+  "2268523867": {
+    "name": "Raiju's Harness",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Gathering Storm"
+        ]
+      }
+    ]
+  },
+  "2316914168": {
+    "name": "Dawn Chorus",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "super",
+        "names": [
+          "Daybreak"
+        ]
+      }
+    ]
+  },
+  "2321120637": {
+    "name": "Cuirass of the Falling Star",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "super",
+        "names": [
+          "Thundercrash"
+        ]
+      }
+    ]
+  },
+  "2340803152": {
+    "name": "Balance of Power",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Threaded Specter"
+        ]
+      }
+    ]
+  },
+  "2415768376": {
+    "name": "Athrys's Embrace",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Weighted Throwing Knife"
+        ]
+      }
+    ]
+  },
+  "2423243921": {
+    "name": "Antaeus Wards",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "2428181146": {
+    "name": "Verity's Brow",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade"
+      }
+    ]
+  },
+  "2463947681": {
+    "name": "Swarmers",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Threadling Grenade"
+        ]
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Weaver's Call"
+        ]
+      }
+    ]
+  },
+  "2563444729": {
+    "name": "ACD/0 Feedback Fence",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "2647299044": {
+    "name": "Moirai",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Threaded Spike"
+        ]
+      }
+    ]
+  },
+  "2732820041": {
+    "name": "Mantle of Battle Harmony",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super"
+      }
+    ]
+  },
+  "2749457084": {
+    "name": "Liar's Handshake",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee",
+        "element": 2
+      }
+    ]
+  },
+  "2757274117": {
+    "name": "Khepri's Sting",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "melee",
+        "element": 4
+      }
+    ]
+  },
+  "2808156426": {
+    "name": "Eternal Warrior",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Fists of Havoc"
+        ]
+      }
+    ]
+  },
+  "2851385306": {
+    "name": "Cadmus Ridge Lancecap",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 6
+      },
+      {
+        "kind": "class_ability",
+        "names": [
+          "Rally Barricade"
+        ],
+        "element": 6
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Diamond Lance"
+        ]
+      }
+    ]
+  },
+  "2867399974": {
+    "name": "Melas Panoplia",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Throwing Hammer"
+        ]
+      }
+    ]
+  },
+  "2999866952": {
+    "name": "Armamentarium",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "grenade"
+      }
+    ]
+  },
+  "3070555693": {
+    "name": "Sanguine Alchemy",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Well of Radiance"
+        ]
+      },
+      {
+        "kind": "class_ability",
+        "names": [
+          "Empowering Rift",
+          "Healing Rift"
+        ]
+      }
+    ]
+  },
+  "3084282676": {
+    "name": "Getaway Artist",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "element": 2
+      }
+    ]
+  },
+  "3234692237": {
+    "name": "Briarbinds",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Child of the Old Gods"
+        ]
+      }
+    ]
+  },
+  "3259193988": {
+    "name": "Osmiomancy Gloves",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "names": [
+          "Coldsnap Grenade"
+        ]
+      }
+    ]
+  },
+  "3288917178": {
+    "name": "Claws of Ahamkara",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "3316517958": {
+    "name": "Loreley Splendor Helm",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super",
+        "element": 3
+      },
+      {
+        "kind": "class_ability",
+        "element": 3
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Sol Invictus"
+        ]
+      }
+    ]
+  },
+  "3481695565": {
+    "name": "Eunoia",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Hellion"
+        ]
+      }
+    ]
+  },
+  "3534173884": {
+    "name": "Mothkeeper's Wraps",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade"
+      }
+    ]
+  },
+  "3545094011": {
+    "name": "Chromatic Fire",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super"
+      }
+    ]
+  },
+  "3562696927": {
+    "name": "Wormhusk Crown",
+    "classType": 1,
+    "abilities": [
+      {
+        "kind": "grenade",
+        "element": 3
+      },
+      {
+        "kind": "melee",
+        "element": 3
+      },
+      {
+        "kind": "super",
+        "element": 3
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "3637722482": {
+    "name": "Abeyant Leap",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Drengr's Lash"
+        ]
+      }
+    ]
+  },
+  "3717431477": {
+    "name": "Wishful Ignorance",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee",
+        "names": [
+          "Frenzied Blade"
+        ]
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Flechette Storm",
+          "Banner of War"
+        ]
+      }
+    ]
+  },
+  "3831935023": {
+    "name": "Ballidorse Wrathweavers",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Winter's Wrath"
+        ]
+      },
+      {
+        "kind": "aspect",
+        "names": [
+          "Frostpulse"
+        ]
+      }
+    ]
+  },
+  "3844826440": {
+    "name": "Karnstein Armlets",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "melee"
+      }
+    ]
+  },
+  "3883866764": {
+    "name": "Mask of the Quiet One",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "grenade"
+      },
+      {
+        "kind": "melee"
+      },
+      {
+        "kind": "super",
+        "element": 4
+      },
+      {
+        "kind": "class_ability"
+      }
+    ]
+  },
+  "3948284065": {
+    "name": "Astrocyte Verse",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Nova Warp"
+        ]
+      },
+      {
+        "kind": "movement",
+        "names": [
+          "Blink"
+        ]
+      }
+    ]
+  },
+  "3974038291": {
+    "name": "Precious Scars",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "super"
+      }
+    ]
+  },
+  "4057299719": {
+    "name": "Phoenix Protocol",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "super",
+        "names": [
+          "Well of Radiance"
+        ]
+      }
+    ]
+  },
+  "4060793397": {
+    "name": "Rime-coat Raiment",
+    "classType": 2,
+    "abilities": [
+      {
+        "kind": "aspect",
+        "names": [
+          "Bleak Watcher"
+        ]
+      }
+    ]
+  },
+  "4184605701": {
+    "name": "Praxic Vestment",
+    "classType": 0,
+    "abilities": [
+      {
+        "kind": "melee",
+        "element": 2
+      }
+    ]
+  }
+}

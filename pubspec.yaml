@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.4.0
+version: 1.5.0
 
 environment:
   sdk: ^3.12.2
@@ -94,6 +94,14 @@ flutter:
     # DIM's generated exotic-weapon-hash -> catalyst-record-hash map (the
     # manifest doesn't express this link), used to resolve catalyst progress.
     - assets/data/exotic_to_catalyst_record.json
+    # Our curated exotic-armor-hash -> interacting subclass abilities map (neither
+    # the manifest nor Clarity expresses this link structurally). Drives the
+    # "an exotic buffs this ability" badge in the subclass modal. Each interaction
+    # is {kind, names?, element?}: names scope it to specific abilities (e.g.
+    # Winter's Wrath), element to a subclass element; neither = any ability of the
+    # kind. Bootstrapped from Clarity prose then hand-reviewed; refresh when new
+    # exotics land.
+    - assets/data/exotic_armor_abilities.json
     # D2 Armory logo assets (source of truth in doc/design/).
     - assets/branding/logo-icon-transparent.svg
     - assets/branding/logo-wordmark-transparent.svg

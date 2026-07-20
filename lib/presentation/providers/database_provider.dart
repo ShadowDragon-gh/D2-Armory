@@ -29,7 +29,7 @@ class DatabaseFilter {
     this.collapseSets = true,
     this.hideBelowLegendary = true,
     this.hideLegacy = true,
-    this.exoticsOnly = false,
+    this.showExotics = true,
   });
 
   final GearKind kind;
@@ -50,18 +50,16 @@ class DatabaseFilter {
   /// pieces (on by default). Armor-only.
   final bool hideLegacy;
 
-  /// Whether to show only Exotic gear (off by default). Mutually exclusive with
-  /// [collapseSets] — exotics are single pieces, never part of a set.
-  final bool exoticsOnly;
+  /// Whether Exotic gear is included in the view (on by default). Independent
+  /// of [collapseSets]: with both on the list shows collapsed set rows plus
+  /// every Exotic piece; with only this on it shows Exotics only. Exotics are
+  /// single pieces, never part of a set.
+  final bool showExotics;
 
   GearFilter toGearFilter() => GearFilter(
         kind: kind,
         classType: classType,
-        // Exotics-only pins the tier to Exotic; otherwise the Legendary floor
-        // applies when hiding lower rarity.
-        tierType: exoticsOnly ? 6 : null, // 6 = Exotic
-        minTierType:
-            (!exoticsOnly && hideBelowLegendary) ? 5 : null, // 5 = Legendary
+        minTierType: hideBelowLegendary ? 5 : null, // 5 = Legendary
       );
 }
 
@@ -77,18 +75,17 @@ class DatabaseFilterNotifier extends Notifier<DatabaseFilter> {
         collapseSets: state.collapseSets,
         hideBelowLegendary: state.hideBelowLegendary,
         hideLegacy: state.hideLegacy,
-        exoticsOnly: state.exoticsOnly,
+        showExotics: state.showExotics,
       );
 
   /// Set (or clear, with null) the armor class constraint.
   void setClassType(int? classType) =>
       state = _copyWith(classType: classType, clearClass: classType == null);
 
-  /// Toggle collapsing armor into set rows. Turning it on turns off
-  /// exotics-only (exotics are single pieces, never in a set); turning it off
-  /// leaves exotics-only untouched.
-  void setCollapseSets(bool collapse) => state = _copyWith(
-      collapseSets: collapse, exoticsOnly: collapse ? false : null);
+  /// Toggle collapsing armor into set rows. Independent of [showExotics] — the
+  /// two combine additively (see [DatabaseFilter.showExotics]).
+  void setCollapseSets(bool collapse) =>
+      state = _copyWith(collapseSets: collapse);
 
   /// Toggle hiding gear below Legendary rarity.
   void setHideBelowLegendary(bool hide) =>
@@ -97,10 +94,9 @@ class DatabaseFilterNotifier extends Notifier<DatabaseFilter> {
   /// Toggle hiding legacy armor (sets with no modern bonus + their pieces).
   void setHideLegacy(bool hide) => state = _copyWith(hideLegacy: hide);
 
-  /// Toggle showing only Exotic gear. Turning it on turns off set collapsing
-  /// (they are mutually exclusive); turning it off leaves collapsing untouched.
-  void setExoticsOnly(bool only) => state =
-      _copyWith(exoticsOnly: only, collapseSets: only ? false : null);
+  /// Toggle including Exotic gear. Independent of [collapseSets] — the two
+  /// combine additively (see [DatabaseFilter.showExotics]).
+  void setShowExotics(bool show) => state = _copyWith(showExotics: show);
 
   DatabaseFilter _copyWith({
     int? classType,
@@ -108,7 +104,7 @@ class DatabaseFilterNotifier extends Notifier<DatabaseFilter> {
     bool? collapseSets,
     bool? hideBelowLegendary,
     bool? hideLegacy,
-    bool? exoticsOnly,
+    bool? showExotics,
   }) =>
       DatabaseFilter(
         kind: state.kind,
@@ -116,7 +112,7 @@ class DatabaseFilterNotifier extends Notifier<DatabaseFilter> {
         collapseSets: collapseSets ?? state.collapseSets,
         hideBelowLegendary: hideBelowLegendary ?? state.hideBelowLegendary,
         hideLegacy: hideLegacy ?? state.hideLegacy,
-        exoticsOnly: exoticsOnly ?? state.exoticsOnly,
+        showExotics: showExotics ?? state.showExotics,
       );
 }
 
@@ -227,45 +223,74 @@ class DatabaseRow {
 
 /// The Database list as display rows.
 ///
-/// Weapons (and armor with collapse-sets off) are all piece rows. For armor
-/// with collapse-sets on, the list shows **only** set rows — gear in a set
-/// collapses to one [DatabaseRow.set] (holding the members that passed the
-/// filter) and gear in no set is hidden. When [DatabaseFilter.hideLegacy] is
-/// on, legacy sets (no modern bonus) and their pieces are dropped entirely.
-/// Rows are sorted alphabetically by display name.
+/// The Sets and Exotics toggles are independent and additive:
+///  * neither on — every piece as a flat row (all gear);
+///  * Sets only — collapsed set rows, setless gear hidden;
+///  * Exotics only — Exotic pieces as flat rows;
+///  * both on — collapsed set rows **plus** every Exotic piece as its own row.
+///
+/// The Sets and Exotics chips exist on the Armor tab only, so this additive
+/// union is armor-only: the Weapons tab always lists every weapon as a flat
+/// row (respecting the rarity floor and search). Exotics are never part of a
+/// set, so the both-on union never double-lists a piece. When
+/// [DatabaseFilter.hideLegacy] is on, legacy sets (no modern bonus) and their
+/// pieces are dropped entirely. Rows are sorted alphabetically by display name.
+const _exoticTierType = 6;
+
 final databaseRowsProvider = Provider<AsyncValue<List<DatabaseRow>>>((ref) {
   final filter = ref.watch(databaseFilterProvider);
-  final collapse = filter.kind == GearKind.armor && filter.collapseSets;
-  final hideLegacy = filter.kind == GearKind.armor && filter.hideLegacy;
+  final isArmor = filter.kind == GearKind.armor;
+  final showSets = isArmor && filter.collapseSets;
+  // Exotics narrows the view only on the Armor tab, where its chip lives.
+  final showExotics = isArmor && filter.showExotics;
+  final hideLegacy = isArmor && filter.hideLegacy;
   return ref.watch(databaseResultsProvider).whenData((results) {
     final repo = ref.watch(databaseRepositoryProvider);
 
-    if (!collapse) {
-      // Flat per-piece view. Hiding legacy still drops legacy-set members.
+    bool isLegacyMember(GearSummary g) =>
+        hideLegacy && (repo.armorSetForItem(g.itemHash)?.isLegacy ?? false);
+
+    // Neither toggle narrows the view: every piece as a flat row. This is also
+    // the Weapons tab's path (both toggles are armor-only above).
+    if (!showSets && !showExotics) {
       final rows = <DatabaseRow>[];
       for (final g in results) {
-        if (hideLegacy && (repo.armorSetForItem(g.itemHash)?.isLegacy ?? false)) {
-          continue;
-        }
+        if (isLegacyMember(g)) continue;
         rows.add(DatabaseRow.piece(g));
       }
       return rows;
     }
 
-    // Collapsed view: only set rows; setless gear is hidden.
-    final setMembers = <int, List<GearSummary>>{};
-    final setById = <int, ArmorSet>{};
-    for (final g in results) {
-      final set = repo.armorSetForItem(g.itemHash);
-      if (set == null) continue; // loose piece — hidden in the collapsed view
-      if (hideLegacy && set.isLegacy) continue; // legacy set — hidden
-      (setMembers[set.hash] ??= []).add(g);
-      setById[set.hash] = set;
+    final rows = <DatabaseRow>[];
+
+    // Set rows: gear in a set collapses to one row; setless gear is not shown
+    // here (it surfaces only via the Exotics union below, if selected).
+    if (showSets) {
+      final setMembers = <int, List<GearSummary>>{};
+      final setById = <int, ArmorSet>{};
+      for (final g in results) {
+        final set = repo.armorSetForItem(g.itemHash);
+        if (set == null) continue; // loose piece — not a set row
+        if (hideLegacy && set.isLegacy) continue; // legacy set — hidden
+        (setMembers[set.hash] ??= []).add(g);
+        setById[set.hash] = set;
+      }
+      for (final entry in setMembers.entries) {
+        rows.add(DatabaseRow.set(setById[entry.key]!, entry.value));
+      }
     }
-    final rows = [
-      for (final entry in setMembers.entries)
-        DatabaseRow.set(setById[entry.key]!, entry.value),
-    ]..sort((a, b) => a.sortName.compareTo(b.sortName));
+
+    // Exotic piece rows: every Exotic as its own row (Exotics are never in a
+    // set, so this never duplicates a set member above).
+    if (showExotics) {
+      for (final g in results) {
+        if (g.tierType != _exoticTierType) continue;
+        if (isLegacyMember(g)) continue;
+        rows.add(DatabaseRow.piece(g));
+      }
+    }
+
+    rows.sort((a, b) => a.sortName.compareTo(b.sortName));
     return rows;
   });
 });
