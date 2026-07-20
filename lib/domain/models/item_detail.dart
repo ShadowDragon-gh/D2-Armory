@@ -169,12 +169,32 @@ class ItemPlug {
     this.statEffects = const [],
     this.plugHash = 0,
     this.socketIndex = -1,
+    this.platePath,
+    this.foregroundPath,
   });
 
   final String name;
   final String iconPath;
   final PlugCategory category;
   final String description;
+
+  /// A background plate + transparent foreground glyph to composite in place of
+  /// the flat [iconPath], both non-null together. Used for subclass class-
+  /// ability / movement plugs, whose flat icon bakes in the wrong (Stasis-blue)
+  /// plate — the composite draws the glyph over the subclass's correct element
+  /// plate. Null for every other plug (draw [iconPath] as-is).
+  final String? platePath;
+  final String? foregroundPath;
+
+  String? get plateUrl =>
+      (platePath == null || platePath!.isEmpty)
+          ? null
+          : '${AppConfig.bungieBaseUrl}$platePath';
+
+  String? get foregroundUrl =>
+      (foregroundPath == null || foregroundPath!.isEmpty)
+          ? null
+          : '${AppConfig.bungieBaseUrl}$foregroundPath';
 
   /// A secondary informational note the game shows in smaller, dimmer text
   /// below the effect — e.g. an armor mod's "Multiple copies of this mod can be

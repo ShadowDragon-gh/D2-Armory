@@ -12,7 +12,8 @@ enum EquipmentBucket {
   gauntlets(3551918588, 'Gauntlets'),
   chestArmor(14239492, 'Chest'),
   legArmor(20886954, 'Legs'),
-  classArmor(1585787867, 'Class Item');
+  classArmor(1585787867, 'Class Item'),
+  subclass(3284755031, 'Subclass');
 
   const EquipmentBucket(this.hash, this.label);
 
@@ -29,17 +30,29 @@ enum EquipmentBucket {
   }
 
   /// The equipment buckets belonging to [kind] (weapon slots or armor slots).
-  static List<EquipmentBucket> forKind(GearKind kind) => [
-        for (final b in EquipmentBucket.values)
-          if (b.isWeapon == (kind == GearKind.weapon)) b,
-      ];
+  /// The subclass bucket belongs to neither and is always excluded. Empty for
+  /// [GearKind.ability] — ability plugs are not gear and have no bucket (that
+  /// kind is queried by plug category instead).
+  static List<EquipmentBucket> forKind(GearKind kind) {
+    if (kind == GearKind.ability) return const [];
+    return [
+      for (final b in EquipmentBucket.values)
+        if (b != EquipmentBucket.subclass &&
+            b.isWeapon == (kind == GearKind.weapon))
+          b,
+    ];
+  }
 }
 
 /// Which family of gear the Database tab is browsing. Maps to DestinyItemType
-/// (weapon=3, armor=2) and to the weapon vs armor [EquipmentBucket] slots.
+/// (weapon=3, armor=2, subclass-ability plug=19) and, for weapon/armor, to the
+/// [EquipmentBucket] slots. The [ability] kind is plug-category-driven, not
+/// bucket-driven — its [itemType] is informational only (the query filters on
+/// `plugCategoryIdentifier`, not itemType+bucket).
 enum GearKind {
   weapon(3),
-  armor(2);
+  armor(2),
+  ability(19);
 
   const GearKind(this.itemType);
 

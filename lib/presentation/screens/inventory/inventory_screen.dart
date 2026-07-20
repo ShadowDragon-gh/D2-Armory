@@ -14,6 +14,7 @@ import '../../widgets/inventory_poller.dart';
 import '../../widgets/action_toast.dart';
 import '../../widgets/item_tile.dart';
 import '../database/database_detail_modal.dart';
+import 'subclass_detail_modal.dart';
 
 /// DIM-style inventory grid: one column per character (by last-played) plus a
 /// wide vault column, rows per equipment bucket. Read-only. Rendered inside
@@ -50,6 +51,14 @@ class InventoryScreen extends ConsumerWidget {
       if (next != null) showGearDetailModal(context, ref);
     });
 
+    // A subclass tile selects into selectedSubclassProvider, which opens the
+    // socket-group subclass modal. Its own open-guard ignores a re-selection
+    // (the post-insert reconcile re-selects the instance, not the subclass, so
+    // this only fires on a fresh tap).
+    ref.listen(selectedSubclassProvider, (_, next) {
+      if (next != null) showSubclassDetailModal(context, ref);
+    });
+
     // A completed (or failed) drag-to-move surfaces one top-right toast. A
     // failure — including a two-hop move stranded in the vault — reads as a
     // failure by colour and icon; never a silent success.
@@ -83,6 +92,21 @@ class _Grid extends StatelessWidget {
 
   final InventoryGrid grid;
 
+  /// Explicit row order: the Subclass row leads, then weapons and armor in
+  /// enum order. Not `EquipmentBucket.values` (which lists subclass last, since
+  /// it is defined last to keep `isWeapon`'s index arithmetic intact).
+  static const List<EquipmentBucket> _rowOrder = [
+    EquipmentBucket.subclass,
+    EquipmentBucket.kineticWeapons,
+    EquipmentBucket.energyWeapons,
+    EquipmentBucket.powerWeapons,
+    EquipmentBucket.helmet,
+    EquipmentBucket.gauntlets,
+    EquipmentBucket.chestArmor,
+    EquipmentBucket.legArmor,
+    EquipmentBucket.classArmor,
+  ];
+
   @override
   Widget build(BuildContext context) {
     final characters = grid.owners.where((o) => !o.isVault).toList();
@@ -93,7 +117,7 @@ class _Grid extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _HeaderRow(characters: characters, vault: vault),
-          for (final bucket in EquipmentBucket.values) ...[
+          for (final bucket in _rowOrder) ...[
             _BucketRow(bucket: bucket, characters: characters, vault: vault),
             // Full-width rule spanning columns and the gaps between them.
             const Divider(height: 1, thickness: 1),
@@ -167,7 +191,12 @@ class _BucketRow extends StatelessWidget {
               if (characters.isNotEmpty) const _ColumnGap(),
               Expanded(
                 child: _Cell(
-                  child: _VaultCell(owner: vault!, bucket: bucket),
+                  // Subclasses never reach the vault, so the subclass row's
+                  // vault column is a plain empty cell, not a drop target.
+                  child: bucket == EquipmentBucket.subclass
+                      ? const SizedBox(
+                          width: double.infinity, height: InventoryScreen.tile)
+                      : _VaultCell(owner: vault!, bucket: bucket),
                 ),
               ),
             ],

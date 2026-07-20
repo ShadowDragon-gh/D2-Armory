@@ -565,6 +565,7 @@ class _Chip extends StatelessWidget {
                 imageUrl: icon!,
                 color: iconColor,
                 colorBlendMode: iconColor != null ? BlendMode.srcIn : null,
+                fadeInDuration: Duration.zero,
                 errorWidget: (_, _, _) => const SizedBox.shrink(),
               ),
             ),
@@ -615,6 +616,7 @@ class _Screenshot extends StatelessWidget {
             : CachedNetworkImage(
                 imageUrl: url,
                 fit: BoxFit.cover,
+                fadeInDuration: Duration.zero,
                 placeholder: (_, _) =>
                     const ColoredBox(color: ArmoryPalette.scrim26),
                 errorWidget: (_, _, _) => const ColoredBox(
@@ -714,6 +716,7 @@ class _ArchetypeRow extends StatelessWidget {
               ? const Icon(Icons.shield_outlined, size: 20)
               : CachedNetworkImage(
                   imageUrl: archetype.iconUrl!,
+                  fadeInDuration: Duration.zero,
                   errorWidget: (_, _, _) =>
                       const Icon(Icons.shield_outlined, size: 20),
                 ),
@@ -2216,6 +2219,7 @@ class _PerkIcon extends StatelessWidget {
         : CachedNetworkImage(
             imageUrl: plug.iconUrl!,
             fit: BoxFit.cover,
+            fadeInDuration: Duration.zero,
             errorWidget: (_, _, _) =>
                 const ColoredBox(color: ArmoryPalette.scrim26),
           );

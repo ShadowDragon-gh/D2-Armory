@@ -53,6 +53,7 @@ void main() {
     int itemSubType = 9,
     int classType = 3,
     int damageType = 1,
+    String? pci,
     int index = 0,
   }) =>
       {
@@ -68,6 +69,7 @@ void main() {
         'damageTypeHash': null,
         'ammoType': 1,
         'bucketHash': 1498876634,
+        'pci': pci,
         'idx': index,
       };
 
@@ -119,6 +121,92 @@ void main() {
       final reissue =
           rows.where((r) => r.name == 'Reissued Helm').toList();
       expect(reissue.single.itemHash, 4);
+    });
+  });
+
+  group('ability index — pci-derived class/element', () {
+    setUp(() {
+      // Damage-type defs keyed by enumValue, for the ability element glyph.
+      when(() => manifest.allDamageTypes()).thenReturn([
+        {'enumValue': 3, 'transparentIconPath': '/dmg/solar.png'},
+        {'enumValue': 6, 'transparentIconPath': '/dmg/stasis.png'},
+      ]);
+      when(() => manifest.queryGearSummaries(GearKind.ability)).thenReturn([
+        row(
+            hash: 1,
+            name: 'Phoenix Dive',
+            itemType: 19,
+            classType: 3,
+            damageType: 0,
+            pci: 'warlock.solar.class_abilities'),
+        row(
+            hash: 2,
+            name: 'Ember of Torches',
+            itemType: 19,
+            classType: 3,
+            damageType: 0,
+            pci: 'shared.solar.fragments'),
+        row(
+            hash: 3,
+            name: 'Iceflare Bolts',
+            itemType: 19,
+            classType: 3,
+            damageType: 0,
+            pci: 'hunter.stasis.totems'),
+        row(
+            hash: 4,
+            name: 'Facet of Courage',
+            itemType: 19,
+            classType: 3,
+            damageType: 0,
+            pci: 'titan.prism.fragments'),
+      ]);
+    });
+
+    test('class derives from the pci prefix', () {
+      final rows = repo.listGear(const GearFilter(kind: GearKind.ability));
+      final byName = {for (final r in rows) r.name: r};
+      expect(byName['Phoenix Dive']!.classType, 2); // warlock
+      expect(byName['Iceflare Bolts']!.classType, 1); // hunter
+      expect(byName['Facet of Courage']!.classType, 0); // titan
+      expect(byName['Ember of Torches']!.classType, 3); // shared → any
+    });
+
+    test('element derives from the pci element segment', () {
+      final rows = repo.listGear(const GearFilter(kind: GearKind.ability));
+      final byName = {for (final r in rows) r.name: r};
+      expect(byName['Phoenix Dive']!.damageType, 3); // solar
+      expect(byName['Iceflare Bolts']!.damageType, 6); // stasis
+      // Prismatic has no single element → 0.
+      expect(byName['Facet of Courage']!.damageType, 0);
+    });
+
+    test('a solar fragment gets its element glyph from the derived type', () {
+      final rows = repo.listGear(const GearFilter(kind: GearKind.ability));
+      final ember = rows.firstWhere((r) => r.name == 'Ember of Torches');
+      expect(ember.elementIconUrl, contains('/dmg/solar.png'));
+    });
+
+    test('abilities dedupe by name (shared across subclass generations)', () {
+      when(() => manifest.queryGearSummaries(GearKind.ability)).thenReturn([
+        row(
+            hash: 1,
+            name: 'Daybreak',
+            itemType: 19,
+            damageType: 0,
+            pci: 'warlock.solar.supers',
+            index: 3),
+        row(
+            hash: 2,
+            name: 'Daybreak',
+            itemType: 19,
+            damageType: 0,
+            pci: 'warlock.solar.supers',
+            index: 9),
+      ]);
+      final rows = repo.listGear(const GearFilter(kind: GearKind.ability));
+      final daybreaks = rows.where((r) => r.name == 'Daybreak').toList();
+      expect(daybreaks.single.itemHash, 2); // newest index kept
     });
   });
 

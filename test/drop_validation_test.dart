@@ -8,11 +8,13 @@ import 'package:d2_armory/domain/models/inventory_grid.dart';
 
 const _kinetic = EquipmentBucket.kineticWeapons;
 const _helmet = EquipmentBucket.helmet;
+const _subclass = EquipmentBucket.subclass;
 
 DestinyItem _item({
   int bucketHash = 1498876634, // kinetic
   String? instanceId = '1',
   int? classType,
+  int itemType = 0,
   bool isEquipped = false,
 }) =>
     DestinyItem(
@@ -22,6 +24,7 @@ DestinyItem _item({
       iconPath: '',
       itemInstanceId: instanceId,
       classType: classType,
+      itemType: itemType,
       isEquipped: isEquipped,
     );
 
@@ -116,6 +119,25 @@ void main() {
           currentOwnerId: 'vault');
       expect(v.allowed, isFalse);
     });
+
+    test('denies transferring a subclass to another character, with a reason',
+        () {
+      final subclass =
+          _item(bucketHash: _subclass.hash, itemType: 16, classType: 1);
+      final v = canDrop(subclass, _character('charB'), _subclass,
+          currentOwnerId: 'charA');
+      expect(v.allowed, isFalse);
+      expect(v.reason, contains('Subclass'));
+    });
+
+    test('denies dropping a subclass into the vault', () {
+      final subclass =
+          _item(bucketHash: _subclass.hash, itemType: 16, classType: 1);
+      final v =
+          canDrop(subclass, _vault, _subclass, currentOwnerId: 'charA');
+      expect(v.allowed, isFalse);
+      expect(v.reason, contains('Subclass'));
+    });
   });
 
   group('canEquip', () {
@@ -165,6 +187,16 @@ void main() {
           currentOwnerId: 'charA');
       expect(v.allowed, isFalse);
       expect(v.reason, isNull);
+    });
+
+    test('allows equipping an unequipped subclass on its own character', () {
+      // Subclass transfer is denied, but drag-equipping one on the same
+      // character it already belongs to is how a subclass is switched.
+      final subclass = _item(
+          bucketHash: _subclass.hash, itemType: 16, classType: 1);
+      final v = canEquip(subclass, _character('charA', classType: 1),
+          currentOwnerId: 'charA');
+      expect(v.allowed, isTrue);
     });
   });
 

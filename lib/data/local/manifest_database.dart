@@ -61,6 +61,11 @@ class ManifestDatabase implements FacetSource {
   Map<String, dynamic>? getCollectible(int hash) =>
       getDefinition('DestinyCollectibleDefinition', hash);
 
+  /// A socket-category definition (its display name), for labelling a
+  /// subclass's socket groups (Abilities, Super, Aspects, Fragments).
+  Map<String, dynamic>? getSocketCategory(int hash) =>
+      getDefinition('DestinySocketCategoryDefinition', hash);
+
   @override
   Map<String, dynamic>? getPlugSet(int hash) =>
       getDefinition('DestinyPlugSetDefinition', hash);
@@ -108,33 +113,11 @@ class ManifestDatabase implements FacetSource {
   Map<String, dynamic>? getIcon(int hash) =>
       getDefinition('DestinyIconDefinition', hash);
 
-  /// Enumerate all real gear of [kind] (weapons or armor), projecting only the
-  /// fields a list row needs via `json_extract` — no full-JSON decode per row
-  /// (measured ~400ms cheaper than decoding every blob). Excludes redacted,
-  /// non-equippable, and ornament (itemSubType 21) items, and restricts to the
-  /// equipment-slot buckets, so the result is real gear pieces — not cosmetics,
-  /// dummies, or skins.
-  ///
-  /// Each returned map holds the projected columns keyed by their alias (hash,
-  /// name, icon, tierType, itemType, itemSubType, itemTypeDisplayName,
-  /// classType, damageType, damageTypeHash, ammoType, bucketHash, watermark,
-  /// idx); the repository builds `GearSummary`s from them. This is the
-  /// full-table scan
-  /// (measured ~800ms), so callers cache the result per kind rather than
-  /// re-running it per facet change.
-  ///
-  /// Table and JSON paths are fixed constants; every value is a bound
-  /// parameter, so there is no SQL-injection surface.
-  List<Map<String, Object?>> queryGearSummaries(GearKind kind) {
-    final buckets = EquipmentBucket.forKind(kind);
-    final bucketPlaceholders = List.filled(buckets.length, '?').join(',');
-    // json_extract reads values stored *inside* the JSON blob, which hold
-    // Bungie's original unsigned hashes — unlike the signed `id` primary key.
-    // So bucket hashes are bound unsigned here, not sign-converted.
-    final params = <Object?>[kind.itemType, for (final b in buckets) b.hash];
-
-    final rows = _db.select(
-      "SELECT "
+  // The columns every gear/ability list row projects (via json_extract, no
+  // full-JSON decode). `pci` (the plug category identifier) is null for
+  // weapon/armor rows and carries the taxonomy segment the ability kind derives
+  // its class/element from.
+  static const _summaryColumns = "SELECT "
       "json_extract(json,'\$.hash') AS hash, "
       "json_extract(json,'\$.displayProperties.name') AS name, "
       "json_extract(json,'\$.displayProperties.icon') AS icon, "
@@ -148,14 +131,117 @@ class ManifestDatabase implements FacetSource {
       "json_extract(json,'\$.equippingBlock.ammoType') AS ammoType, "
       "json_extract(json,'\$.inventory.bucketTypeHash') AS bucketHash, "
       "json_extract(json,'\$.iconWatermark') AS watermark, "
+      "json_extract(json,'\$.plug.plugCategoryIdentifier') AS pci, "
       "json_extract(json,'\$.index') AS idx "
-      "FROM DestinyInventoryItemDefinition WHERE "
+      "FROM DestinyInventoryItemDefinition WHERE ";
+
+  /// Enumerate all real definitions of [kind] — weapons/armor as list rows, or
+  /// (for [GearKind.ability]) every subclass ability plug — projecting only the
+  /// fields a list row needs via `json_extract` (no full-JSON decode per row,
+  /// measured ~400ms cheaper than decoding every blob).
+  ///
+  /// Weapons/armor: excludes redacted, non-equippable, and ornament
+  /// (itemSubType 21) items and restricts to the equipment-slot buckets, so the
+  /// result is real gear pieces — not cosmetics, dummies, or skins.
+  ///
+  /// Abilities: ability plugs are not gear (no bucket, itemType 19), so the
+  /// query matches `plug.plugCategoryIdentifier` against the ability taxonomy
+  /// (`<class|shared>.<element>.<super/ability/aspect/fragment/…>`) and drops
+  /// "Empty … Socket" placeholders by name. See [_abilityCategoryClause].
+  ///
+  /// Each returned map holds the projected columns keyed by their alias (hash,
+  /// name, icon, tierType, itemType, itemSubType, itemTypeDisplayName,
+  /// classType, damageType, damageTypeHash, ammoType, bucketHash, watermark,
+  /// pci, idx); the repository builds `GearSummary`s from them. This is the
+  /// full-table scan (measured ~800ms), so callers cache the result per kind
+  /// rather than re-running it per facet change.
+  ///
+  /// Table and JSON paths are fixed constants; every value is a bound
+  /// parameter, so there is no SQL-injection surface.
+  List<Map<String, Object?>> queryGearSummaries(GearKind kind) {
+    if (kind == GearKind.ability) return _queryAbilitySummaries();
+
+    final buckets = EquipmentBucket.forKind(kind);
+    final bucketPlaceholders = List.filled(buckets.length, '?').join(',');
+    // json_extract reads values stored *inside* the JSON blob, which hold
+    // Bungie's original unsigned hashes — unlike the signed `id` primary key.
+    // So bucket hashes are bound unsigned here, not sign-converted.
+    final params = <Object?>[kind.itemType, for (final b in buckets) b.hash];
+
+    final rows = _db.select(
+      "$_summaryColumns"
       "json_extract(json,'\$.itemType') = ? AND "
       "json_extract(json,'\$.redacted') = 0 AND "
       "json_extract(json,'\$.equippable') = 1 AND "
       "json_extract(json,'\$.itemSubType') != 21 AND "
       "json_extract(json,'\$.inventory.bucketTypeHash') IN ($bucketPlaceholders)",
       params,
+    );
+    return [for (final r in rows) {for (final k in r.keys) k: r[k]}];
+  }
+
+  // The subclass-ability plug-category suffixes (the taxonomy's second half).
+  // Prefixes are titan/hunter/warlock/shared; a matching `pci` is
+  // `<prefix>.<element>.<suffix>`. "supers" is plural, "melee" is singular;
+  // stasis uses "totems" (aspects) and "trinkets" (fragments) from the pre-3.0
+  // naming. Kept in sync with the ability taxonomy documented in the plan.
+  static const _abilitySuffixes = [
+    'class_abilities',
+    'movement',
+    'melee',
+    'supers',
+    'aspects',
+    'totems',
+    'grenades',
+    'fragments',
+    'trinkets',
+  ];
+
+  /// Query every subclass ability plug by plug category. Matches any
+  /// `plug.plugCategoryIdentifier` ending in one of [_abilitySuffixes]
+  /// (`LIKE '%.<suffix>'`), dropping "Empty … Socket" placeholders by name.
+  List<Map<String, Object?>> _queryAbilitySummaries() {
+    // One `pci LIKE '%.<suffix>'` per suffix, OR'd together, on the full
+    // json_extract expression (not the alias — matching the existing WHERE
+    // style). The suffixes are fixed constants (not user input), bound as
+    // parameters regardless so there is no injection surface.
+    const pciExpr = "json_extract(json,'\$.plug.plugCategoryIdentifier')";
+    const nameExpr = "json_extract(json,'\$.displayProperties.name')";
+    final likeClause =
+        _abilitySuffixes.map((_) => "$pciExpr LIKE ?").join(' OR ');
+    final params = <Object?>[
+      for (final s in _abilitySuffixes) '%.$s',
+    ];
+    final rows = _db.select(
+      "$_summaryColumns"
+      "json_extract(json,'\$.itemType') = 19 AND "
+      "json_extract(json,'\$.redacted') = 0 AND "
+      "$nameExpr IS NOT NULL AND $nameExpr != '' AND "
+      "$nameExpr NOT LIKE 'Empty %' AND "
+      "$pciExpr IS NOT NULL AND ($likeClause)",
+      params,
+    );
+    return [for (final r in rows) {for (final k in r.keys) k: r[k]}];
+  }
+
+  /// Every subclass definition (itemType 16), projecting the fields the
+  /// inventory grid needs to show a subclass the character may not own: hash,
+  /// name, icon, classType, its element (`talentGrid.hudDamageType`), and the
+  /// manifest `index` (for keeping the newest of same-named generations).
+  /// Excludes redacted defs. Fixed table/paths, no user input — no injection
+  /// surface.
+  List<Map<String, Object?>> querySubclasses() {
+    final rows = _db.select(
+      "SELECT "
+      "json_extract(json,'\$.hash') AS hash, "
+      "json_extract(json,'\$.displayProperties.name') AS name, "
+      "json_extract(json,'\$.displayProperties.icon') AS icon, "
+      "json_extract(json,'\$.classType') AS classType, "
+      "json_extract(json,'\$.talentGrid.hudDamageType') AS element, "
+      "json_extract(json,'\$.index') AS idx "
+      "FROM DestinyInventoryItemDefinition WHERE "
+      "json_extract(json,'\$.itemType') = 16 AND "
+      "json_extract(json,'\$.redacted') = 0",
     );
     return [for (final r in rows) {for (final k in r.keys) k: r[k]}];
   }

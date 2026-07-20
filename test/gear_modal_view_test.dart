@@ -76,6 +76,9 @@ class _Repo implements DatabaseRepository {
   List<PerkOption> frameOptions() => const [];
   @override
   List<PerkOption> setEffectOptions() => const [];
+  @override
+  ({GearSummary summary, ItemPlug plug})? resolveAbilityDetail(int itemHash) =>
+      null;
 }
 
 /// A rolled instance: Range 74 (10 from masterwork), one active perk with an

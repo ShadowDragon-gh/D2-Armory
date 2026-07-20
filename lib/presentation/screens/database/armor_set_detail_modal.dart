@@ -216,6 +216,7 @@ class _PieceCard extends ConsumerWidget {
                   : CachedNetworkImage(
                       imageUrl: url,
                       fit: BoxFit.cover,
+                      fadeInDuration: Duration.zero,
                       placeholder: (_, _) =>
                           const ColoredBox(color: ArmoryPalette.scrim26),
                       errorWidget: (_, _, _) => const ColoredBox(
@@ -279,6 +280,7 @@ class SetBonusSection extends StatelessWidget {
                     ? const Icon(Icons.workspace_premium, size: 20)
                     : CachedNetworkImage(
                         imageUrl: perk.iconUrl!,
+                        fadeInDuration: Duration.zero,
                         errorWidget: (_, _, _) =>
                             const Icon(Icons.workspace_premium, size: 20),
                       ),

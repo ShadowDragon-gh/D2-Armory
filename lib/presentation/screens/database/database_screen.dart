@@ -76,6 +76,8 @@ class _FilterBar extends ConsumerWidget {
       child: Row(
         children: [
           _KindToggle(kind: filter.kind, onChanged: notifier.setKind),
+          // The class filter is the one structured armor facet, shown only when
+          // browsing armor.
           if (filter.kind == GearKind.armor) ...[
             const SizedBox(width: 12),
             _ClassFilter(
