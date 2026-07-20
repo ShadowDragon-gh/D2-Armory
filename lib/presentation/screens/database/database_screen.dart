@@ -105,10 +105,10 @@ class _FilterBar extends ConsumerWidget {
                 _ChipToggle(
                   icon: Icons.star,
                   label: 'Exotics',
-                  tooltipOn: 'Showing Exotic gear only',
-                  tooltipOff: 'Showing all rarities',
-                  selected: filter.exoticsOnly,
-                  onChanged: notifier.setExoticsOnly,
+                  tooltipOn: 'Including Exotic gear',
+                  tooltipOff: 'Hiding Exotic gear',
+                  selected: filter.showExotics,
+                  onChanged: notifier.setShowExotics,
                 ),
               ],
               _ChipToggle(
