@@ -2,15 +2,86 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'package:d2_armory/core/destiny/plug_category.dart';
+import 'package:d2_armory/data/repositories/exotic_ability_repository.dart';
+import 'package:d2_armory/data/repositories/manifest_repository.dart';
 import 'package:d2_armory/domain/models/clarity_insight.dart';
 import 'package:d2_armory/domain/models/destiny_item.dart';
+import 'package:d2_armory/domain/models/exotic_ability_interaction.dart';
 import 'package:d2_armory/domain/models/item_detail.dart';
 import 'package:d2_armory/domain/models/subclass_detail.dart';
 import 'package:d2_armory/presentation/providers/clarity_provider.dart';
+import 'package:d2_armory/presentation/providers/exotic_ability_provider.dart';
 import 'package:d2_armory/presentation/providers/inventory_provider.dart';
 import 'package:d2_armory/presentation/screens/inventory/subclass_detail_modal.dart';
+
+class _MockManifest extends Mock implements ManifestRepository {}
+
+/// A ready exotic-ability repository over a fixed list, running the REAL
+/// class/kind/name/element match so the badge and general-column tests exercise
+/// the actual filters, not a stub.
+class _FakeExoticRepo extends ExoticAbilityRepository {
+  _FakeExoticRepo(this._all) : super(manifest: _MockManifest());
+
+  final List<ExoticAbilityInteraction> _all;
+
+  @override
+  List<ExoticAbilityInteraction> exoticsFor(
+    AbilityKind kind,
+    int subclassClassType,
+    int subclassElement,
+    Iterable<String> socketPlugNames,
+  ) =>
+      [
+        for (final e in _all)
+          if (e.matchesClass(subclassClassType) &&
+              e.matchesNamedSocket(kind, socketPlugNames, subclassElement))
+            e,
+      ];
+
+  @override
+  List<ExoticAbilityInteraction> generalExoticsFor(
+    AbilityKind kind,
+    int subclassClassType,
+    int subclassElement,
+  ) =>
+      [
+        for (final e in _all)
+          if (e.matchesClass(subclassClassType) &&
+              e.matchesGeneral(kind, subclassElement) &&
+              !e.isSynergy(subclassElement))
+            e,
+      ];
+
+  @override
+  List<ExoticAbilityInteraction> synergyExoticsFor(
+    int subclassClassType,
+    int subclassElement,
+  ) =>
+      [
+        for (final e in _all)
+          if (e.matchesClass(subclassClassType) && e.isSynergy(subclassElement))
+            e,
+      ];
+
+  @override
+  List<({ExoticAbilityInteraction exotic, List<String> names})>
+      namedColumnExoticsFor(
+    AbilityKind kind,
+    int subclassClassType,
+    int subclassElement,
+    Iterable<String> socketPlugNames,
+  ) =>
+          [
+            for (final e in _all)
+              if (e.matchesClass(subclassClassType))
+                if (e.matchedNames(kind, socketPlugNames, subclassElement)
+                    case final List<String> names when names.isNotEmpty)
+                  (exotic: e, names: names),
+          ];
+}
 
 /// Records the last insertPlug / equipSubclass call so a modal action can be
 /// verified without a live grid / transfer path.
@@ -464,6 +535,397 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byType(SubclassDetailModal), findsOneWidget);
+  });
+
+  // Name-scoped exotics badge their specific ability (icon marker + tooltip);
+  // general (type-level / element-gated) exotics list in the right column.
+  group('exotic-interaction badge + general column', () {
+    // A Warlock subclass with one grenade socket (Solar/Firebolt options).
+    SubclassDetail grenadeDetail() => const SubclassDetail(
+          item: DestinyItem(
+            itemHash: 1,
+            bucketHash: 3284755031,
+            name: 'Dawnblade',
+            iconPath: '',
+            itemType: 16,
+            itemInstanceId: '444',
+            classType: 2, // Warlock
+          ),
+          element: 3,
+          screenshotPath: '',
+          groups: [
+            SubclassSocketGroup(label: 'ABILITIES', sockets: [
+              SubclassSocket(
+                socketIndex: 0,
+                abilityKind: AbilityKind.grenade,
+                equipped: ItemPlug(
+                    name: 'Solar Grenade',
+                    iconPath: '',
+                    category: PlugCategory.perk,
+                    plugHash: 5000,
+                    socketIndex: 0),
+                options: [
+                  ItemPlug(
+                      name: 'Solar Grenade',
+                      iconPath: '',
+                      category: PlugCategory.perk,
+                      plugHash: 5000,
+                      socketIndex: 0),
+                  ItemPlug(
+                      name: 'Firebolt Grenade',
+                      iconPath: '',
+                      category: PlugCategory.perk,
+                      plugHash: 5001,
+                      socketIndex: 0),
+                ],
+              ),
+            ]),
+          ],
+        );
+
+    // Name-scoped to the Solar Grenade the socket offers → badges the ability.
+    const namedGrenadeExotic = ExoticAbilityInteraction(
+      itemHash: 111,
+      name: 'Starfire Protocol',
+      classType: 2,
+      interactions: [
+        AbilityInteraction(kind: AbilityKind.grenade, names: ['Solar Grenade']),
+      ],
+    );
+    // Multi-kind general (grenade + melee) → a synergy piece, listed once in the
+    // ABILITY SYNERGY section, not repeated per kind.
+    const synergyExotic = ExoticAbilityInteraction(
+      itemHash: 333,
+      name: 'Fallen Sunstar',
+      classType: 2,
+      interactions: [
+        AbilityInteraction(kind: AbilityKind.grenade),
+        AbilityInteraction(kind: AbilityKind.melee),
+      ],
+    );
+    // Type-level → belongs in the general column, never badged. Carries an
+    // effect description + a perk hash (for the Clarity lookup).
+    const generalGrenadeExotic = ExoticAbilityInteraction(
+      itemHash: 222,
+      name: 'Contraverse Hold',
+      classType: 2,
+      interactions: [AbilityInteraction(kind: AbilityKind.grenade)],
+      perkHash: 8507332,
+      description: 'Damage resistance while charging a Void grenade.',
+    );
+
+    testWidgets('a name-scoped exotic badges the ability and shows in tooltip',
+        (tester) async {
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          subclassDetailProvider.overrideWith((ref) => grenadeDetail()),
+          moveControllerProvider.overrideWith(() => _SpyMoveController()),
+          clarityInsightProvider.overrideWith((ref, hash) => null),
+          loadedExoticAbilityRepositoryProvider
+              .overrideWithValue(_FakeExoticRepo([namedGrenadeExotic])),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SubclassDetailModal())),
+      ));
+      await tester.pumpAndSettle();
+
+      // Badged on the ability (Solar Grenade is equipped)…
+      expect(find.byIcon(Icons.star), findsOneWidget);
+      // …and also listed in the GRENADE column with its specific-ability
+      // subtitle (a name-scoped exotic shows in the column too, as a discovery
+      // aid), so its name appears in both places.
+      expect(find.text('Starfire Protocol'), findsWidgets);
+      expect(find.text('Solar Grenade'), findsWidgets);
+
+      final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await gesture.addPointer(location: Offset.zero);
+      addTearDown(gesture.removePointer);
+      await gesture.moveTo(
+          tester.getCenter(find.byKey(const ValueKey('subclass-socket-0'))));
+      await tester.pumpAndSettle();
+      // The socket tooltip lists it too.
+      expect(find.text('Starfire Protocol'), findsWidgets);
+    });
+
+    testWidgets('a general exotic is NOT badged; it lists in the right column',
+        (tester) async {
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          subclassDetailProvider.overrideWith((ref) => grenadeDetail()),
+          moveControllerProvider.overrideWith(() => _SpyMoveController()),
+          clarityInsightProvider.overrideWith((ref, hash) => null),
+          loadedExoticAbilityRepositoryProvider
+              .overrideWithValue(_FakeExoticRepo([generalGrenadeExotic])),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SubclassDetailModal())),
+      ));
+      await tester.pumpAndSettle();
+
+      // No ability badge…
+      expect(find.byIcon(Icons.star), findsNothing);
+      // …but the general column lists it under its GRENADE header.
+      expect(find.text('EXOTIC ARMOR'), findsOneWidget);
+      expect(find.text('GRENADE'), findsOneWidget);
+      expect(find.text('Contraverse Hold'), findsOneWidget);
+    });
+
+    testWidgets('a multi-kind exotic lists once under ABILITY SYNERGY',
+        (tester) async {
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          subclassDetailProvider.overrideWith((ref) => grenadeDetail()),
+          moveControllerProvider.overrideWith(() => _SpyMoveController()),
+          clarityInsightProvider.overrideWith((ref, hash) => null),
+          loadedExoticAbilityRepositoryProvider
+              .overrideWithValue(_FakeExoticRepo([synergyExotic])),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SubclassDetailModal())),
+      ));
+      await tester.pumpAndSettle();
+
+      // Listed once, under the synergy header, with its affected-kinds subtitle.
+      expect(find.text('ABILITY SYNERGY'), findsOneWidget);
+      expect(find.text('Fallen Sunstar'), findsOneWidget);
+      expect(find.text('Grenade, Melee'), findsOneWidget);
+      // It must NOT also appear under a per-kind GRENADE header (no duplication).
+      expect(find.text('GRENADE'), findsNothing);
+    });
+
+    testWidgets('a general-column row shows effect + Clarity in its tooltip',
+        (tester) async {
+      const insight = ClarityInsight(
+        hash: 8507332,
+        name: 'Chaotic Exchanger',
+        lines: [
+          ClarityLine(content: [ClaritySpan(text: 'Grants 20% Damage Resistance.')])
+        ],
+      );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          subclassDetailProvider.overrideWith((ref) => grenadeDetail()),
+          moveControllerProvider.overrideWith(() => _SpyMoveController()),
+          // Clarity covers exactly this exotic's perk hash.
+          clarityInsightProvider.overrideWith(
+              (ref, hash) => hash == 8507332 ? insight : null),
+          loadedExoticAbilityRepositoryProvider
+              .overrideWithValue(_FakeExoticRepo([generalGrenadeExotic])),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SubclassDetailModal())),
+      ));
+      await tester.pumpAndSettle();
+
+      // Hover the general-column row (its name is unique to that column).
+      final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await gesture.addPointer(location: Offset.zero);
+      addTearDown(gesture.removePointer);
+      await gesture
+          .moveTo(tester.getCenter(find.text('Contraverse Hold')));
+      await tester.pumpAndSettle();
+
+      // The tooltip shows both the manifest effect and the Clarity insight.
+      expect(find.text('Damage resistance while charging a Void grenade.'),
+          findsOneWidget);
+      expect(find.text('COMMUNITY INSIGHT · CLARITY'), findsOneWidget);
+      expect(find.text('Grants 20% Damage Resistance.'), findsOneWidget);
+    });
+
+    testWidgets('shows no badge and no column when nothing interacts',
+        (tester) async {
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          subclassDetailProvider.overrideWith((ref) => grenadeDetail()),
+          moveControllerProvider.overrideWith(() => _SpyMoveController()),
+          clarityInsightProvider.overrideWith((ref, hash) => null),
+          loadedExoticAbilityRepositoryProvider
+              .overrideWithValue(_FakeExoticRepo(const [])),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SubclassDetailModal())),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.star), findsNothing);
+      expect(find.text('EXOTIC ARMOR'), findsNothing);
+    });
+
+    testWidgets('does not badge a socket the named ability is absent from',
+        (tester) async {
+      // Ballidorse buffs only Winter's Wrath (a super); the lone socket is a
+      // grenade socket, so it must neither badge nor appear in the grenade
+      // column (name-scoped exotics never populate the general column).
+      const ballidorse = ExoticAbilityInteraction(
+        itemHash: 3831935023,
+        name: 'Ballidorse Wrathweavers',
+        classType: 2,
+        interactions: [
+          AbilityInteraction(
+              kind: AbilityKind.superAbility, names: ["Winter's Wrath"]),
+        ],
+      );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          subclassDetailProvider.overrideWith((ref) => grenadeDetail()),
+          moveControllerProvider.overrideWith(() => _SpyMoveController()),
+          clarityInsightProvider.overrideWith((ref, hash) => null),
+          loadedExoticAbilityRepositoryProvider
+              .overrideWithValue(_FakeExoticRepo([ballidorse])),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SubclassDetailModal())),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.star), findsNothing);
+      expect(find.text('Ballidorse Wrathweavers'), findsNothing);
+    });
+
+    testWidgets(
+        'a name-scoped super exotic badges only the EQUIPPED super, not another '
+        'the socket could hold', (tester) async {
+      // Regression: the one super socket lists every super as an option, so
+      // matching options badged Stormdancer's Brace (→ Stormtrance) on a
+      // Chaos-Reach-equipped socket. The badge must track the equipped super.
+      const stormdancers = ExoticAbilityInteraction(
+        itemHash: 1747063685,
+        name: "Stormdancer's Brace",
+        classType: 2,
+        interactions: [
+          AbilityInteraction(
+              kind: AbilityKind.superAbility, names: ['Stormtrance']),
+        ],
+      );
+      // A super socket with Chaos Reach equipped; Stormtrance is a selectable
+      // option (as in-game, the socket can hold either).
+      const detail = SubclassDetail(
+        item: DestinyItem(
+          itemHash: 9,
+          bucketHash: 3284755031,
+          name: 'Stormcaller',
+          iconPath: '',
+          itemType: 16,
+          itemInstanceId: '555',
+          classType: 2,
+        ),
+        element: 2, // Arc
+        screenshotPath: '',
+        groups: [
+          SubclassSocketGroup(label: 'SUPER', isSuper: true, sockets: [
+            SubclassSocket(
+              socketIndex: 2,
+              abilityKind: AbilityKind.superAbility,
+              equipped: ItemPlug(
+                  name: 'Chaos Reach',
+                  iconPath: '',
+                  category: PlugCategory.perk,
+                  plugHash: 9001,
+                  socketIndex: 2),
+              options: [
+                ItemPlug(
+                    name: 'Chaos Reach',
+                    iconPath: '',
+                    category: PlugCategory.perk,
+                    plugHash: 9001,
+                    socketIndex: 2),
+                ItemPlug(
+                    name: 'Stormtrance',
+                    iconPath: '',
+                    category: PlugCategory.perk,
+                    plugHash: 9002,
+                    socketIndex: 2),
+              ],
+            ),
+          ]),
+        ],
+      );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          subclassDetailProvider.overrideWith((ref) => detail),
+          moveControllerProvider.overrideWith(() => _SpyMoveController()),
+          clarityInsightProvider.overrideWith((ref, hash) => null),
+          loadedExoticAbilityRepositoryProvider
+              .overrideWithValue(_FakeExoticRepo([stormdancers])),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SubclassDetailModal())),
+      ));
+      await tester.pumpAndSettle();
+
+      // Chaos Reach is equipped → NO badge (the badge tracks the equipped
+      // super, and Stormdancer buffs Stormtrance, not Chaos Reach).
+      expect(find.byIcon(Icons.star), findsNothing);
+      // But it IS listed in the SUPER column (the socket can hold Stormtrance),
+      // with a "Stormtrance" subtitle — a discovery aid, not tied to equipped.
+      expect(find.text("Stormdancer's Brace"), findsOneWidget);
+      expect(find.text('Stormtrance'), findsWidgets);
+      // A SUPER header is present (the left group label and the column header
+      // both read "SUPER", so at least one exists).
+      expect(find.text('SUPER'), findsWidgets);
+    });
+
+    testWidgets('a name-scoped super exotic badges when its super IS equipped',
+        (tester) async {
+      // The positive counterpart: Stormtrance equipped → Stormdancer's Brace
+      // badges the socket and shows in its tooltip.
+      const stormdancers = ExoticAbilityInteraction(
+        itemHash: 1747063685,
+        name: "Stormdancer's Brace",
+        classType: 2,
+        interactions: [
+          AbilityInteraction(
+              kind: AbilityKind.superAbility, names: ['Stormtrance']),
+        ],
+      );
+      const detail = SubclassDetail(
+        item: DestinyItem(
+          itemHash: 9,
+          bucketHash: 3284755031,
+          name: 'Stormcaller',
+          iconPath: '',
+          itemType: 16,
+          itemInstanceId: '555',
+          classType: 2,
+        ),
+        element: 2,
+        screenshotPath: '',
+        groups: [
+          SubclassSocketGroup(label: 'SUPER', isSuper: true, sockets: [
+            SubclassSocket(
+              socketIndex: 2,
+              abilityKind: AbilityKind.superAbility,
+              equipped: ItemPlug(
+                  name: 'Stormtrance',
+                  iconPath: '',
+                  category: PlugCategory.perk,
+                  plugHash: 9002,
+                  socketIndex: 2),
+              options: [
+                ItemPlug(
+                    name: 'Chaos Reach',
+                    iconPath: '',
+                    category: PlugCategory.perk,
+                    plugHash: 9001,
+                    socketIndex: 2),
+                ItemPlug(
+                    name: 'Stormtrance',
+                    iconPath: '',
+                    category: PlugCategory.perk,
+                    plugHash: 9002,
+                    socketIndex: 2),
+              ],
+            ),
+          ]),
+        ],
+      );
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          subclassDetailProvider.overrideWith((ref) => detail),
+          moveControllerProvider.overrideWith(() => _SpyMoveController()),
+          clarityInsightProvider.overrideWith((ref, hash) => null),
+          loadedExoticAbilityRepositoryProvider
+              .overrideWithValue(_FakeExoticRepo([stormdancers])),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SubclassDetailModal())),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.star), findsOneWidget);
+    });
   });
 
   testWidgets(

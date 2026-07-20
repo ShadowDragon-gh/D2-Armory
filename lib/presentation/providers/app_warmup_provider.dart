@@ -4,6 +4,7 @@ import '../../core/destiny/destiny_buckets.dart';
 import 'clarity_provider.dart';
 import 'd2ai_provider.dart';
 import 'database_provider.dart';
+import 'exotic_ability_provider.dart';
 import 'inventory_provider.dart';
 import 'manifest_provider.dart';
 
@@ -32,6 +33,10 @@ final appWarmupProvider = Provider<void>((ref) {
 
   // Gate on the manifest: nothing below can run until the DB is open.
   if (!ref.watch(manifestBootstrapProvider).hasValue) return;
+
+  // The curated exotic-armor → ability interaction map (resolves exotic icons
+  // from the now-open manifest), for the subclass modal's ability badge.
+  ref.watch(exoticAbilityBootstrapProvider);
 
   // Inventory (live profile fetch — its own network path) and its search
   // facets (warmed on the UI isolate once the grid lands; bounded by owned

@@ -5,9 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/destiny/destiny_buckets.dart';
 import '../../../core/network/item_icon_cache.dart';
 import '../../../domain/models/destiny_item.dart';
+import '../../../domain/models/exotic_ability_interaction.dart';
 import '../../../domain/models/item_detail.dart';
 import '../../../domain/models/subclass_detail.dart';
 import '../../providers/clarity_provider.dart';
+import '../../providers/exotic_ability_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../theme/armory_palette.dart';
 import '../../widgets/clarity_insight_view.dart';
@@ -192,27 +194,352 @@ class _SubclassBodyState extends State<_SubclassBody> {
         ),
         const Divider(height: 1),
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final group in detail.groups) ...[
-                  _SocketGroupSection(item: detail.item, group: group),
-                  const SizedBox(height: 20),
-                  // The net fragment stat totals sit directly under the
-                  // Fragments section they summarise.
-                  if (group.isFragments &&
-                      detail.fragmentStatSummary.isNotEmpty) ...[
-                    _FragmentStatSummary(effects: detail.fragmentStatSummary),
-                    const SizedBox(height: 20),
-                  ],
-                ],
-              ],
-            ),
+          // The ability socket groups on the left; a column listing exotics with
+          // general (any-melee / any-Arc-grenade) ability interactions on the
+          // right. Name-scoped exotics are badged on their specific ability
+          // instead, so they do not repeat in the right column.
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final group in detail.groups) ...[
+                        _SocketGroupSection(
+                            item: detail.item,
+                            group: group,
+                            element: detail.element),
+                        const SizedBox(height: 20),
+                        // The net fragment stat totals sit directly under the
+                        // Fragments section they summarise.
+                        if (group.isFragments &&
+                            detail.fragmentStatSummary.isNotEmpty) ...[
+                          _FragmentStatSummary(
+                              effects: detail.fragmentStatSummary),
+                          const SizedBox(height: 20),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              _GeneralExoticsPanel(detail: detail),
+            ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// One row in an ability-kind column: the [exotic], plus [affects] — the
+/// specific ability it buffs (e.g. "Chaos Reach") for a name-scoped entry, or
+/// null for a general (any-ability-of-this-kind) entry.
+typedef _ColumnEntry = ({ExoticAbilityInteraction exotic, String? affects});
+
+/// The right-hand column of the subclass modal: exotic armor grouped by ability
+/// kind. Each kind lists both its *general* exotics (buff any ability of the
+/// kind — e.g. any melee, or any Arc grenade for an element-gated one) and its
+/// *name-scoped* exotics whose specific ability the socket can hold (e.g. Geomag
+/// Stabilizers under Super with a "Chaos Reach" subtitle). Broad-synergy exotics
+/// (general across 2+ kinds) list once in a separate top section. Renders nothing
+/// until the map loads or when this subclass has no listed interactions.
+class _GeneralExoticsPanel extends ConsumerWidget {
+  const _GeneralExoticsPanel({required this.detail});
+
+  final SubclassDetail detail;
+
+  static const double _width = 360;
+
+  // The order kinds are listed in the panel, matching the in-game ability order.
+  static const _kindOrder = [
+    (AbilityKind.grenade, 'Grenade'),
+    (AbilityKind.melee, 'Melee'),
+    (AbilityKind.classAbility, 'Class Ability'),
+    (AbilityKind.movement, 'Movement'),
+    (AbilityKind.superAbility, 'Super'),
+    (AbilityKind.aspect, 'Aspect'),
+  ];
+
+  // Short kind labels for the synergy row's affected-abilities subtitle.
+  static const _shortKindLabel = {
+    AbilityKind.grenade: 'Grenade',
+    AbilityKind.melee: 'Melee',
+    AbilityKind.classAbility: 'Class Ability',
+    AbilityKind.movement: 'Movement',
+    AbilityKind.superAbility: 'Super',
+    AbilityKind.aspect: 'Aspect',
+  };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final repo = ref.watch(loadedExoticAbilityRepositoryProvider);
+    if (repo == null) return const SizedBox.shrink();
+
+    final classType = detail.item.classType ?? 3;
+    // The plug names each present ability kind's socket(s) can hold, so a
+    // name-scoped exotic can be listed under its kind whenever the socket could
+    // hold the ability it buffs (a discovery listing, unlike the equipped-only
+    // badge). Kinds absent from this map have no socket on this subclass.
+    final plugNamesByKind = <AbilityKind, Set<String>>{};
+    for (final g in detail.groups) {
+      for (final s in g.sockets) {
+        if (s.abilityKind case final AbilityKind k) {
+          final set = plugNamesByKind[k] ??= <String>{};
+          if (s.equipped?.name case final String n) set.add(n);
+          for (final o in s.options) {
+            set.add(o.name);
+          }
+        }
+      }
+    }
+
+    // Broad-synergy exotics (general across 2+ kinds) list once at the top; the
+    // per-kind sections below exclude them (the repo already does).
+    final synergy = repo.synergyExoticsFor(classType, detail.element);
+
+    // One section per present kind: its general exotics (name only) plus its
+    // name-scoped exotics (with the specific ability as a subtitle).
+    final sections = <(String, List<_ColumnEntry>)>[];
+    for (final (kind, label) in _kindOrder) {
+      final plugNames = plugNamesByKind[kind];
+      if (plugNames == null) continue; // no socket of this kind
+      final entries = <_ColumnEntry>[
+        for (final e in repo.generalExoticsFor(kind, classType, detail.element))
+          (exotic: e, affects: null),
+        for (final m in repo.namedColumnExoticsFor(
+            kind, classType, detail.element, plugNames))
+          (exotic: m.exotic, affects: m.names.join(', ')),
+      ]..sort((a, b) => a.exotic.name.compareTo(b.exotic.name));
+      if (entries.isNotEmpty) sections.add((label, entries));
+    }
+    if (synergy.isEmpty && sections.isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    return Container(
+      width: _width,
+      decoration: const BoxDecoration(
+        border: Border(left: BorderSide(color: ArmoryPalette.border)),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'EXOTIC ARMOR',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Subclass ability interactions',
+              style: TextStyle(
+                fontSize: 10,
+                color: ArmoryPalette.textMuted,
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Synergy exotics: those that broadly buff several abilities at once
+            // (e.g. Crown of Tempests → Arc grenade/melee/super), listed once
+            // with the kinds they affect rather than repeated under each.
+            if (synergy.isNotEmpty) ...[
+              const Text(
+                'ABILITY SYNERGY',
+                style: TextStyle(
+                  fontSize: 10,
+                  letterSpacing: 0.6,
+                  fontWeight: FontWeight.w700,
+                  color: ArmoryPalette.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              for (final exotic in synergy)
+                _GeneralExoticRow(
+                    exotic: exotic, affects: _affectsLabel(exotic)),
+              const SizedBox(height: 14),
+            ],
+            for (final (label, entries) in sections) ...[
+              Text(
+                label.toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 10,
+                  letterSpacing: 0.6,
+                  fontWeight: FontWeight.w700,
+                  color: ArmoryPalette.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              for (final entry in entries)
+                _GeneralExoticRow(
+                    exotic: entry.exotic, affects: entry.affects),
+              const SizedBox(height: 14),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The affected-abilities subtitle for a synergy row, e.g. "Arc: Grenade,
+  /// Melee, Super" (element prefix only when every general interaction is gated
+  /// to one element) or "Grenade, Melee, Class Ability" for a type-level one.
+  String _affectsLabel(ExoticAbilityInteraction exotic) {
+    final kinds = exotic.generalKinds(detail.element);
+    final names =
+        kinds.map((k) => _shortKindLabel[k] ?? k.token).join(', ');
+    // Prefix the element when the general interactions are all gated to this
+    // subclass's element (an "any Arc ability" style exotic).
+    final gated = exotic.interactions
+        .where((i) => !i.isNameScoped)
+        .every((i) => i.element == detail.element);
+    final elementName = _elementName(detail.element);
+    return gated && elementName != null ? '$elementName: $names' : names;
+  }
+
+  static String? _elementName(int element) => switch (element) {
+        2 => 'Arc',
+        3 => 'Solar',
+        4 => 'Void',
+        6 => 'Stasis',
+        7 => 'Strand',
+        _ => null,
+      };
+}
+
+/// One exotic in the general-exotics column: its icon and name, hoverable for a
+/// tooltip showing the exotic's effect (its intrinsic perk description) and, for
+/// covered perks, the Clarity community insight — mirroring the ability-socket
+/// tooltip.
+class _GeneralExoticRow extends ConsumerWidget {
+  const _GeneralExoticRow({required this.exotic, this.affects});
+
+  final ExoticAbilityInteraction exotic;
+
+  /// For a synergy row, the abilities it broadly affects (e.g. "Arc: Grenade,
+  /// Melee, Super"), shown as a subtitle under the name. Null for a per-kind row
+  /// (which already sits under its ability's header).
+  final String? affects;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final insight = exotic.perkHash == null
+        ? null
+        : ref.watch(clarityInsightProvider(exotic.perkHash!));
+
+    final row = Padding(
+      padding: const EdgeInsets.only(bottom: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 22,
+            height: 22,
+            child: exotic.iconUrl == null
+                ? const ColoredBox(color: ArmoryPalette.scrim26)
+                : CachedNetworkImage(
+                    imageUrl: exotic.iconUrl!,
+                    cacheManager: ItemIconCache.instance,
+                    fit: BoxFit.contain,
+                    fadeInDuration: Duration.zero,
+                    errorWidget: (_, _, _) =>
+                        const ColoredBox(color: ArmoryPalette.scrim26),
+                  ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  exotic.name,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: ArmoryPalette.textPrimary.withValues(alpha: 0.85),
+                  ),
+                ),
+                if (affects != null)
+                  Text(
+                    affects!,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: ArmoryPalette.textMuted,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // No effect text and no insight → a plain row (the name alone is the info).
+    if (exotic.description.isEmpty && insight == null) return row;
+
+    return Tooltip(
+      // Read-only, like the ability-socket tooltip: taps pass through and any
+      // insight links stay non-interactive.
+      ignorePointer: true,
+      decoration: BoxDecoration(
+        color: ArmoryPalette.tooltipSurface,
+        borderRadius: ArmoryRadius.md,
+        border: Border.all(color: ArmoryPalette.borderStrong),
+      ),
+      padding: const EdgeInsets.all(12),
+      richMessage: WidgetSpan(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                exotic.name,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: ArmoryPalette.textPrimary,
+                ),
+              ),
+              if (exotic.description.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  exotic.description,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: ArmoryPalette.textPrimary.withValues(alpha: 0.82),
+                  ),
+                ),
+              ],
+              if (insight != null) ...[
+                const SizedBox(height: 8),
+                Container(height: 1, color: ArmoryPalette.borderStrong),
+                const SizedBox(height: 6),
+                const Text(
+                  'COMMUNITY INSIGHT · CLARITY',
+                  style: TextStyle(
+                    fontSize: 9,
+                    letterSpacing: 0.8,
+                    fontWeight: FontWeight.w600,
+                    color: ArmoryPalette.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                ClarityInsightText(lines: insight.lines, fontSize: 11),
+              ],
+            ],
+          ),
+        ),
+      ),
+      preferBelow: false,
+      margin: const EdgeInsets.all(8),
+      child: MouseRegion(cursor: SystemMouseCursors.help, child: row),
     );
   }
 }
@@ -346,10 +673,18 @@ class _NotUnlockedPill extends StatelessWidget {
 /// One socket-category section: the group label and a row of its sockets, each
 /// a chip that opens the socket's option grid.
 class _SocketGroupSection extends StatelessWidget {
-  const _SocketGroupSection({required this.item, required this.group});
+  const _SocketGroupSection({
+    required this.item,
+    required this.group,
+    required this.element,
+  });
 
   final DestinyItem item;
   final SubclassSocketGroup group;
+
+  /// The subclass's element (damage type), for scoping the exotic-interaction
+  /// badge to element-gated exotics.
+  final int element;
 
   @override
   Widget build(BuildContext context) {
@@ -370,7 +705,11 @@ class _SocketGroupSection extends StatelessWidget {
           children: [
             for (final socket in group.sockets)
               _SubclassSocketChip(
-                  item: item, socket: socket, diamond: group.isSuper),
+                item: item,
+                socket: socket,
+                diamond: group.isSuper,
+                element: element,
+              ),
           ],
         ),
       ],
@@ -387,11 +726,15 @@ class _SubclassSocketChip extends ConsumerStatefulWidget {
   const _SubclassSocketChip({
     required this.item,
     required this.socket,
+    required this.element,
     this.diamond = false,
   });
 
   final DestinyItem item;
   final SubclassSocket socket;
+
+  /// The subclass's element, for scoping element-gated exotic interactions.
+  final int element;
 
   /// Whether the equipped/option icons render as a diamond (the Super socket)
   /// rather than a square.
@@ -431,6 +774,25 @@ class _SubclassSocketChipState extends ConsumerState<_SubclassSocketChip> {
     // would reject.
     final locked = !socket.available;
 
+    // Exotic armor that interacts with this ability (for the equipped chip's
+    // corner badge + tooltip). Matched by ability kind, the subclass's class and
+    // element, and — for name-scoped exotics — the plug currently shown in this
+    // chip ([shown]: the equipped plug, or the browsed one for an unowned
+    // subclass). Matching the shown plug (not every option) means a name-scoped
+    // exotic badges only the ability it actually buffs — e.g. Stormdancer's Brace
+    // badges Stormtrance, not Chaos Reach, even though both are Arc supers the one
+    // super socket can hold. Empty for a non-badged socket or while loading.
+    final abilityKind = socket.abilityKind;
+    final exoticRepo = ref.watch(loadedExoticAbilityRepositoryProvider);
+    final interactions = (abilityKind == null || exoticRepo == null)
+        ? const <ExoticAbilityInteraction>[]
+        : exoticRepo.exoticsFor(
+            abilityKind,
+            widget.item.classType ?? 3,
+            widget.element,
+            [shown.name],
+          );
+
     return SizedBox(
       width: _cellSize + 8,
       child: Opacity(
@@ -452,6 +814,7 @@ class _SubclassSocketChipState extends ConsumerState<_SubclassSocketChip> {
                 size: _cellSize,
                 selected: false,
                 diamond: widget.diamond,
+                interactions: interactions,
                 onTap: (locked || socket.options.length < 2)
                     ? null
                     : () => controller.isOpen
@@ -531,6 +894,7 @@ class _SubclassPlugIcon extends ConsumerWidget {
     this.state = SubclassOptionState.equippable,
     this.diamond = false,
     this.onTap,
+    this.interactions = const [],
   });
 
   final ItemPlug plug;
@@ -542,6 +906,11 @@ class _SubclassPlugIcon extends ConsumerWidget {
   /// than a rounded square — the Super socket, matching the in-game shape.
   final bool diamond;
   final VoidCallback? onTap;
+
+  /// Exotic armor pieces that interact with this ability, driving the corner
+  /// badge and a tooltip section. Empty (the default) for picker options and
+  /// any socket with no known interaction, which renders no badge.
+  final List<ExoticAbilityInteraction> interactions;
 
   bool get _dimmed => state != SubclassOptionState.equippable;
 
@@ -687,6 +1056,55 @@ class _SubclassPlugIcon extends ConsumerWidget {
                 const SizedBox(height: 4),
                 ClarityInsightText(lines: insight.lines, fontSize: 11),
               ],
+              if (interactions.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(height: 1, color: ArmoryPalette.borderStrong),
+                const SizedBox(height: 6),
+                const Text(
+                  'EXOTIC ARMOR INTERACTIONS',
+                  style: TextStyle(
+                    fontSize: 9,
+                    letterSpacing: 0.8,
+                    fontWeight: FontWeight.w600,
+                    color: ArmoryPalette.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                for (final exotic in interactions)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (exotic.iconUrl != null) ...[
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CachedNetworkImage(
+                              imageUrl: exotic.iconUrl!,
+                              cacheManager: ItemIconCache.instance,
+                              fit: BoxFit.contain,
+                              fadeInDuration: Duration.zero,
+                              errorWidget: (_, _, _) =>
+                                  const SizedBox.shrink(),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Flexible(
+                          child: Text(
+                            exotic.name,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: ArmoryPalette.textPrimary
+                                  .withValues(alpha: 0.82),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ],
           ),
         ),
@@ -701,7 +1119,22 @@ class _SubclassPlugIcon extends ConsumerWidget {
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(2),
-            child: _framedIcon(context, theme, image),
+            child: interactions.isEmpty
+                ? _framedIcon(context, theme, image)
+                : Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      _framedIcon(context, theme, image),
+                      // A small exotic-marker badge in the top-right corner,
+                      // signalling that some exotic armor interacts with this
+                      // ability (details in the hover tooltip).
+                      const Positioned(
+                        top: -3,
+                        right: -3,
+                        child: _ExoticInteractionBadge(),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ),
@@ -744,6 +1177,32 @@ class _SubclassPlugIcon extends ConsumerWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: dimmed,
+    );
+  }
+}
+
+/// The small gold corner marker on an ability socket signalling that some
+/// exotic armor interacts with it — a filled gold circle with a dark star, the
+/// exotic-rarity cue. The interacting exotics are listed in the socket's
+/// tooltip; this is only the at-a-glance flag.
+class _ExoticInteractionBadge extends StatelessWidget {
+  const _ExoticInteractionBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 15,
+      height: 15,
+      decoration: BoxDecoration(
+        color: ArmoryPalette.tierDiamondGold,
+        shape: BoxShape.circle,
+        border: Border.all(color: ArmoryPalette.scrim87, width: 1),
+      ),
+      child: const Icon(
+        Icons.star,
+        size: 9,
+        color: ArmoryPalette.onAccent,
+      ),
     );
   }
 }

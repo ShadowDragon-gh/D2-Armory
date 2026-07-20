@@ -5,6 +5,7 @@ import '../../core/search/item_filter.dart';
 import '../../domain/models/armor_set.dart';
 import '../../domain/models/destiny_character.dart';
 import '../../domain/models/destiny_item.dart';
+import '../../domain/models/exotic_ability_interaction.dart';
 import '../../domain/models/inventory_grid.dart';
 import '../../domain/models/item_detail.dart';
 import '../../domain/models/subclass_detail.dart';
@@ -566,6 +567,7 @@ class InventoryRepository {
           options: plugs,
           equippableHashes: equippableHashes,
           equippedElsewhereHashes: equippedElsewhereHashes,
+          abilityKind: _abilityKindOf(optionHashes),
         ));
       }
 
@@ -698,6 +700,21 @@ class InventoryRepository {
       return _SubclassGroupKind.superAbility;
     }
     return _SubclassGroupKind.other;
+  }
+
+  /// The [AbilityKind] of a socket, from the first of its [optionHashes] whose
+  /// plug maps to one — the join key to the curated exotic-interaction map. The
+  /// plug taxonomy is stable across every element, so any option in the socket
+  /// yields the same kind. Null for a socket that is not a badged ability kind
+  /// (fragments, or an unrecognised category).
+  AbilityKind? _abilityKindOf(List<int> optionHashes) {
+    for (final hash in optionHashes) {
+      final pci = _manifest.getInventoryItem(hash)?['plug']
+          ?['plugCategoryIdentifier'] as String?;
+      final kind = AbilityKind.fromPlugCategory(pci);
+      if (kind != null) return kind;
+    }
+    return null;
   }
 
   /// Disable empty fragment sockets beyond the slot count the equipped aspects
